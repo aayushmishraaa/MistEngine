@@ -137,8 +137,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\fragment.glsl" />
-    <None Include="shaders\text_fragment.glsl" />
-    <None Include="shaders\text_vertex.glsl" />
     <None Include="shaders\vertex.glsl" />
   </ItemGroup>
   <ItemGroup>

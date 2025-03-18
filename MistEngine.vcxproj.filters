@@ -38,12 +38,6 @@
     <None Include="shaders\vertex.glsl">
       <Filter>Shader Files</Filter>
     </None>
-    <None Include="shaders\text_fragment.glsl">
-      <Filter>Shader Files</Filter>
-    </None>
-    <None Include="shaders\text_vertex.glsl">
-      <Filter>Shader Files</Filter>
-    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">
