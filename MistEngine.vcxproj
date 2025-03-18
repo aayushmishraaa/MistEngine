@@ -102,9 +102,9 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);NDEBUG</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>E:\Projects\MistEngine\include;D:\Libraries\glm-master;D:\Libraries\glfw-3.4.bin.WIN64\include;D:\Libraries\glad\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Libraries\freetype-2.13.3\include;D:\Libraries\freeglut-3.6.0\include;E:\Projects\MistEngine\include;D:\Libraries\glm-master;D:\Libraries\glfw-3.4.bin.WIN64\include;D:\Libraries\glad\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -137,6 +137,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\fragment.glsl" />
+    <None Include="shaders\text_fragment.glsl" />
+    <None Include="shaders\text_vertex.glsl" />
     <None Include="shaders\vertex.glsl" />
   </ItemGroup>
   <ItemGroup>

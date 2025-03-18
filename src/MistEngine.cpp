@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
+#include <vector>
 #include "Shader.h"
 #include "Camera.h"
 
@@ -20,11 +21,17 @@ bool firstMouse = true;
 float deltaTime = 0.0f; // Time between current frame and last frame
 float lastFrame = 0.0f;
 
+// FPS variables
+int frameCount = 0;
+float fps = 0.0f;
+float lastFpsUpdateTime = 0.0f;
+
 // Function prototypes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
+unsigned int createTextTexture(const std::string& text);
 
 int main() {
     // Initialize GLFW
@@ -38,8 +45,12 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    // Create a window
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "MistEngine", NULL, NULL);
+    // Get the primary monitor's video mode
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+    // Create a fullscreen windowed window
+    GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "3D Game Engine", monitor, NULL);
     if (!window) {
         std::cerr << "Failed to create GLFW window\n";
         glfwTerminate();
@@ -68,8 +79,9 @@ int main() {
 
     // Build and compile shaders
     Shader shader("shaders/vertex.glsl", "shaders/fragment.glsl");
+    Shader textShader("shaders/text_vertex.glsl", "shaders/text_fragment.glsl");
 
-    // Set up vertex data and buffers
+    // Set up vertex data and buffers for the cube
     float vertices[] = {
         -0.5f, -0.5f, -0.5f,
          0.5f, -0.5f, -0.5f,
@@ -109,12 +121,57 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    // Set up vertex data and buffers for the 2D quad
+    float quadVertices[] = {
+        // Positions   // Texture Coords
+         1.0f,  1.0f,  1.0f, 1.0f, // Top-right
+         1.0f,  0.8f,  1.0f, 0.0f, // Bottom-right
+         0.8f,  0.8f,  0.0f, 0.0f, // Bottom-left
+         0.8f,  1.0f,  0.0f, 1.0f  // Top-left
+    };
+
+    unsigned int quadIndices[] = {
+        0, 1, 3, // First triangle
+        1, 2, 3  // Second triangle
+    };
+
+    unsigned int quadVAO, quadVBO, quadEBO;
+    glGenVertexArrays(1, &quadVAO);
+    glGenBuffers(1, &quadVBO);
+    glGenBuffers(1, &quadEBO);
+
+    glBindVertexArray(quadVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, quadEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(quadIndices), quadIndices, GL_STATIC_DRAW);
+
+    // Position attribute
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Texture coordinate attribute
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+
     // Main loop
     while (!glfwWindowShouldClose(window)) {
         // Calculate delta time
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
+
+        // Update FPS counter
+        frameCount++;
+        if (currentFrame - lastFpsUpdateTime >= 1.0f) { // Update every second
+            fps = frameCount / (currentFrame - lastFpsUpdateTime);
+            frameCount = 0;
+            lastFpsUpdateTime = currentFrame;
+        }
 
         // Input
         processInput(window);
@@ -123,11 +180,11 @@ int main() {
         glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Activate shader
+        // Activate shader for the cube
         shader.use();
 
         // Pass matrices to shader
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)mode->width / (float)mode->height, 0.1f, 100.0f);
         glm::mat4 view = camera.GetViewMatrix();
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
@@ -140,6 +197,15 @@ int main() {
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
 
+        // Render the FPS counter
+        std::string fpsText = "FPS: " + std::to_string((int)fps);
+        unsigned int fpsTexture = createTextTexture(fpsText);
+
+        textShader.use();
+        glBindTexture(GL_TEXTURE_2D, fpsTexture);
+        glBindVertexArray(quadVAO);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
         // Swap buffers and poll events
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -149,6 +215,9 @@ int main() {
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
+    glDeleteVertexArrays(1, &quadVAO);
+    glDeleteBuffers(1, &quadVBO);
+    glDeleteBuffers(1, &quadEBO);
 
     glfwTerminate();
     return 0;
@@ -193,4 +262,41 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
 // Mouse scroll callback
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     camera.ProcessMouseScroll(yoffset);
+}
+
+// Create a texture from text
+unsigned int createTextTexture(const std::string& text) {
+    // Create a texture
+    unsigned int texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    // Generate texture data (white text on black background)
+    int width = 128;
+    int height = 32;
+    std::vector<unsigned char> data(width * height * 4, 0); // RGBA format
+
+    // Render text into the texture (for simplicity, we'll just fill it with a solid color)
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int index = (y * width + x) * 4;
+            if (x < text.length() * 8 && y < 16) { // Simple text rendering
+                data[index] = 255;     // R
+                data[index + 1] = 255; // G
+                data[index + 2] = 255; // B
+                data[index + 3] = 255; // A
+            }
+        }
+    }
+
+    // Upload texture data
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data.data());
+
+    return texture;
 }
