@@ -1,4 +1,3 @@
-
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
@@ -40,6 +39,8 @@ bool checkPlayerCollision(const glm::vec3& newPosition);
 void updatePlayerPosition(glm::vec3& newPosition);
 bool checkRaycastHit(const glm::vec3& rayDirection);
 void shoot();
+void renderCrosshair(Shader& shader);
+
 float vertices[] = {
     // Positions          // Colors
     -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f, // Red
@@ -60,10 +61,9 @@ unsigned int indices[] = {
     0, 1, 5, 5, 4, 0, // Bottom face
     3, 2, 6, 6, 7, 3  // Top face
 };
+
 unsigned int VBO, VAO, EBO;
-
-
-
+unsigned int crosshairVAO, crosshairVBO;
 
 int main() {
     // Initialize GLFW
@@ -107,10 +107,12 @@ int main() {
 
     // Build and compile shaders
     Shader shader("shaders/vertex.glsl", "shaders/fragment.glsl");
+    Shader crosshairShader("shaders/crosshair_vertex.glsl", "shaders/crosshair_fragment.glsl");
 
     // Create enemies and rooms
     createEnemies();
     createRooms();
+
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
@@ -130,6 +132,29 @@ int main() {
     // Color attribute
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
+    // Crosshair setup
+    float crosshairVertices[] = {
+        // Positions
+        -0.01f,  0.0f,
+         0.01f,  0.0f,
+         0.0f,  -0.01f,
+         0.0f,   0.01f
+    };
+
+    glGenVertexArrays(1, &crosshairVAO);
+    glGenBuffers(1, &crosshairVBO);
+
+    glBindVertexArray(crosshairVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, crosshairVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(crosshairVertices), crosshairVertices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
@@ -162,6 +187,9 @@ int main() {
 
         // Render enemies
         renderEnemies(shader);
+
+        // Render crosshair
+        renderCrosshair(crosshairShader);
 
         // Swap buffers and poll events
         glfwSwapBuffers(window);
@@ -229,6 +257,14 @@ void renderRooms(Shader& shader) {
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
     }
+}
+
+// Render crosshair
+void renderCrosshair(Shader& shader) {
+    shader.use();
+    glBindVertexArray(crosshairVAO);
+    glDrawArrays(GL_LINES, 0, 4);
+    glBindVertexArray(0);
 }
 
 // Check player collision
