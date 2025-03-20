@@ -136,8 +136,6 @@
     <ClCompile Include="src\Shader.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="shaders\crosshair_fragement.glsl" />
-    <None Include="shaders\crosshair_vertex.glsl" />
     <None Include="shaders\fragment.glsl" />
     <None Include="shaders\vertex.glsl" />
   </ItemGroup>

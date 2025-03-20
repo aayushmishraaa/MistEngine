@@ -38,12 +38,6 @@
     <None Include="shaders\vertex.glsl">
       <Filter>Shader Files</Filter>
     </None>
-    <None Include="shaders\crosshair_fragement.glsl">
-      <Filter>Shader Files</Filter>
-    </None>
-    <None Include="shaders\crosshair_vertex.glsl">
-      <Filter>Shader Files</Filter>
-    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">
