@@ -1,6 +1,6 @@
 
 
-# MistEngine - 3D Engine with Sun-like Lighting
+# MistEngine - 3D Engine
 
 MistEngine is a simple 3D engine that demonstrates basic lighting and shadow rendering using OpenGL. It features a sun-like directional light that casts shadows on a plane below a rotating cube.
 
