@@ -19,6 +19,10 @@ bool firstMouse = true;
 float deltaTime = 0.0f; // Time between current frame and last frame
 float lastFrame = 0.0f;
 
+// Directional light (sun)
+glm::vec3 lightDir(-0.2f, -1.0f, -0.3f); // Light direction (like sunlight)
+glm::vec3 lightColor(1.0f, 1.0f, 1.0f);  // Light color (white)
+
 // Function prototypes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
@@ -37,12 +41,8 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    // Get the primary monitor's video mode
-    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-
-    // Create a fullscreen windowed window
-    GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "3D Game Engine", monitor, NULL);
+    // Create a windowed mode window and its OpenGL context
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "MistEngine", NULL, NULL);
     if (!window) {
         std::cerr << "Failed to create GLFW window\n";
         glfwTerminate();
@@ -94,6 +94,7 @@ int main() {
         3, 2, 6, 6, 7, 3
     };
 
+    // Cube VAO, VBO, and EBO
     unsigned int VBO, VAO, EBO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
@@ -118,6 +119,43 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    // Plane vertices
+    float planeVertices[] = {
+        // Positions         // Normals         // Texture Coords
+         5.0f, -0.5f,  5.0f, 0.0f, 1.0f, 0.0f, 2.0f, 0.0f,
+        -5.0f, -0.5f,  5.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+        -5.0f, -0.5f, -5.0f, 0.0f, 1.0f, 0.0f, 0.0f, 2.0f,
+
+         5.0f, -0.5f,  5.0f, 0.0f, 1.0f, 0.0f, 2.0f, 0.0f,
+        -5.0f, -0.5f, -5.0f, 0.0f, 1.0f, 0.0f, 0.0f, 2.0f,
+         5.0f, -0.5f, -5.0f, 0.0f, 1.0f, 0.0f, 2.0f, 2.0f
+    };
+
+    // Plane VAO and VBO
+    unsigned int planeVAO, planeVBO;
+    glGenVertexArrays(1, &planeVAO);
+    glGenBuffers(1, &planeVBO);
+
+    glBindVertexArray(planeVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, planeVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(planeVertices), planeVertices, GL_STATIC_DRAW);
+
+    // Position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Normal attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // Texture coordinate attribute
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+
     // Main loop
     while (!glfwWindowShouldClose(window)) {
         // Calculate delta time
@@ -136,24 +174,34 @@ int main() {
         shader.use();
 
         // Pass matrices to shader
-        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)mode->width / (float)mode->height, 0.1f, 100.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = camera.GetViewMatrix();
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
 
-        // Set light and material properties
-        shader.setVec3("lightPos", glm::vec3(1.2f, 1.0f, 2.0f));
+        // Set light properties
+        shader.setVec3("lightDir", lightDir);
+        shader.setVec3("lightColor", lightColor);
         shader.setVec3("viewPos", camera.Position);
-        shader.setVec3("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
-        shader.setVec3("objectColor", glm::vec3(1.0f, 0.5f, 0.2f));
+
+        // Render the plane
+        shader.setVec3("objectColor", glm::vec3(0.8f, 0.8f, 0.8f)); // Light gray color for the plane
+        glm::mat4 planeModel = glm::mat4(1.0f);
+        shader.setMat4("model", planeModel);
+
+        glBindVertexArray(planeVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        glBindVertexArray(0);
 
         // Render the cube
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::rotate(model, (float)glfwGetTime(), glm::vec3(0.5f, 1.0f, 0.0f));
-        shader.setMat4("model", model);
+        shader.setVec3("objectColor", glm::vec3(1.0f, 0.5f, 0.2f)); // Orange color for the cube
+        glm::mat4 cubeModel = glm::mat4(1.0f);
+        cubeModel = glm::rotate(cubeModel, (float)glfwGetTime(), glm::vec3(0.5f, 1.0f, 0.0f));
+        shader.setMat4("model", cubeModel);
 
         glBindVertexArray(VAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
 
         // Swap buffers and poll events
         glfwSwapBuffers(window);
@@ -162,6 +210,7 @@ int main() {
 
     // Clean up
     glDeleteVertexArrays(1, &VAO);
+    
     glDeleteBuffers(1, &VBO);
     glDeleteBuffers(1, &EBO);
 
