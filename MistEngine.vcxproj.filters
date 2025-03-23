@@ -44,6 +44,12 @@
     <None Include="shaders\lamp.vert">
       <Filter>Shader Files</Filter>
     </None>
+    <None Include="shaders\depth_fragment.glsl">
+      <Filter>Shader Files</Filter>
+    </None>
+    <None Include="shaders\depth_vertex.glsl">
+      <Filter>Shader Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">

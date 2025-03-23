@@ -136,6 +136,8 @@
     <ClCompile Include="src\Shader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="shaders\depth_fragment.glsl" />
+    <None Include="shaders\depth_vertex.glsl" />
     <None Include="shaders\fragment.glsl" />
     <None Include="shaders\lamp.frag" />
     <None Include="shaders\lamp.vert" />
