@@ -103,7 +103,7 @@ int main() {
     };
 
     // Cube VAO, VBO, and EBO
-    
+
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
@@ -140,7 +140,7 @@ int main() {
     };
 
     // Plane VAO and VBO
-   
+
     glGenVertexArrays(1, &planeVAO);
     glGenBuffers(1, &planeVBO);
 

@@ -38,12 +38,6 @@
     <None Include="shaders\vertex.glsl">
       <Filter>Shader Files</Filter>
     </None>
-    <None Include="shaders\lamp.frag">
-      <Filter>Shader Files</Filter>
-    </None>
-    <None Include="shaders\lamp.vert">
-      <Filter>Shader Files</Filter>
-    </None>
     <None Include="shaders\depth_fragment.glsl">
       <Filter>Shader Files</Filter>
     </None>
