@@ -6,8 +6,8 @@ MistEngine is a simple 3D engine that demonstrates basic lighting and shadow ren
 
 ## Features
 - **Directional Light**: A sun-like light source that shines from a specific direction.
-- **Plane with Shadows**: A flat surface below the cube that receives shadows.
-- **Rotating Cube**: A cube that rotates over time, demonstrating dynamic lighting and shadows.
+- **Texture Loading**: Added a class implementaion of loading textures onto objects.
+- **Real-Time Shadows**: Real-time shadow rendering.
 - **Camera Controls**: Move around the scene using the keyboard (`W`, `A`, `S`, `D`) and mouse.
 
 ## Prerequisites
@@ -60,24 +60,8 @@ Before running the project, ensure you have the following installed:
 - **Scroll Wheel**: Zoom in/out
 - **Escape**: Close the window
 
-## File Structure
-- **`src/`**: Contains the source code for the engine.
-  - `MistEngine.cpp`: Main application logic.
-  - `Shader.cpp`: Shader loading and compilation.
-  - `Camera.cpp`: Camera movement and view matrix calculation.
-- **`shaders/`**: Contains GLSL shader files.
-  - `vertex.glsl`: Vertex shader.
-  - `fragment.glsl`: Fragment shader.
-- **`include/`**: Contains header files.
-  - `Shader.h`: Shader class declaration.
-  - `Camera.h`: Camera class declaration.
 
 
-## Shaders
-- **Vertex Shader (`vertex.glsl`)**:
-  - Transforms vertex positions and passes normals to the fragment shader.
-- **Fragment Shader (`fragment.glsl`)**:
-  - Calculates lighting (ambient, diffuse, and specular) and applies it to the object.
 
 ## Lighting
 - **Directional Light**:
@@ -88,7 +72,7 @@ Before running the project, ensure you have the following installed:
 
 ## Future Improvements
 - **Shadow Mapping**: Implement shadow mapping for more realistic shadows.
-- **Textures**: Add texture support for the plane and cube.
+- **Textures**: Add texture support for the plane and cube. **IMPLEMENTED**
 - **Multiple Lights**: Add support for multiple light sources (point lights, spotlights).
 
 ## License
