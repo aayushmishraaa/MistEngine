@@ -4,14 +4,12 @@ out vec4 FragColor;
 in vec3 FragPos;
 in vec3 Normal;
 in vec4 FragPosLightSpace;
-in vec2 TexCoord;
 
 uniform vec3 lightDir;
 uniform vec3 lightColor;
 uniform vec3 viewPos;
 uniform vec3 objectColor;
 uniform sampler2D shadowMap;
-uniform sampler2D texture1;
 
 float ShadowCalculation(vec4 fragPosLightSpace) {
     // Perform perspective divide
@@ -47,9 +45,9 @@ void main() {
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
     vec3 specular = specularStrength * spec * lightColor;
 
-    // Combine lighting with texture
-    vec3 lighting = (ambient + diffuse + specular);
-    vec4 texColor = texture(texture1, TexCoord); // Sample texture
-    FragColor = vec4(lighting, 1.0) * texColor; // Apply texture with lighting
+    // Shadow
+    float shadow = ShadowCalculation(FragPosLightSpace);
+    vec3 lighting = (ambient + (1.0 - shadow) * (diffuse + specular)) * objectColor;
 
+    FragColor = vec4(lighting, 1.0);
 }
