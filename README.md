@@ -21,7 +21,7 @@ Before running the project, ensure you have the following installed:
 ## Setup
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/your-username/MistEngine.git
+   git clone https://github.com/aayushmishraaa/MistEngine.git
    cd MistEngine
    ```
 
