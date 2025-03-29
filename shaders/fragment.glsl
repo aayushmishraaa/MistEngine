@@ -12,6 +12,8 @@ uniform sampler2D shadowMap;
 uniform vec3 lightDir;
 uniform vec3 lightColor;
 uniform vec3 viewPos;
+uniform vec3 orbPosition;
+uniform vec3 orbColor;
 
 float ShadowCalculation(vec4 fragPosLightSpace) {
     // Perform perspective divide
@@ -27,7 +29,7 @@ void main() {
     vec3 color = texture(diffuseTexture, TexCoords).rgb;
     
     // Ambient
-    float ambientStrength = 0.2;
+    float ambientStrength = 0.5;
     vec3 ambient = ambientStrength * lightColor;
     
     // Diffuse
@@ -42,10 +44,17 @@ void main() {
     vec3 reflectDir = reflect(-lightDirNorm, norm);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
     vec3 specular = specularStrength * spec * lightColor;
+
+    // Orb lighting
+    vec3 orbDir = normalize(orbPosition - FragPos);
+    float orbDistance = length(orbPosition - FragPos);
+    float orbAttenuation = 1.0 / (1.0 + 0.1 * orbDistance + 0.01 * orbDistance * orbDistance);
+    vec3 orbDiffuse = max(dot(norm, orbDir), 0.0) * orbColor * orbAttenuation * 2.0;
+    vec3 orbAmbient = orbColor * orbAttenuation * 0.2;
     
     // Shadow
     float shadow = ShadowCalculation(FragPosLightSpace);
-    vec3 lighting = (ambient + (1.0 - shadow) * (diffuse + specular)) * color;
+    vec3 lighting = (ambient + orbAmbient + (1.0 - shadow) * (diffuse + specular + orbDiffuse)) * color;
     
     FragColor = vec4(lighting, 1.0);
 }

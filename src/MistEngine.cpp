@@ -6,26 +6,35 @@
 #include "Shader.h"
 #include "Camera.h"
 #include "Texture.h"
+#include "Orb.h"
 
+// Settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
-unsigned int planeVAO, planeVBO;
-unsigned int cubeVAO, cubeVBO, cubeEBO;
 
+// Camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 float lastX = SCR_WIDTH / 2.0f;
 float lastY = SCR_HEIGHT / 2.0f;
 bool firstMouse = true;
 
+// Timing
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
+// Lighting
 glm::vec3 lightDir(-0.2f, -1.0f, -0.3f);
 glm::vec3 lightColor(1.0f, 1.0f, 1.0f);
 
+// Shadow mapping
 const unsigned int SHADOW_WIDTH = 1024, SHADOW_HEIGHT = 1024;
 unsigned int depthMapFBO, depthMap;
 
+// Objects
+unsigned int planeVAO, planeVBO;
+unsigned int cubeVAO, cubeVBO, cubeEBO;
+
+// Function prototypes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -33,15 +42,18 @@ void processInput(GLFWwindow* window);
 void RenderScene(Shader& shader);
 
 int main() {
+    // Initialize GLFW
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW\n";
         return -1;
     }
 
+    // Configure GLFW
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
+    // Create window
     GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "MistEngine", NULL, NULL);
     if (!window) {
         std::cerr << "Failed to create GLFW window\n";
@@ -49,22 +61,26 @@ int main() {
         return -1;
     }
 
+    // Set context and callbacks
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
+    // Initialize GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD\n";
         return -1;
     }
 
+    // Configure global OpenGL state
     glEnable(GL_DEPTH_TEST);
 
     // Load shaders
     Shader shader("shaders/vertex.glsl", "shaders/fragment.glsl");
     Shader depthShader("shaders/depth_vertex.glsl", "shaders/depth_fragment.glsl");
+    Shader glowShader("shaders/glow_vertex.glsl", "shaders/glow_fragment.glsl");
 
     // Load texture
     Texture cubeTexture;
@@ -72,6 +88,9 @@ int main() {
         std::cerr << "Failed to load texture" << std::endl;
         return -1;
     }
+
+    // Create glowing orb
+    Orb glowingOrb(glm::vec3(1.5f, 1.0f, 0.0f), 0.3f, glm::vec3(2.0f, 1.6f, 0.4f));
 
     // Cube vertices with texture coordinates
     float vertices[] = {
@@ -185,10 +204,12 @@ int main() {
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
+        // Calculate delta time
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
+        // Input
         processInput(window);
 
         // Render to depth map
@@ -211,16 +232,27 @@ int main() {
         glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Render scene with shadows
-        shader.use();
+        // Draw glowing orb first (for proper blending if enabled)
         glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = camera.GetViewMatrix();
+
+        glowShader.use();
+        glowShader.setMat4("projection", projection);
+        glowShader.setMat4("view", view);
+        glowingOrb.Draw(glowShader);
+
+        // Render scene with shadows
+        shader.use();
         shader.setMat4("projection", projection);
         shader.setMat4("view", view);
         shader.setVec3("lightDir", lightDir);
         shader.setVec3("lightColor", lightColor);
         shader.setVec3("viewPos", camera.Position);
         shader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+        // Pass orb properties to shader
+        shader.setVec3("orbPosition", glowingOrb.GetPosition());
+        shader.setVec3("orbColor", glowingOrb.GetColor());
 
         // Bind depth map
         glActiveTexture(GL_TEXTURE0);
@@ -233,6 +265,7 @@ int main() {
 
         RenderScene(shader);
 
+        // Swap buffers and poll events
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
