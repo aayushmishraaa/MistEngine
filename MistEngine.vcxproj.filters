@@ -64,5 +64,8 @@
     <ClInclude Include="include\Orb.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\Model.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
