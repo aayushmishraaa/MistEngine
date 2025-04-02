@@ -7,7 +7,6 @@
 #include "Camera.h"
 #include "Texture.h"
 #include "Orb.h"
-#include "Model.h"
 
 // Settings
 const unsigned int SCR_WIDTH = 800;
@@ -34,8 +33,6 @@ unsigned int depthMapFBO, depthMap;
 // Objects
 unsigned int planeVAO, planeVBO;
 unsigned int cubeVAO, cubeVBO, cubeEBO;
-
-Model* modelObj = nullptr;
 
 // Function prototypes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -205,15 +202,6 @@ int main() {
     glReadBuffer(GL_NONE);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    try {
-        modelObj = new Model("models/backpack.obj");  // Change to your model path
-        std::cout << "Model loaded successfully" << std::endl;
-    }
-    catch (const std::exception& e) {
-        std::cerr << "Failed to load model: " << e.what() << std::endl;
-        return -1;
-    }
-
     // Main loop
     while (!glfwWindowShouldClose(window)) {
         // Calculate delta time
@@ -275,14 +263,6 @@ int main() {
         cubeTexture.Bind(1);
         shader.setInt("diffuseTexture", 1);
 
-        // Bind model textures
-        glActiveTexture(GL_TEXTURE1);
-        shader.setInt("texture_diffuse1", 2);
-        glActiveTexture(GL_TEXTURE2);
-        shader.setInt("texture_specular1", 3);
-        glActiveTexture(GL_TEXTURE3);
-        shader.setInt("texture_normal1", 4);
-
         RenderScene(shader);
 
         // Swap buffers and poll events
@@ -298,7 +278,6 @@ int main() {
     glDeleteBuffers(1, &planeVBO);
     glDeleteFramebuffers(1, &depthMapFBO);
     glDeleteTextures(1, &depthMap);
-    delete modelObj;
 
     glfwTerminate();
     return 0;
@@ -319,16 +298,6 @@ void RenderScene(Shader& shader) {
     glBindVertexArray(cubeVAO);
     glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
-
-    // Render loaded 3D model
-    // Render loaded 3D model
-    if (modelObj) {  // Changed variable name to avoid conflict
-        model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(2.0f, 0.0f, 0.0f));
-        model = glm::scale(model, glm::vec3(0.5f, 0.5f, 0.5f)); // Scale as needed
-        shader.setMat4("model", model);
-        modelObj->Draw(shader);
-    }
 }
 
 void processInput(GLFWwindow* window) {
