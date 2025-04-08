@@ -7,7 +7,6 @@
 #include "Camera.h"
 #include "Texture.h"
 #include "Orb.h"
-#include "Model.h"
 
 // Settings
 const unsigned int SCR_WIDTH = 800;
@@ -34,9 +33,6 @@ unsigned int depthMapFBO, depthMap;
 // Objects
 unsigned int planeVAO, planeVBO;
 unsigned int cubeVAO, cubeVBO, cubeEBO;
-
-// 3D Model
-Model* model = nullptr;
 
 // Function prototypes
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -90,14 +86,6 @@ int main() {
     Texture cubeTexture;
     if (!cubeTexture.LoadFromFile("textures/container.jpg")) {
         std::cerr << "Failed to load texture" << std::endl;
-        return -1;
-    }
-
-    // Load 3D model
-    try {
-        model = new Model("models/model.obj");
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to load 3D model: " << e.what() << std::endl;
         return -1;
     }
 
@@ -296,14 +284,6 @@ int main() {
 }
 
 void RenderScene(Shader& shader) {
-    // Render loaded 3D model if available
-    if (model) {
-        glm::mat4 modelMatrix = glm::mat4(1.0f);
-        modelMatrix = glm::translate(modelMatrix, glm::vec3(0.0f, 0.0f, 0.0f));
-        modelMatrix = glm::scale(modelMatrix, glm::vec3(1.0f));
-        shader.setMat4("model", modelMatrix);
-        model->Draw(shader);
-    }
     // Render plane
     glm::mat4 model = glm::mat4(1.0f);
     shader.setMat4("model", model);
