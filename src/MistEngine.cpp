@@ -3,10 +3,12 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
+#include "Texture.h"
 #include "Shader.h"
 #include "Camera.h"
-#include "Texture.h"
+
 #include "Orb.h"
+#include "Model.h"
 
 // Settings
 const unsigned int SCR_WIDTH = 800;
@@ -91,6 +93,9 @@ int main() {
 
     // Create glowing orb
     Orb glowingOrb(glm::vec3(1.5f, 1.0f, 0.0f), 0.3f, glm::vec3(2.0f, 1.6f, 0.4f));
+
+    // Load 3D model
+    Model ourModel("models/backpack/backpack.obj");
 
     // Cube vertices with texture coordinates
     float vertices[] = {
@@ -240,6 +245,14 @@ int main() {
         glowShader.setMat4("projection", projection);
         glowShader.setMat4("view", view);
         glowingOrb.Draw(glowShader);
+
+        // Draw the loaded 3D model
+        shader.use();
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(1.0f, 1.0f, 1.0f));
+        shader.setMat4("model", model);
+        ourModel.Draw(shader);
 
         // Render scene with shadows
         shader.use();
