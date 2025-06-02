@@ -6,6 +6,10 @@
 #include "Texture.h"
 #include "Shader.h"
 #include "Camera.h"
+#include "Physics.h"
+#include "RigidBody.h"
+#include "PhysicsWorld.h"
+#include "Collision.h"
 
 #include "Orb.h"
 #include "Model.h"
@@ -23,6 +27,9 @@ bool firstMouse = true;
 // Timing
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
+
+// Physics world
+PhysicsWorld physicsWorld;
 
 // Lighting
 glm::vec3 lightDir(-0.2f, -1.0f, -0.3f);
@@ -96,6 +103,20 @@ int main() {
 
     // Load 3D model
     Model ourModel("models/backpack/backpack.obj");
+
+    // Create RigidBody for the backpack model
+    RigidBody* backpackRigidBody = new RigidBody();
+    backpackRigidBody->properties.position = glm::vec3(0.0f, 5.0f, 0.0f); // Initial position above the plane
+    backpackRigidBody->properties.mass = 1.0f; // Set mass
+
+    // Create SphereCollisionShape for the backpack model (adjust radius as needed)
+    SphereCollisionShape* backpackCollisionShape = new SphereCollisionShape(1.0f); // Approximate radius
+
+    // Assign collision shape to rigid body
+    backpackRigidBody->collisionShape = backpackCollisionShape;
+
+    // Add the backpack's rigid body to the physics world
+    physicsWorld.addObject(backpackRigidBody);
 
     // Cube vertices with texture coordinates
     float vertices[] = {
@@ -189,6 +210,22 @@ int main() {
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
 
+    // Create RigidBody for the plane
+    RigidBody* planeRigidBody = new RigidBody();
+    planeRigidBody->properties.position = glm::vec3(0.0f, -0.5f, 0.0f); // Center of the plane
+    planeRigidBody->properties.mass = 0.0f; // Make it static
+
+    // Create BoxCollisionShape for the plane
+    BoxCollisionShape* planeCollisionShape = new BoxCollisionShape(glm::vec3(5.0f, 0.0f, 5.0f)); // Half-extents
+
+    // Assign collision shape to rigid body
+    planeRigidBody->collisionShape = planeCollisionShape;
+
+    // Add the plane's rigid body to the physics world
+    physicsWorld.addObject(planeRigidBody);
+
+    // We will need to store planeRigidBody somewhere to update the rendered plane's position.
+
     // Shadow mapping setup
     glGenFramebuffers(1, &depthMapFBO);
     glGenTextures(1, &depthMap);
@@ -213,6 +250,9 @@ int main() {
         float currentFrame = glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
+
+        // Update physics world
+        physicsWorld.update(deltaTime);
 
         // Input
         processInput(window);
