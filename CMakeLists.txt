@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find required packages
 find_package(OpenGL REQUIRED)
 find_package(assimp REQUIRED)
+find_package(Bullet REQUIRED)
 
 # Add source files
 file(GLOB SOURCES
@@ -27,12 +28,14 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${ASSIMP_INCLUDE_DIRS}
+    ${BULLET_INCLUDE_DIRS}
 )
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
     OpenGL::GL
     ${ASSIMP_LIBRARIES}
+    ${BULLET_LIBRARIES}
     glfw
 )
 

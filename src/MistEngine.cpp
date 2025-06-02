@@ -6,9 +6,9 @@
 #include "Texture.h"
 #include "Shader.h"
 #include "Camera.h"
-
 #include "Orb.h"
 #include "Model.h"
+#include "PhysicsSystem.h"
 
 // Settings
 const unsigned int SCR_WIDTH = 800;
@@ -41,7 +41,16 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
+void processInputWithPhysics(GLFWwindow* window);
 void RenderScene(Shader& shader);
+
+// Physics objects
+PhysicsSystem physicsSystem;
+struct PhysicsObject {
+    btRigidBody* body;
+    glm::mat4 modelMatrix;
+};
+std::vector<PhysicsObject> physicsObjects;
 
 int main() {
     // Initialize GLFW
@@ -215,7 +224,7 @@ int main() {
         lastFrame = currentFrame;
 
         // Input
-        processInput(window);
+        processInputWithPhysics(window);
 
         // Render to depth map
         glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
@@ -348,4 +357,50 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos) {
 
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     camera.ProcessMouseScroll(yoffset);
+}
+
+// Modified RenderScene to use physics transforms
+void RenderScene(Shader& shader, const std::vector<PhysicsObject>& objects) {
+    // Render ground (first physics object)
+    shader.setMat4("model", objects[0].modelMatrix);
+    glBindVertexArray(planeVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+
+    // Render cube (second physics object)
+    shader.setMat4("model", objects[1].modelMatrix);
+    glBindVertexArray(cubeVAO);
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+}
+
+// Add physics controls to processInput
+void processInputWithPhysics(GLFWwindow* window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        camera.ProcessKeyboard(FORWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        camera.ProcessKeyboard(BACKWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        camera.ProcessKeyboard(LEFT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        camera.ProcessKeyboard(RIGHT, deltaTime);
+
+    // Physics controls
+    if (!physicsObjects.empty()) {
+        auto cubeBody = physicsObjects[1].body; // Get the cube body
+        float force = 10.0f;
+
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, 0.0f, -force));
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, 0.0f, force));
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(-force, 0.0f, 0.0f));
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(force, 0.0f, 0.0f));
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, force * 2.0f, 0.0f));
+    }
 }
