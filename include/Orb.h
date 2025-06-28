@@ -1,26 +1,33 @@
+
 #ifndef ORB_H
 #define ORB_H
 
-#include <glad/glad.h>
 #include <glm/glm.hpp>
+#include <glad/glad.h>
 #include "Shader.h"
+#include "Renderable.h" // Include Renderable
 
-class Orb {
+// Inherit from Renderable
+class Orb : public Renderable {
 public:
-    Orb(glm::vec3 position = glm::vec3(0.0f), float radius = 0.5f, glm::vec3 color = glm::vec3(1.0f));
+    Orb(const glm::vec3& position, float radius, const glm::vec3& color);
     ~Orb();
 
-    void Draw(Shader& shader);
+    // Implement the Draw method from Renderable
+    void Draw(Shader& shader) override;
+
     glm::vec3 GetPosition() const { return position; }
     glm::vec3 GetColor() const { return color; }
 
 private:
-    unsigned int VAO, VBO;
     glm::vec3 position;
-    glm::vec3 color;
     float radius;
+    glm::vec3 color;
+
+    unsigned int VAO, VBO, EBO;
+    int indexCount;
 
     void setupMesh();
 };
 
-#endif
+#endif // ORB_H

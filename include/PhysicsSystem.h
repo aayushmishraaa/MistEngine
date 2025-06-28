@@ -1,26 +1,22 @@
-#pragma once
-#include <bullet/btBulletDynamicsCommon.h>
+
+#ifndef PHYSICS_SYSTEM_H
+#define PHYSICS_SYSTEM_H
+
+#include <btBulletDynamicsCommon.h>
 #include <glm/glm.hpp>
-#include <vector>
 
 class PhysicsSystem {
- public:
+public:
     PhysicsSystem();
     ~PhysicsSystem();
 
-    void Initialize();
     void Update(float deltaTime);
-    void Cleanup();
 
-    // Add rigid body to world
-    btRigidBody* CreateRigidBody(float mass, const glm::vec3& position, const glm::vec3& size);
+    btRigidBody* CreateGroundPlane(const glm::vec3& position);
+    btRigidBody* CreateCube(const glm::vec3& position, float mass);
 
-    // Apply force to a rigid body
     void ApplyForce(btRigidBody* body, const glm::vec3& force);
-    
-    // Convert between Bullet and GLM
-    static glm::mat4 BulletToGLM(const btTransform& transform);
-    static btTransform GLMToBullet(const glm::mat4& matrix);
+    // Add other physics related methods
 
 private:
     btDefaultCollisionConfiguration* collisionConfiguration;
@@ -29,6 +25,9 @@ private:
     btSequentialImpulseConstraintSolver* solver;
     btDiscreteDynamicsWorld* dynamicsWorld;
 
-    std::vector<btRigidBody*> rigidBodies;
+    // Keep track of allocated collision shapes and motion states
     std::vector<btCollisionShape*> collisionShapes;
+    std::vector<btDefaultMotionState*> motionStates;
 };
+
+#endif // PHYSICS_SYSTEM_H
