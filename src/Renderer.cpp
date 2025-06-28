@@ -1,8 +1,12 @@
-c++
+#include <iostream>
 #include "Renderer.h"
 #include "Scene.h"
 #include "PhysicsSystem.h"
 #include <glm/gtc/type_ptr.hpp> // For glm::make_mat4 (used in updateModelMatrixFromPhysics)
+
+#include "Orb.h" // Add this include to ensure the Orb class is defined
+
+
 
 // Global pointer to the renderer instance for callbacks
 Renderer* g_renderer = nullptr;
@@ -245,9 +249,7 @@ void Renderer::setupShadowMap() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-void Renderer::renderBasicShapes(Shader& shader) {
-    // This function is now redundant and can be removed.
-}
+
 
 // --- Callback implementations ---
 void Renderer::framebuffer_size_callback(GLFWwindow* window, int width, int height) {
@@ -284,6 +286,17 @@ void Renderer::scroll_callback(GLFWwindow* window, double xoffset, double yoffse
 // --- Getter implementations ---
 float Renderer::GetDeltaTime() const {
     return deltaTime;
+}
+void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix) {
+    if (body) {
+        // Get the world transform from the physics body
+        const btTransform& transform = body->getCenterOfMassTransform();
+
+        // Convert Bullet's btTransform to glm::mat4
+        float matrix[16];
+        transform.getOpenGLMatrix(matrix);
+        modelMatrix = glm::make_mat4(matrix);
+    }
 }
 
 // These getters are no longer needed as basic shape VAOs/EBOs are managed by Mesh objects

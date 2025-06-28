@@ -13,6 +13,10 @@ public:
     void Bind(unsigned int unit = 0) const;
     unsigned int GetID() const { return m_ID; }
 
+    std::string path;
+    std::string type;
+  
+
 private:
     unsigned int m_ID;
     int m_Width, m_Height, m_NrChannels;

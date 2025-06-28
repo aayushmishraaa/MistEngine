@@ -1,4 +1,4 @@
-c++
+
 #include "Scene.h"
 #include "Renderable.h"
 #include "Orb.h"

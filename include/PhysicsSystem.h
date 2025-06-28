@@ -2,8 +2,9 @@
 #ifndef PHYSICS_SYSTEM_H
 #define PHYSICS_SYSTEM_H
 
-#include <btBulletDynamicsCommon.h>
+#include <bullet/btBulletDynamicsCommon.h>
 #include <glm/glm.hpp>
+#include <vector>
 
 class PhysicsSystem {
 public:

@@ -1,4 +1,4 @@
-c++
+
 #include "ShapeGenerator.h"
 #include <glm/glm.hpp>
 

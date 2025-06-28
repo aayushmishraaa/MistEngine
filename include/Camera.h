@@ -3,6 +3,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/fwd.hpp>
 
 // Defines camera movement options
 enum Camera_Movement {

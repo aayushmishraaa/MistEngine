@@ -1,4 +1,4 @@
-c++
+
 #ifndef RENDERER_H
 #define RENDERER_H
 
@@ -75,5 +75,6 @@ private:
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
     static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 };
+void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix);
 
 #endif // RENDERER_H

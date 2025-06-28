@@ -8,6 +8,7 @@
 
 #include "Shader.h"
 #include "Texture.h" // Assuming you have a Texture class
+#include "Renderable.h"
 
 struct Vertex {
     glm::vec3 Position;
@@ -15,7 +16,7 @@ struct Vertex {
     glm::vec2 TexCoords;
 };
 
-class Mesh {
+class Mesh : public Renderable {
 public:
     std::vector<Vertex> vertices;
     std::vector<unsigned int> indices;
@@ -24,7 +25,7 @@ public:
     Mesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices, const std::vector<Texture>& textures);
     ~Mesh();
 
-    void Draw(Shader& shader);
+    void Draw(Shader& shader) override;
 
 private:
     unsigned int VAO, VBO, EBO;

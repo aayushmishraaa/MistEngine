@@ -2,6 +2,11 @@
 #include "Orb.h"
 #include <vector>
 #include <glm/gtc/matrix_transform.hpp>
+#include <cmath>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846 // Define PI if not already defined
+#endif
 
 Orb::Orb(const glm::vec3& position, float radius, const glm::vec3& color)
     : position(position), radius(radius), color(color), indexCount(0) {
@@ -42,9 +47,9 @@ void Orb::setupMesh() {
         for (unsigned int x = 0; x <= X_SEGMENTS; ++x) {
             float xSegment = (float)x / (float)X_SEGMENTS;
             float ySegment = (float)y / (float)Y_SEGMENTS;
-            float xPos = std::cos(xSegment * 2.0f * glm::PI) * std::sin(ySegment * glm::PI);
-            float yPos = std::cos(ySegment * glm::PI);
-            float zPos = std::sin(xSegment * 2.0f * glm::PI) * std::sin(ySegment * glm::PI);
+            float xPos = std::cos(xSegment * 2.0f * M_PI) * std::sin(ySegment * M_PI);
+            float yPos = std::cos(ySegment * M_PI);
+            float zPos = std::sin(xSegment * 2.0f * M_PI) * std::sin(ySegment * M_PI);
 
             vertices.push_back(glm::vec3(xPos, yPos, zPos));
             normals.push_back(glm::vec3(xPos, yPos, zPos)); // For a sphere, normal is just the position (when centered at origin)

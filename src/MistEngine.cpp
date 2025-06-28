@@ -1,4 +1,4 @@
-c++
+
 #include <iostream>
 #include <vector>
 #include <cstddef> // For offsetof
@@ -11,9 +11,9 @@ c++
 #include "Mesh.h" // Include Mesh class
 #include "Texture.h" // Include Texture class
 #include "ShapeGenerator.h" // Include ShapeGenerator
+#include <glm/gtc/type_ptr.hpp>
 
-// Function to update model matrix from physics body
-void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix);
+
 
 int main() {
     // Settings
@@ -102,15 +102,4 @@ int main() {
     return 0;
 }
 
-// Function to update model matrix from physics body
-void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix) {
-    if (body && body->getMotionState()) {
-        btTransform trans;
-        body->getMotionState()->getWorldTransform(trans);
 
-        // Convert Bullet transform to glm::mat4
-        float m[16];
-        trans.getOpenGLMatrix(m);
-        modelMatrix = glm::make_mat4(m);
-    }
-}
