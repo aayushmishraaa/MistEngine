@@ -1,8 +1,5 @@
 
 #include "PhysicsSystem.h"
-#include "ECSManager.h"
-#include "Components.h"
-#include "Scene.h" // Include Scene.h to access the ECSManager
 #include <glm/gtc/type_ptr.hpp> // Include for glm::make_mat4
 
 
@@ -47,30 +44,10 @@ PhysicsSystem::~PhysicsSystem() {
     delete collisionConfiguration;
 }
 
-void PhysicsSystem::Update(float deltaTime, Scene& scene) {
+void PhysicsSystem::Update(float deltaTime) {
     // Step the physics simulation
     // You can adjust the parameters for accuracy and performance
     dynamicsWorld->stepSimulation(deltaTime, 10); // 10 is the maximum number of internal substeps
-
-    // Update entity positions based on physics simulation results
-    auto physicsEntities = scene.ecsManager.getEntitiesWith<PhysicsComponent, PositionComponent>();
-    for (Entity entity : physicsEntities) {
-        PhysicsComponent* physicsComp = scene.ecsManager.getComponent<PhysicsComponent>(entity);
-        PositionComponent* posComp = scene.ecsManager.getComponent<PositionComponent>(entity);
-
-        if (physicsComp && physicsComp->rigidBody && posComp) {
-            btTransform transform;
-            physicsComp->rigidBody->getWorldTransform(transform);
-
-            // Update position
-            posComp->position.x = transform.getOrigin().x();
-            posComp->position.y = transform.getOrigin().y();
-            posComp->position.z = transform.getOrigin().z();
-
-            // Update rotation
-            transform.getRotation().getWXYZ(posComp->rotation.w, posComp->rotation.x, posComp->rotation.y, posComp->rotation.z);
-        }
-    }
 }
 
 btRigidBody* PhysicsSystem::CreateGroundPlane(const glm::vec3& position) {

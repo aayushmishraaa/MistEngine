@@ -4,7 +4,6 @@
 
 #include <vector>
 #include <glm/glm.hpp>
-#include "/home/runner/work/MistEngine/MistEngine/include/ECSManager.h" // Include ECSManager.h
 
 #include "Renderable.h"
 #include "Orb.h"
@@ -53,7 +52,6 @@ private:
     std::vector<Renderable*> renderables; // For non-physics renderables
     std::vector<Orb*> orbs; // Orbs might have different rendering needs (glow)
     std::vector<PhysicsRenderable> physicsRenderables; // For physics-enabled renderables
-    ECSManager ecsManager; // Add ECSManager instance
 };
 
 #endif // SCENE_H

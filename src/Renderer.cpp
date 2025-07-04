@@ -1,13 +1,8 @@
-
 #include <iostream>
-
 #include "Renderer.h"
 #include "Scene.h"
 #include "PhysicsSystem.h"
-#include "ECSManager.h"
-#include "Components.h"
-
-#include <glm/gtc/type_ptr.hpp> // For glm::make_mat4
+#include <glm/gtc/type_ptr.hpp> // For glm::make_mat4 (used in updateModelMatrixFromPhysics)
 
 #include "Orb.h" // Add this include to ensure the Orb class is defined
 
@@ -112,22 +107,25 @@ void Renderer::Render(Scene& scene) {
     depthShader.use();
     depthShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
 
-    // Render entities with PositionComponent and RenderComponent to depth map
-    auto renderableEntities = scene.ecsManager.getEntitiesWith<PositionComponent, RenderComponent>();
-    for (Entity entity : renderableEntities) {
-        PositionComponent* posComp = scene.ecsManager.getComponent<PositionComponent>(entity);
-        RenderComponent* renderComp = scene.ecsManager.getComponent<RenderComponent>(entity);
-
-        if (posComp && renderComp && renderComp->mesh) {
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::translate(model, posComp->position);
-            model *= glm::mat4_cast(posComp->rotation);
-            model = glm::scale(model, posComp->scale);
-
-            depthShader.setMat4("model", model);
-            renderComp->mesh->Draw(depthShader);
+    // Render physics objects to depth map
+    for (auto& obj : scene.getPhysicsRenderables()) {
+         // Update model matrix from physics body
+        updateModelMatrixFromPhysics(obj.body, obj.modelMatrix);
+        depthShader.setMat4("model", obj.modelMatrix);
+        if (obj.renderable) {
+            obj.renderable->Draw(depthShader);
         }
     }
+
+    // Render non-physics renderable objects to depth map (if they cast shadows)
+     for (Renderable* object : scene.getRenderables()) {
+         // For non-physics objects, you would set their model matrix here
+         // based on their position/orientation in the scene (not from physics)
+         // Assuming the Model class handles its own model matrix internally or it's static
+         // If you want physics on the model, it should be in the physicsObjects loop
+         // object->Draw(depthShader); // Uncomment if non-physics objects cast shadows
+     }
+
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -135,16 +133,18 @@ void Renderer::Render(Scene& scene) {
     glViewport(0, 0, screenWidth, screenHeight);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Draw glowing orbs (assuming Orbs are entities with a specific OrbComponent and RenderComponent)
-    // We might need a specific OrbComponent or tag for this later. For now, we can iterate through all renderable entities
-    // and check if they are the orb entity, or add a specific OrbComponent and filter by it.
-    // A better ECS approach would be a dedicated OrbGlowSystem that renders entities with OrbComponent and RenderComponent.
-    // For this step, let's focus on rendering the standard renderable entities.
-
+    // Draw glowing orbs first (for proper blending if enabled)
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
     glm::mat4 view = camera.GetViewMatrix();
 
-    // Render scene with shadows (entities with PositionComponent and RenderComponent)
+    glowShader.use();
+    glowShader.setMat4("projection", projection);
+    glowShader.setMat4("view", view);
+    for (Orb* orb : scene.getOrbs()) {
+        orb->Draw(glowShader);
+    }
+
+    // Render scene with shadows
     objectShader.use();
     objectShader.setMat4("projection", projection);
     objectShader.setMat4("view", view);
@@ -153,34 +153,29 @@ void Renderer::Render(Scene& scene) {
     objectShader.setVec3("viewPos", camera.Position);
     objectShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
 
+    // Bind depth map
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, depthMap);
     objectShader.setInt("shadowMap", 0);
 
-    for (Entity entity : renderableEntities) {
-        PositionComponent* posComp = scene.ecsManager.getComponent<PositionComponent>(entity);
-        RenderComponent* renderComp = scene.ecsManager.getComponent<RenderComponent>(entity);
-
-        if (posComp && renderComp && renderComp->mesh) {
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::translate(model, posComp->position);
-            model *= glm::mat4_cast(posComp->rotation);
-            model = glm::scale(model, posComp->scale);
-
-            objectShader.setMat4("model", model);
-            renderComp->mesh->Draw(objectShader);
-        }
+    // Render physics objects in color pass
+    for (auto& obj : scene.getPhysicsRenderables()) {
+        // The model matrix is already updated from physics at the beginning of Render()
+        objectShader.setMat4("model", obj.modelMatrix);
+         if (obj.renderable) {
+            obj.renderable->Draw(objectShader);
+         }
     }
 
 
-    // Render glowing orbs (assuming they have a RenderComponent and possibly a tag or specific component)
-    // A more ECS-aligned way would be a dedicated rendering system for orbs.
-    // For now, we can iterate through entities that might be orbs and draw them with the glow shader.
-    // This part needs to be adapted based on how you identify Orb entities in the ECS.
-    // For demonstration, let's assume Orb entities have a specific tag or component we can check.
-    // Since we don't have a specific OrbComponent yet, I will skip this part for now.
-    // When you add an OrbComponent, we can update this to get entities with OrbComponent and RenderComponent
-    // and draw them using the glowShader.
+    // Render non-physics renderable objects (like the backpack model)
+    for (Renderable* object : scene.getRenderables()) {
+         // For non-physics objects, you would set their model matrix here
+         // based on their position/orientation in the scene (not from physics)
+         // Assuming the Model class handles its own model matrix internally or it's static
+         // If you want physics on the model, it should be in the physicsObjects loop
+         object->Draw(objectShader);
+    }
 
 
     // Swap buffers and poll events
@@ -202,7 +197,7 @@ void Renderer::ProcessInput(GLFWwindow* window) {
         camera.ProcessKeyboard(RIGHT, deltaTime);
 }
 
-void Renderer::ProcessInputWithPhysics(GLFWwindow* window, PhysicsSystem& physicsSystem, Scene& scene) {
+void Renderer::ProcessInputWithPhysics(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables) {
      if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
@@ -215,47 +210,23 @@ void Renderer::ProcessInputWithPhysics(GLFWwindow* window, PhysicsSystem& physic
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
 
-    // Physics controls (applying force to the cube entity)
-    // We need to find the cube entity based on its components.
-    // A better way would be to store the cube entity ID when it's created in MistEngine.cpp
-    // and pass it here, or use a tag component to identify it.
-    // For now, let's iterate through entities with PhysicsComponent and PositionComponent
-    // and assume the first one we find is the cube (this is not robust).
+    // Physics controls
+    if (!physicsRenderables.empty()) {
+        // Assuming the cube is the second physics object added
+        auto cubeBody = physicsRenderables[1].body;
+        float force = 100.0f;
 
-    // In a proper ECS, you would likely have a dedicated InputSystem that interacts with other systems.
-    // For now, we will find the cube entity here and apply force using the PhysicsSystem.
-
-    Entity cubeEntity = 0; // Initialize with an invalid entity ID
-    auto physicsEntities = scene.ecsManager.getEntitiesWith<PhysicsComponent, PositionComponent>();
-    for (Entity entity : physicsEntities) {
-        // We need a way to identify the cube entity uniquely.
-        // For now, let's assume the first entity with both components is the cube. THIS IS NOT ROBUST.
-        cubeEntity = entity;
-        break; // Found a potential cube entity, break for now
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, 0.0f, -force));
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, 0.0f, force));
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(-force, 0.0f, 0.0f));
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(force, 0.0f, 0.0f));
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+             physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, force * 2.0f, 0.0f));
     }
-
-
-    if (cubeEntity != 0) { // Check if a potential cube entity was found
-         PhysicsComponent* physicsComp = scene.ecsManager.getComponent<PhysicsComponent>(cubeEntity);
-
-        if (physicsComp && physicsComp->rigidBody) {
-            float force = 100.0f;
-
-            if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS)
-                physicsSystem.ApplyForce(physicsComp->rigidBody, glm::vec3(0.0f, 0.0f, -force));
-            if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)
-                physicsSystem.ApplyForce(physicsComp->rigidBody, glm::vec3(0.0f, 0.0f, force));
-            if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
-                physicsSystem.ApplyForce(physicsComp->rigidBody, glm::vec3(-force, 0.0f, 0.0f));
-            if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
-                physicsSystem.ApplyForce(physicsComp->rigidBody, glm::vec3(force, 0.0f, 0.0f));
-            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-                 physicsSystem.ApplyForce(physicsComp->rigidBody, glm::vec3(0.0f, force * 2.0f, 0.0f));
-        }
-    }
-
-    // The physicsRenderables parameter is no longer needed with ECS
-    // std::vector<PhysicsRenderable>& physicsRenderables
 }
 
 
