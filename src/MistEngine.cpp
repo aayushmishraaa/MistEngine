@@ -1,16 +1,16 @@
 
 #include <iostream>
 #include <vector>
-#include <cstddef> // For offsetof
+#include <cstddef> 
 
 #include "Renderer.h"
 #include "Scene.h"
 #include "Model.h"
 #include "Orb.h"
 #include "PhysicsSystem.h"
-#include "Mesh.h" // Include Mesh class
-#include "Texture.h" // Include Texture class
-#include "ShapeGenerator.h" // Include ShapeGenerator
+#include "Mesh.h" 
+#include "Texture.h" 
+#include "ShapeGenerator.h" 
 #include <glm/gtc/type_ptr.hpp>
 
 
