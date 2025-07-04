@@ -147,6 +147,7 @@ Before running the project, ensure you have the following installed:
 - **Post-Processing**: Add post-processing effects (bloom, ambient occlusion, etc.)
 - **Multiple Lights**: Add support for multiple light sources (point lights, spotlights)
 - **Animation System**: Implement skeletal animation support
+- **Entity Component System (ECS) architecture implementation**
 - **Advanced Physics**: Add soft body physics, constraints, and vehicle dynamics
 
 ## License
