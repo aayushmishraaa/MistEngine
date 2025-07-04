@@ -1,4 +1,3 @@
-
 #ifndef RENDERER_H
 #define RENDERER_H
 
@@ -10,7 +9,9 @@
 #include "Shader.h"
 #include "Camera.h"
 #include "Renderable.h"
-#include "PhysicsSystem.h" // Include PhysicsSystem
+#include "PhysicsSystem.h" // Original physics system
+#include "ECS/Systems/RenderSystem.h"
+#include "ECS/Systems/ECSPhysicsSystem.h" // ECS physics system
 
 class Scene; // Forward declaration
 struct PhysicsRenderable; // Forward declaration for the struct
@@ -24,12 +25,11 @@ public:
     void Render(Scene& scene);
     void ProcessInput(GLFWwindow* window);
     void ProcessInputWithPhysics(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables);
-
+    void RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderSystem);
 
     Camera& GetCamera() { return camera; }
     GLFWwindow* GetWindow() const { return window; }
     float GetDeltaTime() const;
-
 
 private:
     unsigned int screenWidth;
@@ -65,16 +65,15 @@ private:
     unsigned int planeVAO, planeVBO; // Still needed for cleanup in destructor
     unsigned int cubeVAO, cubeVBO, cubeEBO; // Still needed for cleanup in destructor
 
-
     void setupShadowMap();
-    // Removed: void renderBasicShapes(Shader& shader);
-
 
     // Callback functions (will be set as static and call member functions)
     static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
     static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 };
+
 void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix);
 
 #endif // RENDERER_H
+

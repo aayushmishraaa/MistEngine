@@ -131,6 +131,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\Camera.cpp" />
+    <ClCompile Include="src\ECS\Systems\ECSPhysicsSystem.cpp" />
+    <ClCompile Include="src\ECS\Systems\RenderSystem.cpp" />
     <ClCompile Include="src\glad.c" />
     <ClCompile Include="src\Mesh.cpp" />
     <ClCompile Include="src\MistEngine.cpp" />
@@ -151,6 +153,19 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Camera.h" />
+    <ClInclude Include="include\ECS\Component.h" />
+    <ClInclude Include="include\ECS\ComponentArray.h" />
+    <ClInclude Include="include\ECS\ComponentManager.h" />
+    <ClInclude Include="include\ECS\Components\PhysicsComponent.h" />
+    <ClInclude Include="include\ECS\Components\RenderComponent.h" />
+    <ClInclude Include="include\ECS\Components\TransformComponent.h" />
+    <ClInclude Include="include\ECS\Coordinator.h" />
+    <ClInclude Include="include\ECS\Entity.h" />
+    <ClInclude Include="include\ECS\EntityManager.h" />
+    <ClInclude Include="include\ECS\System.h" />
+    <ClInclude Include="include\ECS\SystemManager.h" />
+    <ClInclude Include="include\ECS\Systems\ECSPhysicsSystem.h" />
+    <ClInclude Include="include\ECS\Systems\RenderSystem.h" />
     <ClInclude Include="include\Mesh.h" />
     <ClInclude Include="include\Model.h" />
     <ClInclude Include="include\Orb.h" />

@@ -298,7 +298,87 @@ void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix) {
         modelMatrix = glm::make_mat4(matrix);
     }
 }
+void Renderer::RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderSystem) {
+    // Calculate delta time
+    float currentFrame = glfwGetTime();
+    deltaTime = currentFrame - lastFrame;
+    lastFrame = currentFrame;
 
+    // === SHADOW MAPPING PASS ===
+    glViewport(0, 0, shadowWidth, shadowHeight);
+    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    float near_plane = 1.0f, far_plane = 7.5f;
+    glm::mat4 lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
+    glm::mat4 lightView = glm::lookAt(-lightDir * 5.0f, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+
+    depthShader.use();
+    depthShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+    // Render ECS entities to depth map
+    renderSystem->Update(depthShader);
+
+    // Render legacy physics objects to depth map
+    for (auto& obj : scene.getPhysicsRenderables()) {
+        updateModelMatrixFromPhysics(obj.body, obj.modelMatrix);
+        depthShader.setMat4("model", obj.modelMatrix);
+        if (obj.renderable) {
+            obj.renderable->Draw(depthShader);
+        }
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // === MAIN RENDERING PASS ===
+    glViewport(0, 0, screenWidth, screenHeight);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
+    glm::mat4 view = camera.GetViewMatrix();
+
+    // Draw glowing orbs first
+    glowShader.use();
+    glowShader.setMat4("projection", projection);
+    glowShader.setMat4("view", view);
+    for (Orb* orb : scene.getOrbs()) {
+        orb->Draw(glowShader);
+    }
+
+    // Setup main shader for scene rendering
+    objectShader.use();
+    objectShader.setMat4("projection", projection);
+    objectShader.setMat4("view", view);
+    objectShader.setVec3("lightDir", lightDir);
+    objectShader.setVec3("lightColor", lightColor);
+    objectShader.setVec3("viewPos", camera.Position);
+    objectShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
+    // Bind shadow map
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, depthMap);
+    objectShader.setInt("shadowMap", 0);
+
+    // Render ECS entities
+    renderSystem->Update(objectShader);
+
+    // Render legacy scene objects for backward compatibility
+    for (auto& obj : scene.getPhysicsRenderables()) {
+        objectShader.setMat4("model", obj.modelMatrix);
+        if (obj.renderable) {
+            obj.renderable->Draw(objectShader);
+        }
+    }
+
+    for (Renderable* object : scene.getRenderables()) {
+        object->Draw(objectShader);
+    }
+
+    // Swap buffers and poll events
+    glfwSwapBuffers(window);
+    glfwPollEvents();
+}
 // These getters are no longer needed as basic shape VAOs/EBOs are managed by Mesh objects
 /*
 unsigned int Renderer::GetCubeVAO() const {
