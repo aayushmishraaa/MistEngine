@@ -2,6 +2,8 @@
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/RenderComponent.h"
 
+extern Coordinator gCoordinator;
+
 void RenderSystem::Update(Shader& shader) {
     for (auto const& entity : m_Entities) {
         auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
