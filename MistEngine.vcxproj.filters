@@ -83,6 +83,7 @@
     <None Include="shaders\depth_vertex.glsl">
       <Filter>Shader Files</Filter>
     </None>
+    <None Include="CMakePresets.json" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">
