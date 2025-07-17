@@ -1,95 +1,49 @@
-cmake_minimum_required(VERSION 3.16)
-project(MistEngine VERSION 1.0.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.10)
+project(MistEngine)
 
-set(CMAKE_CXX_STANDARD 14)
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Set vcpkg toolchain if available
-if(DEFINED ENV{VCPKG_ROOT})
-    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
-endif()
+# Find required packages
+find_package(OpenGL REQUIRED)
+find_package(assimp REQUIRED)
+find_package(Bullet REQUIRED)
 
-# Find packages
-find_package(glfw3 CONFIG REQUIRED)
-find_package(glad CONFIG REQUIRED)
-find_package(glm CONFIG REQUIRED)
-find_package(Bullet CONFIG REQUIRED)
-find_package(assimp CONFIG REQUIRED)
-find_package(imgui CONFIG REQUIRED)
-
-# Include directories
-include_directories(include)
-
-# Source files
-set(SOURCES
-    src/MistEngine.cpp
-    src/Renderer.cpp
-    src/Camera.cpp
-    src/Shader.cpp
-    src/Texture.cpp
-    src/Mesh.cpp
-    src/Model.cpp
-    src/Orb.cpp
-    src/Scene.cpp
-    src/PhysicsSystem.cpp
-    src/ShapeGenerator.cpp
-    src/glad.c
-    src/ECS/Systems/RenderSystem.cpp
-    src/ECS/Systems/ECSPhysicsSystem.cpp
-    src/UI/EditorUI.cpp
+# Add source files
+file(GLOB SOURCES
+    "src/*.cpp"
+    "src/*.c"
 )
 
-# Header files
-set(HEADERS
-    include/Renderer.h
-    include/Camera.h
-    include/Shader.h
-    include/Texture.h
-    include/Mesh.h
-    include/Model.h
-    include/Orb.h
-    include/Scene.h
-    include/PhysicsSystem.h
-    include/ShapeGenerator.h
-    include/Renderable.h
-    include/ECS/Entity.h
-    include/ECS/Component.h
-    include/ECS/ComponentArray.h
-    include/ECS/ComponentManager.h
-    include/ECS/EntityManager.h
-    include/ECS/System.h
-    include/ECS/SystemManager.h
-    include/ECS/Coordinator.h
-    include/ECS/Components/TransformComponent.h
-    include/ECS/Components/RenderComponent.h
-    include/ECS/Components/PhysicsComponent.h
-    include/ECS/Systems/RenderSystem.h
-    include/ECS/Systems/ECSPhysicsSystem.h
-    include/UI/EditorUI.h
+# Add header files
+file(GLOB HEADERS
+    "include/*.h"
 )
 
 # Create executable
-add_executable(MistEngine ${SOURCES} ${HEADERS})
+add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+
+# Include directories
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${ASSIMP_INCLUDE_DIRS}
+    ${BULLET_INCLUDE_DIRS}
+)
 
 # Link libraries
-target_link_libraries(MistEngine PRIVATE
-    glfw
-    glad::glad
-    glm::glm
+target_link_libraries(${PROJECT_NAME}
+    OpenGL::GL
+    ${ASSIMP_LIBRARIES}
     ${BULLET_LIBRARIES}
-    assimp::assimp
-    imgui::imgui
+    glfw
 )
 
-# Additional includes for Bullet
-target_include_directories(MistEngine PRIVATE ${BULLET_INCLUDE_DIRS})
+# Copy shader files to build directory
+file(COPY ${CMAKE_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})
 
-# Copy shaders and assets
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/models DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
-file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/textures DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+# Copy model files to build directory
+file(COPY ${CMAKE_SOURCE_DIR}/models DESTINATION ${CMAKE_BINARY_DIR})
 
-# Set working directory for Visual Studio
-set_target_properties(MistEngine PROPERTIES
-    VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-)
+# Copy texture files to build directory
+file(COPY ${CMAKE_SOURCE_DIR}/textures DESTINATION ${CMAKE_BINARY_DIR})
