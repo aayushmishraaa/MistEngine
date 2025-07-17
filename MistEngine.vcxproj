@@ -104,7 +104,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);NDEBUG</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>D:\Libraries\bullet3_x64-windows\include;D:\Libraries\Assimp\include;D:\Libraries\freetype-2.13.3\include;D:\Libraries\freeglut-3.6.0\include;E:\Projects\MistEngine\include;D:\Libraries\glm-master;D:\Libraries\glfw-3.4.bin.WIN64\include;D:\Libraries\glad\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -144,15 +144,20 @@
     <ClCompile Include="src\Shader.cpp" />
     <ClCompile Include="src\ShapeGenerator.cpp" />
     <ClCompile Include="src\Texture.cpp" />
+    <ClCompile Include="src\UI\EditorUI.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="Directory.Build.props" />
+    <None Include="README_UI.md" />
     <None Include="shaders\depth_fragment.glsl" />
     <None Include="shaders\depth_vertex.glsl" />
     <None Include="shaders\fragment.glsl" />
     <None Include="shaders\vertex.glsl" />
+    <None Include="vcpkg.json" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Camera.h" />
+    <ClInclude Include="include\Config.h" />
     <ClInclude Include="include\ECS\Component.h" />
     <ClInclude Include="include\ECS\ComponentArray.h" />
     <ClInclude Include="include\ECS\ComponentManager.h" />
@@ -176,6 +181,7 @@
     <ClInclude Include="include\Shader.h" />
     <ClInclude Include="include\ShapeGenerator.h" />
     <ClInclude Include="include\Texture.h" />
+    <ClInclude Include="include\UI\EditorUI.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

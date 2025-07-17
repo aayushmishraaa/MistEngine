@@ -25,8 +25,8 @@ Coordinator gCoordinator;
 
 int main() {
     // Settings
-    const unsigned int SCR_WIDTH = 800;
-    const unsigned int SCR_HEIGHT = 600;
+    const unsigned int SCR_WIDTH = 1200;
+    const unsigned int SCR_HEIGHT = 800;
 
     // Initialize ECS
     gCoordinator.Init();
@@ -71,6 +71,9 @@ int main() {
     // Initialize Physics (original system)
     PhysicsSystem physicsSystem;
 
+    // Set up UI references
+    renderer.GetEditorUI().SetPhysicsSystem(&physicsSystem);
+
     // Create physics ground plane (ECS version)
     Entity groundEntity = gCoordinator.CreateEntity();
 
@@ -114,6 +117,9 @@ int main() {
         });
     gCoordinator.AddComponent(cubeEntity, RenderComponent{ cubeMesh, true });
     gCoordinator.AddComponent(cubeEntity, PhysicsComponent{ cubeBody, true });
+
+    // Set initial selected entity for UI
+    renderer.GetEditorUI().SetSelectedEntity(cubeEntity);
 
     // Main loop
     while (!glfwWindowShouldClose(renderer.GetWindow())) {

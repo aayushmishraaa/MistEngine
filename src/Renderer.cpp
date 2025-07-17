@@ -5,8 +5,9 @@
 #include <glm/gtc/type_ptr.hpp> // For glm::make_mat4 (used in updateModelMatrixFromPhysics)
 
 #include "Orb.h" // Add this include to ensure the Orb class is defined
+#include "ECS/Coordinator.h"
 
-
+extern Coordinator gCoordinator;
 
 // Global pointer to the renderer instance for callbacks
 Renderer* g_renderer = nullptr;
@@ -18,19 +19,14 @@ Renderer::Renderer(unsigned int width, unsigned int height)
       deltaTime(0.0f), lastFrame(0.0f),
       lightDir(-0.2f, -1.0f, -0.3f), lightColor(1.0f, 1.0f, 1.0f),
       shadowWidth(1024), shadowHeight(1024),
-      planeVAO(0), planeVBO(0), cubeVAO(0), cubeVBO(0), cubeEBO(0) // Still needed for cleanup, but setup is removed
+      planeVAO(0), planeVBO(0), cubeVAO(0), cubeVBO(0), cubeEBO(0),
+      m_editorUI(std::make_unique<EditorUI>())
 {
     g_renderer = this; // Set the global pointer
 }
 
 Renderer::~Renderer() {
     // Cleanup (VAOs, VBOs, EBOs for basic shapes are now managed by Mesh objects)
-    // glDeleteVertexArrays(1, &cubeVAO); // Removed
-    // glDeleteVertexArrays(1, &planeVAO); // Removed
-    // glDeleteBuffers(1, &cubeVBO); // Removed
-    // glDeleteBuffers(1, &cubeEBO); // Removed
-    // glDeleteBuffers(1, &planeVBO); // Removed
-
     glDeleteFramebuffers(1, &depthMapFBO);
     glDeleteTextures(1, &depthMap);
 
@@ -63,7 +59,8 @@ bool Renderer::Init() {
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetCursorPosCallback(window, mouse_callback);
     glfwSetScrollCallback(window, scroll_callback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    glfwSetKeyCallback(window, key_callback);
+    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL); // Changed from DISABLED for UI
 
     // Initialize GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -82,8 +79,15 @@ bool Renderer::Init() {
     // Setup shadow mapping
     setupShadowMap();
 
-    // Removed: Setup basic shapes (plane and cube) - VAOs, VBOs, EBOs
+    // Initialize Editor UI
+    if (!m_editorUI->Init(window)) {
+        std::cerr << "Failed to initialize Editor UI\n";
+        return false;
+    }
 
+    // Set up UI references
+    m_editorUI->SetCoordinator(&gCoordinator);
+    m_editorUI->SetCamera(&camera);
 
     return true;
 }
@@ -93,6 +97,9 @@ void Renderer::Render(Scene& scene) {
     float currentFrame = glfwGetTime();
     deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
+
+    // Update UI
+    m_editorUI->Update(deltaTime);
 
     // Render to depth map
     glViewport(0, 0, shadowWidth, shadowHeight);
@@ -116,16 +123,6 @@ void Renderer::Render(Scene& scene) {
             obj.renderable->Draw(depthShader);
         }
     }
-
-    // Render non-physics renderable objects to depth map (if they cast shadows)
-     for (Renderable* object : scene.getRenderables()) {
-         // For non-physics objects, you would set their model matrix here
-         // based on their position/orientation in the scene (not from physics)
-         // Assuming the Model class handles its own model matrix internally or it's static
-         // If you want physics on the model, it should be in the physicsObjects loop
-         // object->Draw(depthShader); // Uncomment if non-physics objects cast shadows
-     }
-
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -167,16 +164,13 @@ void Renderer::Render(Scene& scene) {
          }
     }
 
-
     // Render non-physics renderable objects (like the backpack model)
     for (Renderable* object : scene.getRenderables()) {
-         // For non-physics objects, you would set their model matrix here
-         // based on their position/orientation in the scene (not from physics)
-         // Assuming the Model class handles its own model matrix internally or it's static
-         // If you want physics on the model, it should be in the physicsObjects loop
          object->Draw(objectShader);
     }
 
+    // Render UI
+    m_editorUI->Render();
 
     // Swap buffers and poll events
     glfwSwapBuffers(window);
@@ -184,6 +178,11 @@ void Renderer::Render(Scene& scene) {
 }
 
 void Renderer::ProcessInput(GLFWwindow* window) {
+    // Only process camera input if viewport is focused
+    if (!m_editorUI->IsViewportFocused()) {
+        return;
+    }
+
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
@@ -198,7 +197,12 @@ void Renderer::ProcessInput(GLFWwindow* window) {
 }
 
 void Renderer::ProcessInputWithPhysics(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables) {
-     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    // Only process camera input if viewport is focused
+    if (!m_editorUI->IsViewportFocused()) {
+        return;
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -229,7 +233,6 @@ void Renderer::ProcessInputWithPhysics(GLFWwindow* window, PhysicsSystem& physic
     }
 }
 
-
 void Renderer::setupShadowMap() {
     glGenFramebuffers(1, &depthMapFBO);
     glGenTextures(1, &depthMap);
@@ -249,8 +252,6 @@ void Renderer::setupShadowMap() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
-
-
 // --- Callback implementations ---
 void Renderer::framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     if (g_renderer) {
@@ -262,6 +263,12 @@ void Renderer::framebuffer_size_callback(GLFWwindow* window, int width, int heig
 
 void Renderer::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
     if (g_renderer) {
+        // Only process mouse input if viewport is focused and hovered
+        if (!g_renderer->m_editorUI->IsViewportFocused() || !g_renderer->m_editorUI->IsViewportHovered()) {
+            g_renderer->firstMouse = true;
+            return;
+        }
+
         if (g_renderer->firstMouse) {
             g_renderer->lastX = xpos;
             g_renderer->lastY = ypos;
@@ -279,7 +286,22 @@ void Renderer::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
 
 void Renderer::scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
     if (g_renderer) {
+        // Only process scroll input if viewport is hovered
+        if (!g_renderer->m_editorUI->IsViewportHovered()) {
+            return;
+        }
         g_renderer->camera.ProcessMouseScroll(yoffset);
+    }
+}
+
+void Renderer::key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+    if (action == GLFW_PRESS) {
+        // Toggle cursor mode with Tab key
+        if (key == GLFW_KEY_TAB) {
+            static bool cursorEnabled = true;
+            cursorEnabled = !cursorEnabled;
+            glfwSetInputMode(window, GLFW_CURSOR, cursorEnabled ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED);
+        }
     }
 }
 
@@ -287,6 +309,7 @@ void Renderer::scroll_callback(GLFWwindow* window, double xoffset, double yoffse
 float Renderer::GetDeltaTime() const {
     return deltaTime;
 }
+
 void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix) {
     if (body) {
         // Get the world transform from the physics body
@@ -298,11 +321,16 @@ void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix) {
         modelMatrix = glm::make_mat4(matrix);
     }
 }
+
 void Renderer::RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderSystem) {
     // Calculate delta time
     float currentFrame = glfwGetTime();
     deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
+
+    // Update UI
+    m_editorUI->Update(deltaTime);
+    m_editorUI->SetScene(&scene);
 
     // === SHADOW MAPPING PASS ===
     glViewport(0, 0, shadowWidth, shadowHeight);
@@ -375,21 +403,10 @@ void Renderer::RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderS
         object->Draw(objectShader);
     }
 
+    // Render UI
+    m_editorUI->Render();
+
     // Swap buffers and poll events
     glfwSwapBuffers(window);
     glfwPollEvents();
 }
-// These getters are no longer needed as basic shape VAOs/EBOs are managed by Mesh objects
-/*
-unsigned int Renderer::GetCubeVAO() const {
-    return cubeVAO;
-}
-
-unsigned int Renderer::GetCubeEBO() const {
-    return cubeEBO;
-}
-
-unsigned int Renderer::GetPlaneVAO() const {
-    return planeVAO;
-}
-*/

@@ -5,6 +5,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <vector>
+#include <memory>
 
 #include "Shader.h"
 #include "Camera.h"
@@ -12,6 +13,7 @@
 #include "PhysicsSystem.h" // Original physics system
 #include "ECS/Systems/RenderSystem.h"
 #include "ECS/Systems/ECSPhysicsSystem.h" // ECS physics system
+#include "UI/EditorUI.h" // ImGui editor UI
 
 class Scene; // Forward declaration
 struct PhysicsRenderable; // Forward declaration for the struct
@@ -30,6 +32,7 @@ public:
     Camera& GetCamera() { return camera; }
     GLFWwindow* GetWindow() const { return window; }
     float GetDeltaTime() const;
+    EditorUI& GetEditorUI() { return *m_editorUI; }
 
 private:
     unsigned int screenWidth;
@@ -65,12 +68,16 @@ private:
     unsigned int planeVAO, planeVBO; // Still needed for cleanup in destructor
     unsigned int cubeVAO, cubeVBO, cubeEBO; // Still needed for cleanup in destructor
 
+    // Editor UI
+    std::unique_ptr<EditorUI> m_editorUI;
+
     void setupShadowMap();
 
     // Callback functions (will be set as static and call member functions)
     static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
     static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+    static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 };
 
 void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix);
