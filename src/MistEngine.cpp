@@ -10,6 +10,7 @@
 #include "Mesh.h" 
 #include "Texture.h" 
 #include "ShapeGenerator.h" 
+#include "UIManager.h"
 #include <glm/gtc/type_ptr.hpp>
 
 // ECS includes
@@ -23,10 +24,69 @@
 // Global ECS coordinator
 Coordinator gCoordinator;
 
+// Global UI manager
+UIManager* g_uiManager = nullptr;
+
+// Input handling for UI
+void ProcessInputWithUI(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables, float deltaTime) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+
+    // Toggle UI demo window with F1
+    if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS) {
+        static bool f1Pressed = false;
+        if (!f1Pressed) {
+            if (g_uiManager) {
+                g_uiManager->SetShowDemo(!g_uiManager->IsShowingDemo());
+            }
+            f1Pressed = true;
+        }
+    } else {
+        static bool f1Pressed = false;
+        f1Pressed = false;
+    }
+
+    // Check if ImGui wants to capture mouse/keyboard
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
+        return; // Don't process game input when UI is active
+    }
+
+    // Camera controls
+    Camera& camera = *reinterpret_cast<Camera*>(glfwGetWindowUserPointer(window));
+    
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        camera.ProcessKeyboard(FORWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        camera.ProcessKeyboard(BACKWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        camera.ProcessKeyboard(LEFT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        camera.ProcessKeyboard(RIGHT, deltaTime);
+
+    // Physics controls
+    if (!physicsRenderables.empty()) {
+        // Assuming the cube is the second physics object added
+        auto cubeBody = physicsRenderables[1].body;
+        float force = 100.0f;
+
+        if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, 0.0f, -force));
+        if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, 0.0f, force));
+        if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(-force, 0.0f, 0.0f));
+        if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(force, 0.0f, 0.0f));
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+             physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, force * 2.0f, 0.0f));
+    }
+}
+
 int main() {
     // Settings
-    const unsigned int SCR_WIDTH = 800;
-    const unsigned int SCR_HEIGHT = 600;
+    const unsigned int SCR_WIDTH = 1200;
+    const unsigned int SCR_HEIGHT = 800;
 
     // Initialize ECS
     gCoordinator.Init();
@@ -57,8 +117,25 @@ int main() {
         return -1;
     }
 
+    // Initialize UI Manager
+    UIManager uiManager;
+    g_uiManager = &uiManager;
+    if (!uiManager.Initialize(renderer.GetWindow())) {
+        std::cerr << "Failed to initialize UI Manager" << std::endl;
+        return -1;
+    }
+
+    // Set up UI references
+    uiManager.SetCoordinator(&gCoordinator);
+    uiManager.SetPhysicsSystem(nullptr); // Will be set after physics system is created
+
+    // Set up mouse input for UI
+    glfwSetInputMode(renderer.GetWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    glfwSetWindowUserPointer(renderer.GetWindow(), &renderer.GetCamera());
+
     // Create Scene (keeping for backward compatibility)
     Scene scene;
+    uiManager.SetScene(&scene);
 
     // Create glowing orb (existing system)
     Orb* glowingOrb = new Orb(glm::vec3(1.5f, 1.0f, 0.0f), 0.3f, glm::vec3(2.0f, 1.6f, 0.4f));
@@ -70,6 +147,7 @@ int main() {
 
     // Initialize Physics (original system)
     PhysicsSystem physicsSystem;
+    uiManager.SetPhysicsSystem(&physicsSystem);
 
     // Create physics ground plane (ECS version)
     Entity groundEntity = gCoordinator.CreateEntity();
@@ -119,18 +197,19 @@ int main() {
     while (!glfwWindowShouldClose(renderer.GetWindow())) {
         float deltaTime = renderer.GetDeltaTime();
 
-        // Input (keeping existing input system)
-        renderer.ProcessInputWithPhysics(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables());
+        // Input handling with UI support
+        ProcessInputWithUI(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
 
         // Physics Update (both systems)
         physicsSystem.Update(deltaTime);
         ecsPhysicsSystem->Update(deltaTime);
 
-        // Render (hybrid approach - both old and new systems)
-        renderer.RenderWithECS(scene, renderSystem);
+        // Render with UI
+        renderer.RenderWithECSAndUI(scene, renderSystem, &uiManager);
     }
 
     // Cleanup
+    uiManager.Shutdown();
     delete groundMesh;
     delete cubeMesh;
     delete glowingOrb;

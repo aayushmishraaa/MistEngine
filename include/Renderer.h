@@ -15,6 +15,7 @@
 
 class Scene; // Forward declaration
 struct PhysicsRenderable; // Forward declaration for the struct
+class UIManager; // Forward declaration
 
 class Renderer {
 public:
@@ -26,6 +27,7 @@ public:
     void ProcessInput(GLFWwindow* window);
     void ProcessInputWithPhysics(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables);
     void RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderSystem);
+    void RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> renderSystem, UIManager* uiManager);
 
     Camera& GetCamera() { return camera; }
     GLFWwindow* GetWindow() const { return window; }
