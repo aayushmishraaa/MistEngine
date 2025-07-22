@@ -1,4 +1,4 @@
-# ?? MistEngine v0.1.0 Pre-Alpha Release
+# ?? MistEngine v0.1.2 Pre-Alpha Release
 
 **The first public release of MistEngine - A Modern C++ Game Engine with AI Integration!**
 
@@ -104,7 +104,7 @@ This is pre-alpha software, so bugs are expected!
 - **UI/UX issues**
 
 **How to report:**
-1. [Open a GitHub Issue](https://github.com/yourusername/MistEngine/issues)
+1. [Open a GitHub Issue](https://github.com/aayushmishraaa/MistEngine/issues)
 2. Include your system specs
 3. Describe steps to reproduce
 4. Attach screenshots if helpful
@@ -203,8 +203,8 @@ We're actively looking for contributors! This is a great time to get involved.
 ## ?? Support & Community
 
 ### Getting Help
-- **?? Issues**: [Report bugs here](https://github.com/yourusername/MistEngine/issues)
-- **?? Discussions**: [Community forum](https://github.com/yourusername/MistEngine/discussions)
+- **?? Issues**: [Report bugs here](https://github.com/aayushmishraaa/MistEngine/issues)
+- **?? Discussions**: [Community forum](https://github.com/aayushmishraaa/MistEngine/discussions)
 - **?? AI Assistant**: Built-in help (press F2)
 - **?? Documentation**: See `docs/` folder in download
 
