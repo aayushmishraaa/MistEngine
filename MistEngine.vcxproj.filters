@@ -131,6 +131,19 @@
     <None Include="packages.config" />
     <None Include="AI_README.md" />
     <None Include="ai_config.example.json" />
+    <None Include="RELEASE_NOTES.md" />
+    <None Include="CONTRIBUTING.md" />
+    <None Include="build_release.bat">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="GITHUB_RELEASE_TEMPLATE.md" />
+    <None Include="RELEASE_GUIDE.md" />
+    <None Include="LAUNCH_SUMMARY.md" />
+    <None Include="ReleaseOverride.props" />
+    <None Include="manual_build_release.bat">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="build_release.ps1" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">
@@ -236,6 +249,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\AI\GeminiProvider.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\Version.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

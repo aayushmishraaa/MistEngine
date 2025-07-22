@@ -1,5 +1,4 @@
-
-# MistEngine - 3D Engine
+# MistEngine
 
 MistEngine is a 3D engine that demonstrates advanced rendering capabilities using OpenGL. It features dynamic lighting, shadow rendering, 3D model loading, physics simulation, and texture management for creating immersive 3D scenes.
 
@@ -153,5 +152,3 @@ Before running the project, ensure you have the following installed:
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ---
-```
-        

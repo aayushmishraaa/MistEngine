@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <AdditionalIncludeDirectories>D:\Libraries\bullet3_x64-windows\include;D:\Libraries\Assimp\include;D:\Libraries\freetype-2.13.3\include;D:\Libraries\freeglut-3.6.0\include;E:\Projects\MistEngine\include;D:\Libraries\glm-master;D:\Libraries\glfw-3.4.bin.WIN64\include;D:\Libraries\glad\include;$(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    <AdditionalLibraryDirectories>D:\Libraries\bullet3_x64-windows\lib;D:\Libraries\Assimp\lib\x64;D:\Libraries\glfw-3.4.bin.WIN64\lib-vc2022;$(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    <AdditionalDependencies>glfw3.lib;opengl32.lib;assimp-vc143-mt.lib;BulletCollision.lib;BulletDynamics.lib;LinearMath.lib;wininet.lib;$(AdditionalDependencies)</AdditionalDependencies>
+  </PropertyGroup>
+</Project>

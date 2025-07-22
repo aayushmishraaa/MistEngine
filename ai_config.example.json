@@ -1,0 +1,24 @@
+{
+  "_comment": "MistEngine AI Configuration Example",
+  "_instructions": "Copy this file to 'ai_config.json' and add your API keys",
+  "_security_note": "NEVER commit ai_config.json to version control - it contains sensitive API keys",
+  
+  "api_keys": {
+    "Gemini": "YOUR_GEMINI_API_KEY_HERE"
+  },
+  
+  "defaults": {
+    "provider": "Gemini",
+    "model": "gemini-1.5-flash",
+    "temperature": 0.7,
+    "max_tokens": 1000
+  },
+  
+  "setup_instructions": {
+    "step1": "Get API key from https://aistudio.google.com/app/apikey",
+    "step2": "Copy this file to 'ai_config.json'", 
+    "step3": "Replace YOUR_GEMINI_API_KEY_HERE with your actual key",
+    "step4": "In MistEngine: AI Menu > Configure API Key",
+    "step5": "Press F2 to open AI assistant"
+  }
+}
