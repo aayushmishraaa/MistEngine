@@ -1,0 +1,19 @@
+{
+      "_instructions": {
+        "description": true,
+        "example_azure_endpoint": true,
+        "example_openai_key": true,
+        "note": true
+      },
+      "api_keys": {
+        "OpenAI": true
+      },
+      "defaults": {
+        "max_tokens": 1000,
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.7
+      },
+      "endpoints": {
+
+      }
+    }

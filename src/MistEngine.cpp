@@ -46,6 +46,20 @@ void ProcessInputWithUI(GLFWwindow* window, PhysicsSystem& physicsSystem, std::v
         f1Pressed = false;
     }
 
+    // Toggle AI window with F2
+    if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_PRESS) {
+        static bool f2Pressed = false;
+        if (!f2Pressed) {
+            if (g_uiManager) {
+                g_uiManager->SetShowAI(!g_uiManager->IsShowingAI());
+            }
+            f2Pressed = true;
+        }
+    } else {
+        static bool f2Pressed = false;
+        f2Pressed = false;
+    }
+
     // Check if ImGui wants to capture mouse/keyboard
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
@@ -128,6 +142,10 @@ int main() {
     // Set up UI references
     uiManager.SetCoordinator(&gCoordinator);
     uiManager.SetPhysicsSystem(nullptr); // Will be set after physics system is created
+
+    // Initialize AI (example - replace with your actual API key)
+    // Note: In production, load this from a config file or environment variable
+    // uiManager.InitializeAI("your-openai-api-key-here", "OpenAI");
 
     // Set up mouse input for UI
     glfwSetInputMode(renderer.GetWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);

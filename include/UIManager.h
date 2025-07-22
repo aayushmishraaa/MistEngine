@@ -23,6 +23,9 @@ struct RenderComponent;
 struct PhysicsComponent;
 class Scene;
 class PhysicsSystem;
+class AIManager;
+class AIWindow;
+struct ChatMessage;
 
 typedef uint32_t Entity;
 
@@ -52,6 +55,12 @@ public:
     void SetShowDemo(bool show) { m_ShowDemo = show; }
     bool IsShowingDemo() const { return m_ShowDemo; }
     
+    // AI functionality
+    void InitializeAI(const std::string& apiKey, const std::string& provider = "OpenAI", const std::string& endpoint = "");
+    void SetShowAI(bool show) { m_ShowAI = show; }
+    bool IsShowingAI() const { return m_ShowAI; }
+    void ShowAPIKeyDialog();
+    
     // References to engine systems
     void SetCoordinator(Coordinator* coordinator) { m_Coordinator = coordinator; }
     void SetScene(Scene* scene) { m_Scene = scene; }
@@ -64,6 +73,8 @@ private:
     bool m_ShowSceneView;
     bool m_ShowAssetBrowser;
     bool m_ShowConsole;
+    bool m_ShowAI;
+    bool m_ShowAPIKeyDialog;
     
     // Selected entity
     Entity m_SelectedEntity;
@@ -80,6 +91,9 @@ private:
     void DrawRenderComponent(RenderComponent& render);
     void DrawPhysicsComponent(PhysicsComponent& physics);
     
+    // AI helpers
+    void DrawAPIKeyDialog();
+    
     // Utility
     void DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 100.0f);
     
@@ -87,6 +101,15 @@ private:
     Coordinator* m_Coordinator;
     Scene* m_Scene;
     PhysicsSystem* m_PhysicsSystem;
+    
+    // AI components
+    std::unique_ptr<AIManager> m_AIManager;
+    std::unique_ptr<AIWindow> m_AIWindow;
+    
+    // API Key dialog state
+    char m_APIKeyBuffer[512];
+    char m_EndpointBuffer[512];
+    int m_SelectedProvider;
     
     // UI state
     std::vector<std::pair<Entity, std::string>> m_EntityList;

@@ -8,6 +8,9 @@
 #include "Mesh.h"
 #include "Texture.h"
 #include "ShapeGenerator.h"
+#include "AI/AIManager.h"
+#include "AI/AIWindow.h"
+#include "AI/AIConfig.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
@@ -21,13 +24,24 @@ UIManager::UIManager()
     , m_ShowSceneView(false)
     , m_ShowAssetBrowser(false)
     , m_ShowConsole(false)
+    , m_ShowAI(false)
+    , m_ShowAPIKeyDialog(false)
     , m_SelectedEntity(0)
     , m_HasSelectedEntity(false)
     , m_Coordinator(nullptr)
     , m_Scene(nullptr)
     , m_PhysicsSystem(nullptr)
+    , m_SelectedProvider(0)
     , m_EntityCounter(0)
 {
+    // Initialize AI components
+    m_AIManager = std::make_unique<AIManager>();
+    m_AIWindow = std::make_unique<AIWindow>();
+    m_AIWindow->SetAIManager(m_AIManager.get());
+    
+    // Initialize dialog buffers
+    memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
+    memset(m_EndpointBuffer, 0, sizeof(m_EndpointBuffer));
 }
 
 UIManager::~UIManager() {
@@ -49,14 +63,32 @@ bool UIManager::Initialize(GLFWwindow* window) {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
+    // Load AI configuration
+    AIConfig::Instance().LoadFromFile();
+    
+    // Try to auto-initialize AI if API key is available
+    if (AIConfig::Instance().HasAPIKey("OpenAI")) {
+        std::string apiKey = AIConfig::Instance().GetAPIKey("OpenAI");
+        std::string endpoint = AIConfig::Instance().GetEndpoint("OpenAI");
+        InitializeAI(apiKey, "OpenAI", endpoint);
+    }
+
     // Add some initial console messages
     m_ConsoleMessages.push_back("MistEngine UI initialized successfully");
     m_ConsoleMessages.push_back("Press F1 to toggle ImGui demo window");
+    m_ConsoleMessages.push_back("Press F2 to open AI assistant");
+    m_ConsoleMessages.push_back("Use Window > Ask AI to open AI assistant");
 
     return true;
 }
 
 void UIManager::Shutdown() {
+    // Save AI configuration
+    AIConfig::Instance().SaveToFile();
+    
+    m_AIWindow.reset();
+    m_AIManager.reset();
+    
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
@@ -78,6 +110,18 @@ void UIManager::NewFrame() {
     if (m_ShowAssetBrowser) DrawAssetBrowser();
     if (m_ShowConsole) DrawConsole();
     if (m_ShowDemo) ImGui::ShowDemoWindow(&m_ShowDemo);
+    
+    // Draw AI window
+    if (m_ShowAI && m_AIWindow) {
+        m_AIWindow->SetVisible(true);
+        m_AIWindow->Draw();
+        m_ShowAI = m_AIWindow->IsVisible(); // Sync state if window was closed
+    }
+    
+    // Draw API Key dialog
+    if (m_ShowAPIKeyDialog) {
+        DrawAPIKeyDialog();
+    }
 }
 
 void UIManager::Render() {
@@ -89,6 +133,27 @@ void UIManager::Render() {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     GLFWwindow* backup_current_context = glfwGetCurrentContext();
     glfwMakeContextCurrent(backup_current_context);
+}
+
+void UIManager::InitializeAI(const std::string& apiKey, const std::string& provider, const std::string& endpoint) {
+    if (m_AIManager) {
+        bool success = m_AIManager->InitializeProvider(provider, apiKey, endpoint);
+        if (success) {
+            m_ConsoleMessages.push_back("AI provider initialized: " + provider);
+            
+            // Save the configuration
+            AIConfig::Instance().SetAPIKey(provider, apiKey);
+            if (!endpoint.empty()) {
+                AIConfig::Instance().SetEndpoint(provider, endpoint);
+            }
+            
+            if (m_AIWindow) {
+                m_AIWindow->SetAIManager(m_AIManager.get());
+            }
+        } else {
+            m_ConsoleMessages.push_back("Failed to initialize AI provider: " + provider);
+        }
+    }
 }
 
 void UIManager::DrawMainMenuBar() {
@@ -144,10 +209,219 @@ void UIManager::DrawMainMenuBar() {
             ImGui::MenuItem("Asset Browser", nullptr, &m_ShowAssetBrowser);
             ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
             ImGui::Separator();
+            ImGui::MenuItem("Ask AI", "F2", &m_ShowAI);
+            ImGui::Separator();
             ImGui::MenuItem("Demo Window", nullptr, &m_ShowDemo);
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("AI")) {
+            if (ImGui::MenuItem("Open AI Assistant", "F2")) {
+                m_ShowAI = true;
+            }
+            ImGui::Separator();
+            
+            // Show AI provider status
+            std::string statusText = "Configure API Key";
+            if (m_AIManager && m_AIManager->HasActiveProvider()) {
+                statusText = "Reconfigure API Key (" + m_AIManager->GetActiveProviderName() + " Connected)";
+            }
+            
+            if (ImGui::MenuItem(statusText.c_str())) {
+                ShowAPIKeyDialog();
+            }
+            
+            if (ImGui::BeginMenu("Quick Actions")) {
+                bool hasAI = m_AIManager && m_AIManager->HasActiveProvider();
+                
+                if (!hasAI) {
+                    ImGui::BeginDisabled();
+                }
+                
+                if (ImGui::MenuItem("Suggest New Feature")) {
+                    m_ShowAI = true;
+                    if (m_AIWindow) {
+                        m_AIWindow->AddMessage(ChatMessage::USER, "I'm working on a game engine and need suggestions for new features. What are some innovative features I could add to enhance the development experience?");
+                    }
+                }
+                if (ImGui::MenuItem("Code Review Help")) {
+                    m_ShowAI = true;
+                    if (m_AIWindow) {
+                        m_AIWindow->AddMessage(ChatMessage::USER, "I need help reviewing my game engine code. What are the best practices for C++ game engine architecture?");
+                    }
+                }
+                if (ImGui::MenuItem("Game Logic Advice")) {
+                    m_ShowAI = true;
+                    if (m_AIWindow) {
+                        m_AIWindow->AddMessage(ChatMessage::USER, "I need advice on implementing efficient game logic systems. What patterns should I consider for my ECS-based game engine?");
+                    }
+                }
+                
+                if (!hasAI) {
+                    ImGui::EndDisabled();
+                    ImGui::Separator();
+                    ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "Configure API key to enable");
+                }
+                
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
         ImGui::EndMainMenuBar();
+    }
+}
+
+void UIManager::DrawAPIKeyDialog() {
+    if (m_ShowAPIKeyDialog) {
+        ImGui::OpenPopup("Configure AI API");
+    }
+    
+    // Always draw the popup modal
+    if (ImGui::BeginPopupModal("Configure AI API", &m_ShowAPIKeyDialog, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Configure AI Provider Settings");
+        ImGui::Separator();
+        
+        // Provider selection
+        const char* providers[] = {"OpenAI", "Azure OpenAI"};
+        ImGui::Combo("Provider", &m_SelectedProvider, providers, IM_ARRAYSIZE(providers));
+        
+        // API Key input with proper clipboard support
+        ImGui::Text("API Key:");
+        ImGui::SetNextItemWidth(400);
+        
+        // Enable copy/paste and other standard shortcuts for API key field
+        ImGuiInputTextFlags apiKeyFlags = ImGuiInputTextFlags_Password | 
+                                         ImGuiInputTextFlags_CtrlEnterForNewLine |
+                                         ImGuiInputTextFlags_AllowTabInput;
+        
+        ImGui::InputText("##APIKey", m_APIKeyBuffer, sizeof(m_APIKeyBuffer), apiKeyFlags);
+        
+        // Show hint for copy/paste
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Ctrl+V to paste, Ctrl+A to select all");
+        }
+        
+        // Endpoint input (for Azure) with clipboard support
+        if (m_SelectedProvider == 1) { // Azure OpenAI
+            ImGui::Text("Endpoint:");
+            ImGui::SetNextItemWidth(400);
+            
+            ImGuiInputTextFlags endpointFlags = ImGuiInputTextFlags_CtrlEnterForNewLine |
+                                               ImGuiInputTextFlags_AllowTabInput;
+            
+            ImGui::InputText("##Endpoint", m_EndpointBuffer, sizeof(m_EndpointBuffer), endpointFlags);
+            
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Ctrl+V to paste your Azure endpoint URL");
+            }
+            
+            ImGui::TextWrapped("Example: https://your-resource.openai.azure.com/");
+        }
+        
+        ImGui::Separator();
+        
+        // Test connection button
+        if (ImGui::Button("Test Connection")) {
+            std::string provider = providers[m_SelectedProvider];
+            std::string apiKey = m_APIKeyBuffer;
+            std::string endpoint = m_EndpointBuffer;
+            
+            if (!apiKey.empty()) {
+                m_ConsoleMessages.push_back("Testing connection to " + provider + "...");
+                
+                // Temporarily initialize AI for testing
+                AIManager testManager;
+                if (testManager.InitializeProvider(provider, apiKey, endpoint)) {
+                    AIResponse testResponse = testManager.TestConnection();
+                    if (testResponse.success) {
+                        m_ConsoleMessages.push_back("? Connection test successful!");
+                    } else {
+                        m_ConsoleMessages.push_back("? Connection test failed: " + testResponse.errorMessage);
+                    }
+                } else {
+                    m_ConsoleMessages.push_back("? Failed to initialize provider for testing");
+                }
+            } else {
+                m_ConsoleMessages.push_back("Please enter an API key to test");
+            }
+        }
+        
+        ImGui::SameLine();
+        
+        // Buttons
+        bool saveClicked = ImGui::Button("Save & Connect");
+        ImGui::SameLine();
+        bool cancelClicked = ImGui::Button("Cancel");
+        
+        if (saveClicked) {
+            std::string provider = providers[m_SelectedProvider];
+            std::string apiKey = m_APIKeyBuffer;
+            std::string endpoint = m_EndpointBuffer;
+            
+            if (!apiKey.empty()) {
+                InitializeAI(apiKey, provider, endpoint);
+                m_ShowAPIKeyDialog = false;
+                
+                // Clear buffers for security
+                memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
+                memset(m_EndpointBuffer, 0, sizeof(m_EndpointBuffer));
+                
+                m_ConsoleMessages.push_back("API key configured for: " + provider);
+            } else {
+                m_ConsoleMessages.push_back("Please enter an API key");
+            }
+        }
+        
+        if (cancelClicked) {
+            m_ShowAPIKeyDialog = false;
+            // Clear buffers for security
+            memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
+            memset(m_EndpointBuffer, 0, sizeof(m_EndpointBuffer));
+        }
+        
+        ImGui::Spacing();
+        ImGui::TextWrapped("Note: Your API key will be saved locally in ai_config.json. Keep this file secure and do not commit it to version control.");
+        
+        // Keyboard shortcuts help
+        ImGui::Spacing();
+        if (ImGui::CollapsingHeader("Keyboard Shortcuts")) {
+            ImGui::BulletText("Ctrl+V: Paste");
+            ImGui::BulletText("Ctrl+C: Copy");
+            ImGui::BulletText("Ctrl+A: Select All");
+            ImGui::BulletText("Ctrl+Z: Undo");
+            ImGui::BulletText("Tab: Move between fields");
+        }
+        
+        // Help text
+        ImGui::Spacing();
+        if (ImGui::CollapsingHeader("Help: Getting an API Key")) {
+            ImGui::TextWrapped("OpenAI API Key:");
+            ImGui::BulletText("Go to https://platform.openai.com/");
+            ImGui::BulletText("Sign up or log in");
+            ImGui::BulletText("Navigate to API Keys section");
+            ImGui::BulletText("Create a new API key");
+            ImGui::BulletText("Copy the key (starts with 'sk-')");
+            
+            ImGui::Spacing();
+            ImGui::TextWrapped("Azure OpenAI:");
+            ImGui::BulletText("Create an Azure OpenAI resource in Azure Portal");
+            ImGui::BulletText("Get the API key from the resource");
+            ImGui::BulletText("Get the endpoint URL");
+        }
+        
+        ImGui::EndPopup();
+    }
+}
+
+void UIManager::ShowAPIKeyDialog() { 
+    m_ShowAPIKeyDialog = true; 
+    // Pre-fill with existing key if available (masked)
+    if (AIConfig::Instance().HasAPIKey("OpenAI")) {
+        // Don't show the actual key for security, just indicate it exists
+        std::string maskedKey = "***CONFIGURED***";
+        strncpy_s(m_APIKeyBuffer, sizeof(m_APIKeyBuffer), maskedKey.c_str(), _TRUNCATE);
+    }
+    if (AIConfig::Instance().HasAPIKey("Azure")) {
+        m_SelectedProvider = 1; // Set to Azure if it's configured
     }
 }
 

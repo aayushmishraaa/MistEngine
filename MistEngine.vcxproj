@@ -130,6 +130,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\AI\AIConfig.cpp" />
+    <ClCompile Include="src\AI\AIManager.cpp" />
+    <ClCompile Include="src\AI\AIWindow.cpp" />
+    <ClCompile Include="src\AI\HttpClient.cpp" />
+    <ClCompile Include="src\AI\OpenAIProvider.cpp" />
+    <ClCompile Include="src\AI\SimpleJson.cpp" />
     <ClCompile Include="src\Camera.cpp" />
     <ClCompile Include="src\ECS\Systems\ECSPhysicsSystem.cpp" />
     <ClCompile Include="src\ECS\Systems\RenderSystem.cpp" />
@@ -154,12 +160,22 @@
     <ClCompile Include="src\UIManager.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="ai_config.example.json" />
+    <None Include="AI_README.md" />
+    <None Include="packages.config" />
     <None Include="shaders\depth_fragment.glsl" />
     <None Include="shaders\depth_vertex.glsl" />
     <None Include="shaders\fragment.glsl" />
     <None Include="shaders\vertex.glsl" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\AI\AIConfig.h" />
+    <ClInclude Include="include\AI\AIManager.h" />
+    <ClInclude Include="include\AI\AIProvider.h" />
+    <ClInclude Include="include\AI\AIWindow.h" />
+    <ClInclude Include="include\AI\HttpClient.h" />
+    <ClInclude Include="include\AI\OpenAIProvider.h" />
+    <ClInclude Include="include\AI\SimpleJson.h" />
     <ClInclude Include="include\Camera.h" />
     <ClInclude Include="include\ECS\Component.h" />
     <ClInclude Include="include\ECS\ComponentArray.h" />
