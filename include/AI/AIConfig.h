@@ -39,7 +39,7 @@ private:
     
     std::map<std::string, std::string> m_apiKeys;
     std::map<std::string, std::string> m_endpoints;
-    std::string m_defaultModel = "gpt-3.5-turbo";
+    std::string m_defaultModel = "gemini-1.5-flash";
     float m_defaultTemperature = 0.7f;
     int m_defaultMaxTokens = 1000;
 };

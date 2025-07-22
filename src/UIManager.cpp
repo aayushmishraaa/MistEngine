@@ -14,6 +14,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
+#include <sstream>
 
 extern Coordinator gCoordinator;
 
@@ -53,8 +54,19 @@ bool UIManager::Initialize(GLFWwindow* window) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
+    
+    // Enable keyboard controls and clipboard
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    
+    // Explicitly set clipboard functions to ensure copy/paste works
+    io.SetClipboardTextFn = [](void* user_data, const char* text) {
+        glfwSetClipboardString((GLFWwindow*)user_data, text);
+    };
+    io.GetClipboardTextFn = [](void* user_data) -> const char* {
+        return glfwGetClipboardString((GLFWwindow*)user_data);
+    };
+    io.ClipboardUserData = window;
 
     // Setup Dear ImGui style
     ImGui::StyleColorsDark();
@@ -62,15 +74,21 @@ bool UIManager::Initialize(GLFWwindow* window) {
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
+    
+    // Verify clipboard functions are set
+    if (io.GetClipboardTextFn && io.SetClipboardTextFn) {
+        m_ConsoleMessages.push_back("Clipboard functions initialized successfully");
+    } else {
+        m_ConsoleMessages.push_back("Warning: Clipboard functions not properly initialized");
+    }
 
     // Load AI configuration
     AIConfig::Instance().LoadFromFile();
     
     // Try to auto-initialize AI if API key is available
-    if (AIConfig::Instance().HasAPIKey("OpenAI")) {
-        std::string apiKey = AIConfig::Instance().GetAPIKey("OpenAI");
-        std::string endpoint = AIConfig::Instance().GetEndpoint("OpenAI");
-        InitializeAI(apiKey, "OpenAI", endpoint);
+    if (AIConfig::Instance().HasAPIKey("Gemini")) {
+        std::string apiKey = AIConfig::Instance().GetAPIKey("Gemini");
+        InitializeAI(apiKey, "Gemini", "");
     }
 
     // Add some initial console messages
@@ -78,6 +96,7 @@ bool UIManager::Initialize(GLFWwindow* window) {
     m_ConsoleMessages.push_back("Press F1 to toggle ImGui demo window");
     m_ConsoleMessages.push_back("Press F2 to open AI assistant");
     m_ConsoleMessages.push_back("Use Window > Ask AI to open AI assistant");
+    m_ConsoleMessages.push_back("Clipboard support: Ctrl+C to copy, Ctrl+V to paste");
 
     return true;
 }
@@ -141,10 +160,18 @@ void UIManager::InitializeAI(const std::string& apiKey, const std::string& provi
         if (success) {
             m_ConsoleMessages.push_back("AI provider initialized: " + provider);
             
-            // Save the configuration
+            // Save the configuration immediately
             AIConfig::Instance().SetAPIKey(provider, apiKey);
             if (!endpoint.empty()) {
                 AIConfig::Instance().SetEndpoint(provider, endpoint);
+            }
+            
+            // Force save to ensure persistence
+            bool saved = AIConfig::Instance().SaveToFile();
+            if (saved) {
+                m_ConsoleMessages.push_back("Configuration saved successfully");
+            } else {
+                m_ConsoleMessages.push_back("Warning: Failed to save configuration");
             }
             
             if (m_AIWindow) {
@@ -281,40 +308,42 @@ void UIManager::DrawAPIKeyDialog() {
         ImGui::Separator();
         
         // Provider selection
-        const char* providers[] = {"OpenAI", "Azure OpenAI"};
+        const char* providers[] = {"Google Gemini"};
         ImGui::Combo("Provider", &m_SelectedProvider, providers, IM_ARRAYSIZE(providers));
         
-        // API Key input with proper clipboard support
+        // API Key input
         ImGui::Text("API Key:");
         ImGui::SetNextItemWidth(400);
         
-        // Enable copy/paste and other standard shortcuts for API key field
-        ImGuiInputTextFlags apiKeyFlags = ImGuiInputTextFlags_Password | 
-                                         ImGuiInputTextFlags_CtrlEnterForNewLine |
-                                         ImGuiInputTextFlags_AllowTabInput;
+        bool apiKeyChanged = ImGui::InputText("##APIKey", m_APIKeyBuffer, sizeof(m_APIKeyBuffer));
         
-        ImGui::InputText("##APIKey", m_APIKeyBuffer, sizeof(m_APIKeyBuffer), apiKeyFlags);
-        
-        // Show hint for copy/paste
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Ctrl+V to paste, Ctrl+A to select all");
+            ImGui::SetTooltip("Enter your Gemini API key here");
         }
         
-        // Endpoint input (for Azure) with clipboard support
-        if (m_SelectedProvider == 1) { // Azure OpenAI
-            ImGui::Text("Endpoint:");
-            ImGui::SetNextItemWidth(400);
-            
-            ImGuiInputTextFlags endpointFlags = ImGuiInputTextFlags_CtrlEnterForNewLine |
-                                               ImGuiInputTextFlags_AllowTabInput;
-            
-            ImGui::InputText("##Endpoint", m_EndpointBuffer, sizeof(m_EndpointBuffer), endpointFlags);
-            
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Ctrl+V to paste your Azure endpoint URL");
+        if (ImGui::IsItemActive()) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0, 1, 0, 1), "(ACTIVE)");
+        }
+        
+        // Paste and Clear buttons (keeping these since they work well)
+        ImGui::SameLine();
+        if (ImGui::Button("Paste##API")) {
+            const char* clipText = ImGui::GetClipboardText();
+            if (clipText) {
+                strncpy_s(m_APIKeyBuffer, sizeof(m_APIKeyBuffer), clipText, _TRUNCATE);
+                apiKeyChanged = true;
+                m_ConsoleMessages.push_back("? Pasted API key from clipboard");
+            } else {
+                m_ConsoleMessages.push_back("? Nothing in clipboard to paste");
             }
-            
-            ImGui::TextWrapped("Example: https://your-resource.openai.azure.com/");
+        }
+        
+        ImGui::SameLine();
+        if (ImGui::Button("Clear##API")) {
+            memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
+            apiKeyChanged = true;
+            m_ConsoleMessages.push_back("API key field cleared");
         }
         
         ImGui::Separator();
@@ -323,26 +352,63 @@ void UIManager::DrawAPIKeyDialog() {
         if (ImGui::Button("Test Connection")) {
             std::string provider = providers[m_SelectedProvider];
             std::string apiKey = m_APIKeyBuffer;
-            std::string endpoint = m_EndpointBuffer;
             
             if (!apiKey.empty()) {
-                m_ConsoleMessages.push_back("Testing connection to " + provider + "...");
+                m_ConsoleMessages.push_back("?? Testing connection to " + provider + "...");
+                m_ConsoleMessages.push_back("?? Using minimal request to test connection");
                 
                 // Temporarily initialize AI for testing
                 AIManager testManager;
-                if (testManager.InitializeProvider(provider, apiKey, endpoint)) {
+                if (testManager.InitializeProvider(provider, apiKey, "")) {
                     AIResponse testResponse = testManager.TestConnection();
                     if (testResponse.success) {
                         m_ConsoleMessages.push_back("? Connection test successful!");
+                        m_ConsoleMessages.push_back("Response: " + testResponse.content);
                     } else {
-                        m_ConsoleMessages.push_back("? Connection test failed: " + testResponse.errorMessage);
+                        m_ConsoleMessages.push_back("? Connection test failed:");
+                        // Split multi-line error messages
+                        std::istringstream iss(testResponse.errorMessage);
+                        std::string line;
+                        while (std::getline(iss, line)) {
+                            if (!line.empty()) {
+                                m_ConsoleMessages.push_back(line);
+                            }
+                        }
                     }
                 } else {
                     m_ConsoleMessages.push_back("? Failed to initialize provider for testing");
                 }
             } else {
-                m_ConsoleMessages.push_back("Please enter an API key to test");
+                m_ConsoleMessages.push_back("?? Please enter an API key to test");
             }
+        }
+        
+        // Add diagnostic info button for Gemini
+        ImGui::SameLine();
+        if (ImGui::Button("Diagnostic Info")) {
+            m_ConsoleMessages.push_back("?? GOOGLE GEMINI SETUP GUIDE:");
+            m_ConsoleMessages.push_back("");
+            m_ConsoleMessages.push_back("1. GET YOUR API KEY:");
+            m_ConsoleMessages.push_back("   • Go to https://aistudio.google.com/app/apikey");
+            m_ConsoleMessages.push_back("   • Sign in with your Google account");
+            m_ConsoleMessages.push_back("   • Click 'Create API Key'");
+            m_ConsoleMessages.push_back("   • Copy the generated key");
+            m_ConsoleMessages.push_back("");
+            m_ConsoleMessages.push_back("2. ENABLE GEMINI API:");
+            m_ConsoleMessages.push_back("   • API is free with rate limits");
+            m_ConsoleMessages.push_back("   • No billing setup required for basic usage");
+            m_ConsoleMessages.push_back("   • Higher limits available with paid plans");
+            m_ConsoleMessages.push_back("");
+            m_ConsoleMessages.push_back("3. UPDATED MODELS (2024):");
+            m_ConsoleMessages.push_back("   • gemini-1.5-flash: Fast & efficient (default)");
+            m_ConsoleMessages.push_back("   • gemini-1.5-pro: Most capable model");
+            m_ConsoleMessages.push_back("   • gemini-1.0-pro: Stable baseline");
+            m_ConsoleMessages.push_back("   • Note: Old 'gemini-pro' is deprecated");
+            m_ConsoleMessages.push_back("");
+            m_ConsoleMessages.push_back("4. RATE LIMITS:");
+            m_ConsoleMessages.push_back("   • Free tier: 15 requests/minute");
+            m_ConsoleMessages.push_back("   • No daily token limits on free tier");
+            m_ConsoleMessages.push_back("   • Much more generous than OpenAI free tier");
         }
         
         ImGui::SameLine();
@@ -393,19 +459,21 @@ void UIManager::DrawAPIKeyDialog() {
         
         // Help text
         ImGui::Spacing();
-        if (ImGui::CollapsingHeader("Help: Getting an API Key")) {
-            ImGui::TextWrapped("OpenAI API Key:");
-            ImGui::BulletText("Go to https://platform.openai.com/");
-            ImGui::BulletText("Sign up or log in");
-            ImGui::BulletText("Navigate to API Keys section");
-            ImGui::BulletText("Create a new API key");
-            ImGui::BulletText("Copy the key (starts with 'sk-')");
+        if (ImGui::CollapsingHeader("Help: Getting a Gemini API Key")) {
+            ImGui::TextWrapped("Getting Started with Google Gemini:");
+            ImGui::BulletText("Go to https://aistudio.google.com/app/apikey");
+            ImGui::BulletText("Sign in with your Google account");
+            ImGui::BulletText("Click 'Create API Key' button");
+            ImGui::BulletText("Copy the generated API key");
+            ImGui::BulletText("Paste it in the field above");
             
             ImGui::Spacing();
-            ImGui::TextWrapped("Azure OpenAI:");
-            ImGui::BulletText("Create an Azure OpenAI resource in Azure Portal");
-            ImGui::BulletText("Get the API key from the resource");
-            ImGui::BulletText("Get the endpoint URL");
+            ImGui::TextWrapped("Advantages of Gemini:");
+            ImGui::BulletText("Free tier with generous limits");
+            ImGui::BulletText("No billing setup required initially");
+            ImGui::BulletText("15 requests/minute on free tier");
+            ImGui::BulletText("High-quality responses comparable to GPT-4");
+            ImGui::BulletText("Supports both text and vision models");
         }
         
         ImGui::EndPopup();
@@ -415,13 +483,10 @@ void UIManager::DrawAPIKeyDialog() {
 void UIManager::ShowAPIKeyDialog() { 
     m_ShowAPIKeyDialog = true; 
     // Pre-fill with existing key if available (masked)
-    if (AIConfig::Instance().HasAPIKey("OpenAI")) {
+    if (AIConfig::Instance().HasAPIKey("Gemini")) {
         // Don't show the actual key for security, just indicate it exists
         std::string maskedKey = "***CONFIGURED***";
         strncpy_s(m_APIKeyBuffer, sizeof(m_APIKeyBuffer), maskedKey.c_str(), _TRUNCATE);
-    }
-    if (AIConfig::Instance().HasAPIKey("Azure")) {
-        m_SelectedProvider = 1; // Set to Azure if it's configured
     }
 }
 

@@ -46,6 +46,7 @@ public:
     std::string GetModel() const { return m_currentModel; }
     float GetTemperature() const { return m_temperature; }
     int GetMaxTokens() const { return m_maxTokens; }
+    std::vector<std::string> GetAvailableModels() const;
     
 private:
     std::unique_ptr<AIProvider> m_provider;

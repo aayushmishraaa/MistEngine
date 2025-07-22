@@ -1,9 +1,9 @@
 #include "AI/AIManager.h"
-#include "AI/OpenAIProvider.h"
+#include "AI/GeminiProvider.h"
 #include <iostream>
 
 AIManager::AIManager() 
-    : m_currentModel("gpt-3.5-turbo")
+    : m_currentModel("gemini-1.5-flash")
     , m_temperature(0.7f)
     , m_maxTokens(1000) {
 }
@@ -11,8 +11,8 @@ AIManager::AIManager()
 AIManager::~AIManager() = default;
 
 bool AIManager::InitializeProvider(const std::string& providerName, const std::string& apiKey, const std::string& endpoint) {
-    if (providerName == "OpenAI" || providerName == "openai") {
-        m_provider = std::make_unique<OpenAIProvider>();
+    if (providerName == "Gemini" || providerName == "Google Gemini" || providerName == "gemini") {
+        m_provider = std::make_unique<GeminiProvider>();
         return m_provider->Initialize(apiKey, endpoint);
     }
     
@@ -116,6 +116,13 @@ void AIManager::SetMaxTokens(int maxTokens) {
     m_maxTokens = std::max(1, std::min(4000, maxTokens));
 }
 
+std::vector<std::string> AIManager::GetAvailableModels() const {
+    if (HasActiveProvider()) {
+        return m_provider->GetAvailableModels();
+    }
+    return {}; // Return empty vector if no provider is active
+}
+
 std::string AIManager::GetGameDevSystemPrompt() const {
     return "You are an expert game developer and AI assistant specialized in game engine development, "
            "game logic implementation, and C++ programming. You have extensive knowledge of graphics programming, "
@@ -173,16 +180,53 @@ AIResponse AIManager::TestConnection() {
         return AIResponse(false, "No AI provider available");
     }
     
-    // Send a simple test request
+    // Send a simple test request with minimal token usage
     AIRequest request;
-    request.model = m_currentModel;
+    request.model = "gemini-1.5-flash"; // Use the available Gemini model for testing
     request.temperature = 0.1f; // Low temperature for consistent response
-    request.maxTokens = 50; // Small response to save tokens
-    request.systemPrompt = "You are a helpful assistant. Respond briefly.";
+    request.maxTokens = 20; // Very small response to minimize usage
+    request.systemPrompt = "You are a helpful AI assistant. Respond very briefly.";
     
-    request.messages.emplace_back(AIMessage::USER, "Hello, can you confirm you're working? Please respond with just 'Connection successful.'");
+    request.messages.emplace_back(AIMessage::USER, "Hello, please respond with 'Connection successful!'");
     
-    return m_provider->SendRequest(request);
+    AIResponse testResponse = m_provider->SendRequest(request);
+    
+    if (testResponse.success) {
+        testResponse.content = "? Gemini connection successful! " + testResponse.content;
+        testResponse.errorMessage = "Google Gemini API connection verified";
+    } else {
+        // Add additional context to error message
+        std::string enhancedError = "? Gemini connection failed: " + testResponse.errorMessage;
+        
+        if (testResponse.errorMessage.find("401") != std::string::npos) {
+            enhancedError += "\n\n?? API KEY ISSUES:\n";
+            enhancedError += "• Your API key appears to be invalid\n";
+            enhancedError += "• Get a key from https://aistudio.google.com/app/apikey\n";
+            enhancedError += "• Make sure you copied the entire key\n";
+            enhancedError += "• Ensure the key is active";
+        } else if (testResponse.errorMessage.find("403") != std::string::npos) {
+            enhancedError += "\n\n?? ACCESS ISSUES:\n";
+            enhancedError += "• Gemini API may not be enabled\n";
+            enhancedError += "• Check your Google Cloud project settings\n";
+            enhancedError += "• Verify API access permissions\n";
+            enhancedError += "• Try creating a new API key";
+        } else if (testResponse.errorMessage.find("404") != std::string::npos) {
+            enhancedError += "\n\n?? MODEL NOT FOUND:\n";
+            enhancedError += "• Using updated model: gemini-1.5-flash\n";
+            enhancedError += "• Older model names may not be available\n";
+            enhancedError += "• API version updated to v1\n";
+            enhancedError += "• Try the test again with the updated model";
+        } else if (testResponse.errorMessage.find("429") != std::string::npos) {
+            enhancedError += "\n\n?? RATE LIMIT:\n";
+            enhancedError += "• Free tier: 15 requests/minute\n";
+            enhancedError += "• Wait a moment and try again\n";
+            enhancedError += "• Consider upgrading for higher limits";
+        }
+        
+        testResponse.errorMessage = enhancedError;
+    }
+    
+    return testResponse;
 }
 
 std::future<AIResponse> AIManager::TestConnectionAsync() {

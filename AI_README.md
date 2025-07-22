@@ -1,96 +1,55 @@
-# MistEngine AI Integration
+# AI Integration System
 
-This implementation adds AI-powered assistance to your MistEngine game engine project. The AI assistant can help with feature suggestions, code implementations, game logic advice, and general development questions.
+The MistEngine AI system provides integrated AI assistance for game development tasks using Google Gemini AI.
 
 ## Features
 
-- **Ask AI Window**: Interactive chat interface for AI assistance
-- **Specialized Request Types**: 
-  - Feature Suggestions
-  - Code Implementation Help
-  - Game Logic Advice
-  - Code Optimization
-  - Code Explanation
-  - Custom Prompts
-- **Multiple AI Providers**: Support for OpenAI and Azure OpenAI
-- **Configuration Management**: Secure API key storage
-- **Hotkey Support**: Press F2 to open AI window
+- **Gemini AI Integration**: Uses Google's powerful Gemini models
+- **Multiple Request Types**: Feature suggestions, code implementation, game logic advice
+- **Conversation History**: Maintains context across interactions
+- **Free Tier Support**: Generous free limits without billing setup
+- **ImGui Interface**: Integrated seamlessly with the engine's UI
 
-## Setup Instructions
+## Quick Setup
 
-### 1. Install NuGet Dependencies
+1. **Get API Key**: Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. **Configure**: Use `AI > Configure API Key` menu
+3. **Test Connection**: Verify your setup works
+4. **Start Chatting**: Press F2 to open the AI assistant
 
-Add the following package to your project using NuGet Package Manager:
+## Configuration
 
-```xml
-<package id="nlohmann.json" version="3.11.3" targetFramework="native" />
-```
+### Setting up Gemini API
 
-Or via Package Manager Console:
-```
-Install-Package nlohmann.json
-```
+1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Sign in with your Google account
+3. Click "Create API Key"
+4. Copy the generated API key
+5. In MistEngine: `AI > Configure API Key`
+6. Paste your key and click "Test Connection"
 
-### 2. Update Project Files
+### Available Models
 
-Add the following files to your Visual Studio project:
+- **gemini-1.5-flash**: Fast, efficient model (recommended for most use cases)
+- **gemini-1.5-pro**: Most capable model with enhanced reasoning
+- **gemini-1.0-pro**: Stable baseline model
 
-**Header Files (include/AI/):**
-- `AIProvider.h`
-- `HttpClient.h` 
-- `OpenAIProvider.h`
-- `AIManager.h`
-- `AIWindow.h`
-- `AIConfig.h`
+### Configuration File
 
-**Source Files (src/AI/):**
-- `HttpClient.cpp`
-- `OpenAIProvider.cpp`
-- `AIManager.cpp`
-- `AIWindow.cpp`
-- `AIConfig.cpp`
-
-### 3. Configure API Key
-
-#### Option 1: Configuration Dialog
-1. Run the application
-2. Go to **AI Menu > Configure API Key**
-3. Enter your OpenAI API key
-4. Click "Save & Connect"
-
-#### Option 2: Configuration File
-1. Create `ai_config.json` in your project root:
+The system saves settings to `ai_config.json`:
 
 ```json
 {
   "api_keys": {
-    "OpenAI": "sk-your-openai-api-key-here"
-  },
-  "endpoints": {
-    "OpenAI": "",
-    "Azure": "https://your-resource.openai.azure.com/"
+    "Gemini": "your-api-key-here"
   },
   "defaults": {
-    "model": "gpt-3.5-turbo",
+    "model": "gemini-1.5-flash",
     "temperature": 0.7,
     "max_tokens": 1000
   }
 }
 ```
-
-### 4. Getting API Keys
-
-#### OpenAI
-1. Go to [OpenAI Platform](https://platform.openai.com/)
-2. Sign up or log in
-3. Navigate to API Keys section
-4. Create a new API key
-5. Copy the key (starts with `sk-`)
-
-#### Azure OpenAI
-1. Create an Azure OpenAI resource in Azure Portal
-2. Get the API key from the resource
-3. Get the endpoint URL (e.g., `https://your-resource.openai.azure.com/`)
 
 ## Usage
 
@@ -115,12 +74,25 @@ Use the **AI Menu > Quick Actions** for predefined prompts:
 - Code Review Help
 - Game Logic Advice
 
+## Rate Limits & Costs
+
+### Free Tier
+- **15 requests per minute**
+- **No daily token limits**
+- **No billing required**
+- **Much more generous than OpenAI**
+
+### Paid Plans
+- Higher rate limits available
+- Pay-per-use pricing
+- Enterprise features
+
 ## Architecture Overview
 
 ### Core Components
 
 1. **AIProvider**: Abstract interface for AI services
-2. **OpenAIProvider**: OpenAI API implementation
+2. **GeminiProvider**: Google Gemini API implementation
 3. **AIManager**: Coordinates AI functionality
 4. **AIWindow**: ImGui-based user interface
 5. **AIConfig**: Configuration management
@@ -142,60 +114,48 @@ Use the **AI Menu > Quick Actions** for predefined prompts:
 
 ## Dependencies
 
-- **nlohmann/json**: JSON parsing for API communication
 - **WinINet**: HTTP client implementation (Windows only)
 - **ImGui**: User interface components
+- **SimpleJson**: Basic JSON parsing
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **"HTTP client not implemented"**
-   - Ensure you're building on Windows
-   - WinINet library should be linked automatically
+1. **"Unauthorized - Invalid API key"**
+   - Get a new key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+   - Ensure you copied the complete key
+   - Check that the key is active
 
-2. **"No AI provider available"**
-   - Check your API key configuration
-   - Verify internet connectivity
-   - Ensure API key is valid
+2. **"Rate limit exceeded"**
+   - Free tier: 15 requests/minute
+   - Wait a moment and try again
+   - Consider upgrading for higher limits
 
-3. **JSON parsing errors**
-   - Ensure nlohmann/json package is installed
-   - Check that the package is properly referenced
+3. **"Forbidden - Access denied"**
+   - Enable the Gemini API in Google Cloud Console
+   - Check your account permissions
+   - Verify API access
 
 ### Build Requirements
 
 - C++14 or later
 - Windows platform (for WinINet HTTP client)
 - Visual Studio 2017 or later
-- NuGet package management
+
+## Advantages of Gemini
+
+- **Free to start**: No billing setup required
+- **Generous limits**: 15 requests/minute on free tier
+- **High quality**: Comparable to GPT-4 performance
+- **Fast responses**: Low latency from Google's infrastructure
+- **Multimodal**: Support for text and images
+- **Safety focused**: Built-in content filtering
 
 ## Future Enhancements
 
-- Add support for other AI providers (Anthropic, Google)
-- Implement cross-platform HTTP client
-- Add conversation history persistence
-- Integrate with code editor for context-aware suggestions
+- Add support for vision models with image input
+- Implement conversation persistence
 - Add voice input/output capabilities
-- Implement AI-assisted debugging
-
-## Example Usage
-
-```cpp
-// In your main.cpp, after UI initialization:
-uiManager.InitializeAI("your-api-key", "OpenAI");
-
-// The AI window can be accessed via:
-// - F2 hotkey
-// - AI menu
-// - Window menu
-```
-
-## API Reference
-
-See the header files for detailed API documentation. Key classes:
-
-- `AIManager`: Main interface for AI functionality
-- `AIWindow`: UI component for user interaction
-- `AIConfig`: Configuration management
-- `AIProvider`: Abstract base for AI services
+- Integrate with code editor for context-aware suggestions
+- Add model fine-tuning support

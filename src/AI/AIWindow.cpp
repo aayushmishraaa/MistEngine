@@ -134,20 +134,47 @@ void AIWindow::DrawChatArea() {
 }
 
 void AIWindow::DrawInputArea() {
-    // Input field with proper clipboard support
-    ImGui::PushItemWidth(-120);
-    
-    ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue |
-                                   ImGuiInputTextFlags_CtrlEnterForNewLine |
-                                   ImGuiInputTextFlags_AllowTabInput;
+    // Simple input field for maximum compatibility
+    ImGui::PushItemWidth(-180); // Make room for buttons
     
     bool enterPressed = ImGui::InputTextMultiline("##Input", m_inputBuffer, sizeof(m_inputBuffer), 
-                                                 ImVec2(0, 50), inputFlags);
+                                                 ImVec2(0, 50), ImGuiInputTextFlags_EnterReturnsTrue);
     ImGui::PopItemWidth();
     
-    // Show tooltip for keyboard shortcuts
+    // Show tooltip
     if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Enter: Send message\nCtrl+Enter: New line\nCtrl+V: Paste\nCtrl+A: Select all");
+        ImGui::SetTooltip("Enter: Send message\nUse Paste button if Ctrl+V doesn't work");
+    }
+    
+    // Show active status
+    if (ImGui::IsItemActive()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0, 1, 0, 1), "(Active)");
+    }
+    
+    // GUARANTEED paste button
+    ImGui::SameLine();
+    if (ImGui::Button("Paste##Chat")) {
+        const char* clipText = ImGui::GetClipboardText();
+        if (clipText) {
+            size_t currentLen = strlen(m_inputBuffer);
+            size_t clipLen = strlen(clipText);
+            if (currentLen + clipLen < sizeof(m_inputBuffer) - 1) {
+                strcat_s(m_inputBuffer, sizeof(m_inputBuffer), clipText);
+                AddMessage(ChatMessage::SYSTEM, "? Text pasted from clipboard");
+            } else {
+                AddMessage(ChatMessage::SYSTEM, "? Text too long to paste");
+            }
+        } else {
+            AddMessage(ChatMessage::SYSTEM, "? Nothing in clipboard");
+        }
+    }
+    
+    // Clear button
+    ImGui::SameLine();
+    if (ImGui::Button("Clear##Chat")) {
+        memset(m_inputBuffer, 0, sizeof(m_inputBuffer));
+        AddMessage(ChatMessage::SYSTEM, "Chat input cleared");
     }
     
     ImGui::SameLine();
@@ -159,7 +186,7 @@ void AIWindow::DrawInputArea() {
         ImGui::BeginDisabled();
     }
     
-    bool sendClicked = ImGui::Button("Send", ImVec2(100, 50));
+    bool sendClicked = ImGui::Button("Send", ImVec2(60, 50));
     
     if (!canSend) {
         ImGui::EndDisabled();
@@ -194,7 +221,9 @@ void AIWindow::DrawSettingsPanel() {
             if (m_aiManager->HasActiveProvider()) {
                 std::string currentModel = m_aiManager->GetModel();
                 if (ImGui::BeginCombo("Model", currentModel.c_str())) {
-                    std::vector<std::string> models = {"gpt-3.5-turbo", "gpt-4", "gpt-4-turbo-preview"};
+                    // Get available models from the active provider
+                    std::vector<std::string> models = m_aiManager->GetAvailableModels();
+                    
                     for (const auto& model : models) {
                         bool isSelected = (currentModel == model);
                         if (ImGui::Selectable(model.c_str(), isSelected)) {

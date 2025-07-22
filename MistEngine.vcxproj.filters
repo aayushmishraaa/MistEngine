@@ -111,6 +111,9 @@
     <ClCompile Include="src\AI\SimpleJson.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\AI\GeminiProvider.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\fragment.glsl">
@@ -230,6 +233,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\AI\SimpleJson.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\AI\GeminiProvider.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

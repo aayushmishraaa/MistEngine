@@ -127,31 +127,120 @@ AIResponse OpenAIProvider::ParseResponse(const HttpResponse& httpResponse) {
         response.success = false;
         response.errorMessage = "API request failed with status: " + std::to_string(httpResponse.statusCode);
         
-        // Provide more specific error messages based on status code
+        // Parse error response body for more details
+        std::string errorDetails = "";
+        if (!httpResponse.body.empty()) {
+            // Try to parse the error response - simplified for our basic JSON parser
+            try {
+                // For now, just extract error message from the response body if it contains "message"
+                size_t messagePos = httpResponse.body.find("\"message\":");
+                if (messagePos != std::string::npos) {
+                    size_t startQuote = httpResponse.body.find("\"", messagePos + 10);
+                    if (startQuote != std::string::npos) {
+                        size_t endQuote = httpResponse.body.find("\"", startQuote + 1);
+                        if (endQuote != std::string::npos) {
+                            errorDetails = httpResponse.body.substr(startQuote + 1, endQuote - startQuote - 1);
+                        }
+                    }
+                }
+                
+                // Also check for type and code fields
+                size_t typePos = httpResponse.body.find("\"type\":");
+                if (typePos != std::string::npos) {
+                    size_t startQuote = httpResponse.body.find("\"", typePos + 7);
+                    if (startQuote != std::string::npos) {
+                        size_t endQuote = httpResponse.body.find("\"", startQuote + 1);
+                        if (endQuote != std::string::npos) {
+                            std::string typeValue = httpResponse.body.substr(startQuote + 1, endQuote - startQuote - 1);
+                            if (!typeValue.empty()) {
+                                errorDetails += " (Type: " + typeValue + ")";
+                            }
+                        }
+                    }
+                }
+                
+                // If we couldn't extract specific fields, use a portion of the raw response
+                if (errorDetails.empty()) {
+                    errorDetails = httpResponse.body.substr(0, 300);
+                }
+            } catch (...) {
+                // If anything fails, just use raw body
+                errorDetails = httpResponse.body.substr(0, 300);
+            }
+        }
+        
+        // Provide specific error messages based on status code
         switch (httpResponse.statusCode) {
             case 401:
-                response.errorMessage += " (Unauthorized - check your API key)";
+                response.errorMessage += " (Unauthorized - Invalid API key)";
+                if (!errorDetails.empty()) {
+                    response.errorMessage += "\nDetails: " + errorDetails;
+                }
+                response.errorMessage += "\n\n?? SOLUTIONS:\n";
+                response.errorMessage += "1. Check your API key is correct (starts with 'sk-')\n";
+                response.errorMessage += "2. Ensure your API key is active at https://platform.openai.com/api-keys\n";
+                response.errorMessage += "3. Try generating a new API key if the current one is old";
                 break;
             case 403:
-                response.errorMessage += " (Forbidden - API key may not have required permissions)";
+                response.errorMessage += " (Forbidden - API key lacks permissions)";
+                if (!errorDetails.empty()) {
+                    response.errorMessage += "\nDetails: " + errorDetails;
+                }
+                response.errorMessage += "\n\n?? SOLUTIONS:\n";
+                response.errorMessage += "1. Check if your API key has the required permissions\n";
+                response.errorMessage += "2. Verify your OpenAI account is in good standing\n";
+                response.errorMessage += "3. Contact OpenAI support if the issue persists";
                 break;
             case 429:
-                response.errorMessage += " (Rate limit exceeded - too many requests)";
+                response.errorMessage += " (Rate limit or quota exceeded)";
+                if (!errorDetails.empty()) {
+                    response.errorMessage += "\nDetails: " + errorDetails;
+                }
+                if (errorDetails.find("quota") != std::string::npos || 
+                    errorDetails.find("billing") != std::string::npos) {
+                    response.errorMessage += "\n\n?? QUOTA/BILLING ISSUE:\n";
+                    response.errorMessage += "1. Check your billing status at https://platform.openai.com/account/billing\n";
+                    response.errorMessage += "2. Add a payment method if you haven't already\n";
+                    response.errorMessage += "3. Check if you've exceeded your usage limits\n";
+                    response.errorMessage += "4. For new accounts, you may need to add credit first\n";
+                    response.errorMessage += "5. Free tier has limited usage - consider upgrading";
+                } else {
+                    response.errorMessage += "\n\n?? RATE LIMIT SOLUTIONS:\n";
+                    response.errorMessage += "1. Wait a moment and try again\n";
+                    response.errorMessage += "2. Reduce the frequency of requests\n";
+                    response.errorMessage += "3. Consider upgrading your plan for higher limits";
+                }
                 break;
             case 500:
-                response.errorMessage += " (Server error - try again later)";
+                response.errorMessage += " (Server error - OpenAI service issue)";
+                if (!errorDetails.empty()) {
+                    response.errorMessage += "\nDetails: " + errorDetails;
+                }
+                response.errorMessage += "\n\n?? SOLUTIONS:\n";
+                response.errorMessage += "1. Wait a few minutes and try again\n";
+                response.errorMessage += "2. Check OpenAI status at https://status.openai.com/\n";
+                response.errorMessage += "3. The issue is on OpenAI's side, not yours";
                 break;
             case 503:
-                response.errorMessage += " (Service unavailable - OpenAI servers may be down)";
+                response.errorMessage += " (Service unavailable - OpenAI servers overloaded)";
+                if (!errorDetails.empty()) {
+                    response.errorMessage += "\nDetails: " + errorDetails;
+                }
+                response.errorMessage += "\n\n?? SOLUTIONS:\n";
+                response.errorMessage += "1. Wait and retry in a few minutes\n";
+                response.errorMessage += "2. Check OpenAI status page\n";
+                response.errorMessage += "3. Try again during off-peak hours";
                 break;
             default:
                 response.errorMessage += " (Unexpected error)";
+                if (!errorDetails.empty()) {
+                    response.errorMessage += "\nDetails: " + errorDetails;
+                } else if (!httpResponse.body.empty()) {
+                    response.errorMessage += "\nResponse: " + httpResponse.body.substr(0, 200);
+                }
                 break;
         }
         
-        if (!httpResponse.body.empty()) {
-            response.errorMessage += "\nResponse: " + httpResponse.body.substr(0, 200);
-        }
         return response;
     }
     
