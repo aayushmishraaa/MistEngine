@@ -1,12 +1,7 @@
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-# ?? MistEngine v0.1.2 Pre-Alpha Release
-=======
-﻿# 🎮 MistEngine v0.2.0 Pre-Alpha Release
->>>>>>> Stashed changes
-=======
-﻿# 🎮 MistEngine v0.2.0 Pre-Alpha Release
->>>>>>> Stashed changes
+
+
+﻿🎮 MistEngine v0.2.0 Pre-Alpha Release
+
 
 **The second pre-alpha release of MistEngine - A Modern C++ Game Engine with AI Integration!**
 
@@ -230,23 +225,12 @@ We're actively looking for contributors! This is a great time to get involved.
 ## 📞 Support & Community
 
 ### Getting Help
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-- **?? Issues**: [Report bugs here](https://github.com/aayushmishraaa/MistEngine/issues)
-- **?? Discussions**: [Community forum](https://github.com/aayushmishraaa/MistEngine/discussions)
-- **?? AI Assistant**: Built-in help (press F2)
-- **?? Documentation**: See `docs/` folder in download
-=======
-=======
->>>>>>> Stashed changes
+
 - **🐛 Issues**: [Report bugs here](https://github.com/aayushmishraaa/MistEngine/issues)
 - **💬 Discussions**: [Community forum](https://github.com/aayushmishraaa/MistEngine/discussions)
 - **🤖 AI Assistant**: Built-in help (press F2)
 - **📚 Documentation**: See `docs/` folder in download
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
+
 
 ### Stay Updated
 - **⭐ Star this repository** for updates
