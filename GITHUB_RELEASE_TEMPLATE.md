@@ -1,8 +1,7 @@
 
 
-﻿🎮 MistEngine v0.2.0 Pre-Alpha Release
 
-
+# 🎮 MistEngine v0.2.0 Pre-Alpha Release
 **The second pre-alpha release of MistEngine - A Modern C++ Game Engine with AI Integration!**
 
 ---
