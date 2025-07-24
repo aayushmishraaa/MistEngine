@@ -1,12 +1,12 @@
 # ?? MistEngine Pre-Alpha Release Notes
 
-## Version: v0.1.2-pre-alpha
+## Version: v0.2.0-pre-alpha
 **Release Date**: January 2025
 **Build Status**: Pre-Alpha
 
 ---
 
-## ?? What's New in This Release
+## ?? What's New in v0.2.0
 
 ### ??? Core Engine Features
 - **Entity Component System (ECS)**: Complete ECS implementation with coordinator pattern
@@ -15,18 +15,20 @@
 - **Scene Management**: Hierarchical scene graph with transform management
 - **Real-time Editor**: ImGui-based editor with dockable windows
 
-### ?? AI Integration (New!)
+### ?? AI Integration (Enhanced!)
 - **Google Gemini AI**: Integrated AI assistant for development help
 - **Interactive Chat**: F2 to open AI chat window
 - **Code Suggestions**: Get help with engine features and implementations
 - **Free Tier**: Uses Gemini's generous free API (15 requests/minute)
 - **Quick Actions**: Pre-defined prompts for common development tasks
+- **Improved UI**: Better chat interface and response handling
 
 ### ??? Development Tools
 - **Hierarchy Window**: Manage scene entities
 - **Inspector Window**: Edit component properties with intuitive controls
 - **Console System**: Logging and debug output
 - **Asset Creation**: Built-in primitives (Cube, Sphere, Plane)
+- **Enhanced Documentation**: Comprehensive setup guides and tutorials
 
 ---
 
@@ -61,8 +63,8 @@
 - **Limited Asset Pipeline**: More format support needed
 
 ### Performance
-- **Debug Builds**: Optimized builds coming in beta
-- **Single-threaded**: Multi-threading planned for v0.2.0
+- **Optimized Release Builds**: Now available with better performance
+- **Single-threaded**: Multi-threading planned for v0.3.0
 - **No Culling**: View frustum culling not implemented
 
 ---
@@ -95,8 +97,8 @@
 ### Quick Setup
 1. Download the pre-alpha release
 2. Extract to desired folder
-3. Open `MistEngine.sln` in Visual Studio
-4. Build and run (F5)
+3. Run `Launch_MistEngine.bat`
+4. Start creating!
 
 ### AI Assistant Setup
 1. Get free API key: [Google AI Studio](https://aistudio.google.com/app/apikey)
@@ -154,16 +156,16 @@ We're actively seeking contributors! This pre-alpha release is perfect for:
 
 ---
 
-## ?? Development Roadmap
+## ??? Development Roadmap
 
-### v0.2.0 (Next Release)
+### v0.3.0 (Next Release)
 - [ ] Linux support
 - [ ] Basic audio system  
 - [ ] Performance optimizations
 - [ ] More AI providers (OpenAI, Claude)
 - [ ] Better error handling
 
-### v0.3.0 (Beta)
+### v0.4.0 (Beta)
 - [ ] Scripting support (Lua)
 - [ ] Advanced materials
 - [ ] Multi-threading
@@ -208,13 +210,13 @@ We're actively seeking contributors! This pre-alpha release is perfect for:
 
 ## ?? What's Next?
 
-This pre-alpha release represents the **foundation** of MistEngine. We're excited to see what the community builds with it!
+This pre-alpha release represents significant progress in MistEngine development. We're excited to see what the community builds with it!
 
 ### Immediate Goals
 1. **Gather feedback** from early adopters
 2. **Fix critical bugs** reported by users
 3. **Improve documentation** based on user questions
-4. **Plan v0.2.0** features based on community needs
+4. **Plan v0.3.0** features based on community needs
 
 ### Long-term Vision
 MistEngine aims to be a **modern, AI-assisted game engine** that makes game development more accessible and enjoyable for everyone.

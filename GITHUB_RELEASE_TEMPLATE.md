@@ -1,33 +1,39 @@
+<<<<<<< Updated upstream
 # ?? MistEngine v0.1.2 Pre-Alpha Release
+=======
+﻿# 🎮 MistEngine v0.2.0 Pre-Alpha Release
+>>>>>>> Stashed changes
 
-**The first public release of MistEngine - A Modern C++ Game Engine with AI Integration!**
+**The second pre-alpha release of MistEngine - A Modern C++ Game Engine with AI Integration!**
 
 ---
 
-## ?? What is MistEngine?
+## 🎯 What is MistEngine?
 
-MistEngine is a modern, developer-friendly game engine built in C++ with integrated AI assistance. This pre-alpha release showcases the core architecture and demonstrates the AI-assisted development workflow.
+MistEngine is a modern, developer-friendly game engine built in C++ with integrated AI assistance. This v0.2.0 pre-alpha release showcases enhanced features and improved stability.
 
-### ? Key Features in This Release
+### ✨ Key Features in This Release
 
-- **??? Entity Component System**: Clean, modern ECS architecture
-- **?? OpenGL Rendering**: Modern OpenGL 3.3+ pipeline with real-time lighting
-- **? Physics Simulation**: Bullet Physics integration with real-time physics
-- **?? AI Assistant**: Built-in Google Gemini AI for development help (F2)
-- **??? Live Editor**: ImGui-based editor with hierarchy, inspector, and console
-- **?? Interactive Scene**: Create cubes, spheres, planes with physics
+- **🏗️ Entity Component System**: Clean, modern ECS architecture
+- **🎨 OpenGL Rendering**: Modern OpenGL 3.3+ pipeline with real-time lighting
+- **⚡ Physics Simulation**: Bullet Physics integration with real-time physics
+- **🤖 AI Assistant**: Enhanced Google Gemini AI for development help (F2)
+- **🛠️ Live Editor**: ImGui-based editor with hierarchy, inspector, and console
+- **🎮 Interactive Scene**: Create cubes, spheres, planes with physics
+- **📚 Comprehensive Documentation**: Improved setup guides and tutorials
 
-### ?? AI Integration Highlights
+### 🤖 AI Integration Highlights
 
 - **Press F2** to open the AI assistant
 - **Free tier support** with Google Gemini (15 requests/minute)
+- **Enhanced UI** with better response handling
 - **Context-aware help** for game development
 - **Code suggestions** and architecture advice
 - **Quick setup** with built-in configuration dialog
 
 ---
 
-## ?? Download & Installation
+## 📥 Download & Installation
 
 ### System Requirements
 - **OS**: Windows 10/11 (64-bit)
@@ -43,25 +49,25 @@ MistEngine is a modern, developer-friendly game engine built in C++ with integra
 
 ### AI Setup (Optional but Recommended!)
 1. Get free API key: [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. In engine: **AI Menu ? Configure API Key**
+2. In engine: **AI Menu → Configure API Key**
 3. Test connection and start chatting!
 
 ---
 
-## ?? What You Can Do
+## 🎮 What You Can Do
 
 ### Core Features
-- ? Create 3D primitives (Cube, Sphere, Plane)
-- ? Apply physics simulation with gravity and collisions
-- ? Navigate 3D scenes with WASD + mouse
-- ? Edit object properties in real-time
-- ? Chat with AI assistant about development
+- ✅ Create 3D primitives (Cube, Sphere, Plane)
+- ✅ Apply physics simulation with gravity and collisions
+- ✅ Navigate 3D scenes with WASD + mouse
+- ✅ Edit object properties in real-time
+- ✅ Chat with AI assistant about development
 
 ### AI Assistant Features
-- ?? **General development help**: Ask about C++, OpenGL, game design
-- ?? **Feature suggestions**: Get ideas for your projects
-- ?? **Code assistance**: Get help with implementation
-- ?? **Quick actions**: Pre-defined prompts for common tasks
+- 🤖 **General development help**: Ask about C++, OpenGL, game design
+- 💡 **Feature suggestions**: Get ideas for your projects
+- 🔧 **Code assistance**: Get help with implementation
+- 🎯 **Quick actions**: Pre-defined prompts for common tasks
 
 ### Controls
 - **WASD**: Camera movement
@@ -73,15 +79,32 @@ MistEngine is a modern, developer-friendly game engine built in C++ with integra
 
 ---
 
-## ?? Pre-Alpha Limitations
+## 🆕 What's New in v0.2.0
+
+### 🔧 **Improvements**
+- **Enhanced Release Builds**: Better performance and stability
+- **Improved AI Integration**: Better error handling and user experience
+- **Documentation Overhaul**: Comprehensive guides for setup and development
+- **Build System**: Streamlined PowerShell build scripts
+- **Bug Fixes**: Resolved memory leaks and stability issues
+
+### 🎨 **UI/UX Enhancements**
+- Better AI chat interface
+- Improved error messages
+- Enhanced console output
+- More intuitive controls
+
+---
+
+## 🚧 Pre-Alpha Limitations
 
 **Remember**: This is a pre-alpha release! Expect:
 
 ### Known Limitations
-- **Windows only** (Linux/macOS planned for v0.2.0)
+- **Windows only** (Linux/macOS planned for v0.3.0)
 - **No audio system** yet
 - **Basic materials** only
-- **Debug builds** may be slow
+- **Single-threaded** (multi-threading planned)
 - **Occasional crashes** on exit
 
 ### What's Missing
@@ -93,7 +116,7 @@ MistEngine is a modern, developer-friendly game engine built in C++ with integra
 
 ---
 
-## ?? Found a Bug?
+## 🐛 Found a Bug?
 
 This is pre-alpha software, so bugs are expected!
 
@@ -111,16 +134,16 @@ This is pre-alpha software, so bugs are expected!
 
 ---
 
-## ?? Want to Contribute?
+## 🤝 Want to Contribute?
 
 We're actively looking for contributors! This is a great time to get involved.
 
 ### Ways to Help
-- **?? Bug testing**: Find and report issues
-- **?? Code contributions**: C++, graphics, AI features
-- **?? Documentation**: Improve guides and tutorials
-- **?? Assets**: Create example models/textures
-- **?? Cross-platform**: Help with Linux/macOS support
+- **🐛 Bug testing**: Find and report issues
+- **💻 Code contributions**: C++, graphics, AI features
+- **📚 Documentation**: Improve guides and tutorials
+- **🎨 Assets**: Create example models/textures
+- **🌐 Cross-platform**: Help with Linux/macOS support
 
 ### Easy First Contributions
 - Fix UI scaling issues
@@ -133,16 +156,16 @@ We're actively looking for contributors! This is a great time to get involved.
 
 ---
 
-## ??? Roadmap
+## 🗺️ Roadmap
 
-### v0.2.0 (Next Release - Q2 2025)
-- [ ] **Linux support** ??
-- [ ] **Basic audio system** ??
+### v0.3.0 (Next Release - Q2 2025)
+- [ ] **Linux support** 🐧
+- [ ] **Basic audio system** 🔊
 - [ ] **OpenAI integration** alongside Gemini
-- [ ] **Performance optimizations** ?
+- [ ] **Performance optimizations** ⚡
 - [ ] **Better error handling**
 
-### v0.3.0 (Beta - Q3 2025)
+### v0.4.0 (Beta - Q3 2025)
 - [ ] **Scripting support** (Lua)
 - [ ] **Advanced materials**
 - [ ] **Animation system**
@@ -156,7 +179,7 @@ We're actively looking for contributors! This is a great time to get involved.
 
 ---
 
-## ?? Technical Details
+## 📊 Technical Details
 
 ### Architecture
 - **Language**: C++14
@@ -182,14 +205,14 @@ We're actively looking for contributors! This is a great time to get involved.
 
 ---
 
-## ?? Acknowledgments
+## 🙏 Acknowledgments
 
 ### Special Thanks
 - **ImGui**: For the excellent immediate mode GUI
 - **Bullet Physics**: For robust physics simulation  
 - **Google Gemini**: For making AI integration accessible
 - **OpenGL Community**: For graphics programming resources
-- **Early testers**: For valuable feedback
+- **Early testers**: For valuable feedback and bug reports
 
 ### Libraries Used
 - **GLFW**, **GLAD**, **GLM**: Graphics foundation
@@ -200,22 +223,29 @@ We're actively looking for contributors! This is a great time to get involved.
 
 ---
 
-## ?? Support & Community
+## 📞 Support & Community
 
 ### Getting Help
+<<<<<<< Updated upstream
 - **?? Issues**: [Report bugs here](https://github.com/aayushmishraaa/MistEngine/issues)
 - **?? Discussions**: [Community forum](https://github.com/aayushmishraaa/MistEngine/discussions)
 - **?? AI Assistant**: Built-in help (press F2)
 - **?? Documentation**: See `docs/` folder in download
+=======
+- **🐛 Issues**: [Report bugs here](https://github.com/aayushmishraaa/MistEngine/issues)
+- **💬 Discussions**: [Community forum](https://github.com/aayushmishraaa/MistEngine/discussions)
+- **🤖 AI Assistant**: Built-in help (press F2)
+- **📚 Documentation**: See `docs/` folder in download
+>>>>>>> Stashed changes
 
 ### Stay Updated
-- **? Star this repository** for updates
-- **??? Watch releases** to get notified
-- **?? Fork** to start contributing
+- **⭐ Star this repository** for updates
+- **👁️ Watch releases** to get notified
+- **🍴 Fork** to start contributing
 
 ---
 
-## ?? License
+## 📄 License
 
 MistEngine is licensed under the **MIT License** - see [LICENSE](LICENSE) for details.
 
@@ -223,15 +253,15 @@ MistEngine is licensed under the **MIT License** - see [LICENSE](LICENSE) for de
 
 ---
 
-## ?? What's Next?
+## 🚀 What's Next?
 
-This pre-alpha represents the **foundation** of MistEngine. We're excited to see what the community thinks and builds!
+This v0.2.0 pre-alpha represents **significant progress** in MistEngine development. We're excited to see what the community thinks and builds!
 
 ### Immediate Goals
 1. **Gather feedback** from early adopters
 2. **Fix critical bugs** found by users  
 3. **Improve documentation** based on questions
-4. **Plan v0.2.0** features with community input
+4. **Plan v0.3.0** features with community input
 
 ### Long-term Vision
 MistEngine aims to be the **most developer-friendly game engine** with:
@@ -242,32 +272,32 @@ MistEngine aims to be the **most developer-friendly game engine** with:
 
 ---
 
-## ?? Release Files
+## 📦 Release Files
 
 ### Download Options
 
-**MistEngine-v0.1.0-pre-alpha-win64.zip** ??
+**MistEngine-v0.2.0-pre-alpha-win64.zip** ⬇️
 - Complete pre-alpha build for Windows 64-bit
 - Includes engine, documentation, and examples
-- Size: ~XX MB
+- Size: ~40 MB
 - **Recommended for most users**
 
 ### What's Included
 ```
-MistEngine-v0.1.0-pre-alpha-win64/
-??? bin/                     # Executable and DLLs
-??? shaders/                 # GLSL shaders
-??? models/                  # Example 3D models
-??? textures/               # Example textures
-??? docs/                   # Documentation
-??? Launch_MistEngine.bat   # Easy launcher
-??? QUICK_START.md          # Quick start guide
-??? ai_config.example.json  # AI configuration template
+MistEngine-v0.2.0-pre-alpha-win64/
+├── bin/                     # Executable and DLLs
+├── shaders/                 # GLSL shaders
+├── models/                  # Example 3D models
+├── textures/               # Example textures
+├── docs/                   # Documentation
+├── Launch_MistEngine.bat   # Easy launcher
+├── QUICK_START.md          # Quick start guide
+└── ai_config.example.json  # AI configuration template
 ```
 
 ---
 
-**Download now and start building! ???**
+**Download now and start building! 🎮✨**
 
 **Join our community and help shape the future of MistEngine!**
 

@@ -185,7 +185,7 @@ if ($createZip -eq "y" -or $createZip -eq "Y") {
     Write-Host ""
     Write-Host "Creating release ZIP..." -ForegroundColor Yellow
     
-    $zipName = "MistEngine-v0.1.0-pre-alpha-win64.zip"
+    $zipName = "MistEngine-v0.2.0-pre-alpha-win64.zip"
     
     # Try using 7-Zip first
     if (Get-Command 7z -ErrorAction SilentlyContinue) {
