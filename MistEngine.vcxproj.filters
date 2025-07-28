@@ -167,6 +167,10 @@
     <None Include="DOCUMENTATION_ORGANIZATION.md" />
     <None Include="GITHUB_PATCH_RELEASE_v0.2.1.md" />
     <None Include="PATCH_CHANGELOG_v0.2.1.md" />
+    <None Include="build_patch_v0.2.1.ps1" />
+    <None Include="PATCH_RELEASE_SUMMARY.md" />
+    <None Include="MODULE_DEPLOYMENT_GUIDE.md" />
+    <None Include="MODULE_DEVELOPMENT_TEMPLATE.md" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">

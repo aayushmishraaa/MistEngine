@@ -175,6 +175,7 @@
   <ItemGroup>
     <None Include="ai_config.example.json" />
     <None Include="AI_README.md" />
+    <None Include="build_patch_v0.2.1.ps1" />
     <None Include="build_release.bat" />
     <None Include="build_release.ps1" />
     <None Include="CONTRIBUTING.md" />
@@ -191,9 +192,12 @@
     <None Include="MASTER_MOUSE_LOCK_SOLUTION.md" />
     <None Include="MODULARITY_GUIDE.md" />
     <None Include="modules\ExampleModule\ExampleModule.vcxproj" />
+    <None Include="MODULE_DEPLOYMENT_GUIDE.md" />
+    <None Include="MODULE_DEVELOPMENT_TEMPLATE.md" />
     <None Include="MOUSE_LOOK_LOCK_FIX.md" />
     <None Include="packages.config" />
     <None Include="PATCH_CHANGELOG_v0.2.1.md" />
+    <None Include="PATCH_RELEASE_SUMMARY.md" />
     <None Include="ReleaseOverride.props" />
     <None Include="RELEASE_GUIDE.md" />
     <None Include="RELEASE_NOTES.md" />

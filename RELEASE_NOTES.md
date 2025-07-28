@@ -328,8 +328,8 @@ We're actively seeking contributors! This pre-alpha release is perfect for:
 ## ?? Support & Community
 
 ### Getting Help
-- **GitHub Issues**: [Report bugs](https://github.com/yourusername/MistEngine/issues)
-- **Discussions**: [Community forum](https://github.com/yourusername/MistEngine/discussions)
+- **GitHub Issues**: [Report bugs](https://github.com/aayushmishraaa/MistEngine/issues)
+- **Discussions**: [Community forum](https://github.com/aayushmishraaa/MistEngine/discussions)
 - **AI Assistant**: Built-in help system (F2)
 - **Module Support**: Check modules/README.md for module-specific help
 
