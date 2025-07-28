@@ -16,6 +16,10 @@ ai_config_*.json
 imgui.ini
 imgui_*.ini
 
+# Documentation Folder (contains development notes and technical docs)
+docs/
+package/
+
 # =========================
 # Visual Studio Files
 # =========================
@@ -384,3 +388,5 @@ config.local.json
 *.bak
 *.backup
 *.old
+
+*.ps1

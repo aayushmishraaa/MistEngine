@@ -15,6 +15,10 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <sstream>
+#include <set>
+#include <algorithm>
+
+#define MAX_ENTITIES 1000  // Reasonable limit for entity iteration
 
 extern Coordinator gCoordinator;
 
@@ -24,7 +28,7 @@ UIManager::UIManager()
     , m_ShowInspector(true)
     , m_ShowSceneView(false)
     , m_ShowAssetBrowser(false)
-    , m_ShowConsole(false)
+    , m_ShowConsole(true)    // Open console by default to see debug messages
     , m_ShowAI(false)
     , m_ShowAPIKeyDialog(false)
     , m_SelectedEntity(0)
@@ -499,14 +503,61 @@ void UIManager::DrawHierarchy() {
     
     ImGui::Separator();
     
-    // Update entity list (in a real engine this would be more efficient)
+    // Update entity list - show all created entities
     if (m_Coordinator) {
         m_EntityList.clear();
-        // Note: In a real ECS system, you'd have a way to iterate through all entities
-        // For now, we'll just display the entities we're tracking
-        for (int i = 0; i < m_EntityCounter; ++i) {
-            Entity entity = i;
+        
+        // Create list of entities that actually exist and have components
+        std::set<Entity> validEntities;
+        
+        // Check all entities up to our counter
+        for (int i = 0; i <= m_EntityCounter && i < MAX_ENTITIES; ++i) {
+            Entity entity = static_cast<Entity>(i);
+            
+            // Check if entity has at least one component (meaning it exists)
+            bool hasComponents = false;
+            try {
+                m_Coordinator->GetComponent<TransformComponent>(entity);
+                hasComponents = true;
+            } catch (...) {
+                // Try other components
+                try {
+                    m_Coordinator->GetComponent<RenderComponent>(entity);
+                    hasComponents = true;
+                } catch (...) {
+                    try {
+                        m_Coordinator->GetComponent<PhysicsComponent>(entity);
+                        hasComponents = true;
+                    } catch (...) {
+                        // Entity doesn't exist or has no components
+                    }
+                }
+            }
+            
+            if (hasComponents) {
+                validEntities.insert(entity);
+            }
+        }
+        
+        // Add valid entities to display list
+        for (Entity entity : validEntities) {
             std::string name = "Entity " + std::to_string(entity);
+            
+            // Try to create more descriptive names based on components
+            try {
+                auto& render = m_Coordinator->GetComponent<RenderComponent>(entity);
+                auto& physics = m_Coordinator->GetComponent<PhysicsComponent>(entity);
+                if (render.renderable && physics.rigidBody) {
+                    if (physics.rigidBody->getMass() == 0.0f) {
+                        name = "Ground " + std::to_string(entity);
+                    } else {
+                        name = "Cube " + std::to_string(entity);
+                    }
+                }
+            } catch (...) {
+                // Use default name
+            }
+            
             m_EntityList.push_back(std::make_pair(entity, name));
         }
     }
@@ -534,6 +585,11 @@ void UIManager::DrawHierarchy() {
             }
             ImGui::EndPopup();
         }
+    }
+    
+    if (m_EntityList.empty()) {
+        ImGui::Text("No entities in scene");
+        ImGui::Text("Use GameObject menu to create objects");
     }
     
     ImGui::End();
@@ -694,11 +750,14 @@ void UIManager::CreateCube() {
         Entity entity = m_Coordinator->CreateEntity();
         m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
         
+        m_ConsoleMessages.push_back("Creating cube entity " + std::to_string(entity));
+        
         // Transform
         TransformComponent transform;
-        transform.position = glm::vec3(0.0f, 1.0f, 0.0f);
+        transform.position = glm::vec3(0.0f, 2.0f, 0.0f);  // Spawn higher up
         transform.scale = glm::vec3(1.0f);
         m_Coordinator->AddComponent(entity, transform);
+        m_ConsoleMessages.push_back("Added transform component");
         
         // Create mesh
         std::vector<Vertex> vertices;
@@ -712,6 +771,7 @@ void UIManager::CreateCube() {
         render.renderable = mesh;
         render.visible = true;
         m_Coordinator->AddComponent(entity, render);
+        m_ConsoleMessages.push_back("Added render component");
         
         // Physics
         btRigidBody* body = m_PhysicsSystem->CreateCube(transform.position, 1.0f);
@@ -719,9 +779,12 @@ void UIManager::CreateCube() {
         physics.rigidBody = body;
         physics.syncTransform = true;
         m_Coordinator->AddComponent(entity, physics);
+        m_ConsoleMessages.push_back("Added physics component");
         
-        m_ConsoleMessages.push_back("Created cube entity");
+        m_ConsoleMessages.push_back("Cube entity created successfully with " + std::to_string(vertices.size()) + " vertices");
         SelectEntity(entity);
+    } else {
+        m_ConsoleMessages.push_back("ERROR: Cannot create cube - missing coordinator or physics system");
     }
 }
 
@@ -735,11 +798,14 @@ void UIManager::CreatePlane() {
         Entity entity = m_Coordinator->CreateEntity();
         m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
         
+        m_ConsoleMessages.push_back("Creating plane entity " + std::to_string(entity));
+        
         // Transform
         TransformComponent transform;
-        transform.position = glm::vec3(0.0f, 0.0f, 0.0f);
+        transform.position = glm::vec3(0.0f, -1.0f, 0.0f);  // Place below origin
         transform.scale = glm::vec3(10.0f, 1.0f, 10.0f);
         m_Coordinator->AddComponent(entity, transform);
+        m_ConsoleMessages.push_back("Added transform component");
         
         // Create mesh
         std::vector<Vertex> vertices;
@@ -753,6 +819,7 @@ void UIManager::CreatePlane() {
         render.renderable = mesh;
         render.visible = true;
         m_Coordinator->AddComponent(entity, render);
+        m_ConsoleMessages.push_back("Added render component");
         
         // Physics
         btRigidBody* body = m_PhysicsSystem->CreateGroundPlane(transform.position);
@@ -760,16 +827,55 @@ void UIManager::CreatePlane() {
         physics.rigidBody = body;
         physics.syncTransform = true;
         m_Coordinator->AddComponent(entity, physics);
+        m_ConsoleMessages.push_back("Added physics component");
         
-        m_ConsoleMessages.push_back("Created plane entity");
+        m_ConsoleMessages.push_back("Plane entity created successfully with " + std::to_string(vertices.size()) + " vertices");
         SelectEntity(entity);
+    } else {
+        m_ConsoleMessages.push_back("ERROR: Cannot create plane - missing coordinator or physics system");
     }
 }
 
 void UIManager::DrawTransformComponent(TransformComponent& transform) {
+    // Store original values to detect changes
+    glm::vec3 originalPos = transform.position;
+    glm::vec3 originalRot = transform.rotation;
+    glm::vec3 originalScale = transform.scale;
+    
     DrawVec3Control("Position", transform.position);
     DrawVec3Control("Rotation", transform.rotation);
     DrawVec3Control("Scale", transform.scale, 1.0f);
+    
+    // If transform was modified, disable physics sync temporarily
+    if (m_HasSelectedEntity && m_Coordinator) {
+        bool transformChanged = (transform.position != originalPos || 
+                                transform.rotation != originalRot || 
+                                transform.scale != originalScale);
+        
+        if (transformChanged) {
+            try {
+                auto& physics = m_Coordinator->GetComponent<PhysicsComponent>(m_SelectedEntity);
+                if (physics.rigidBody && physics.syncTransform) {
+                    // Update physics body position to match transform
+                    btTransform physicsTransform;
+                    physicsTransform.setOrigin(btVector3(transform.position.x, transform.position.y, transform.position.z));
+                    
+                    // Convert rotation from degrees to radians for physics
+                    btQuaternion rotation;
+                    rotation.setEulerZYX(glm::radians(transform.rotation.y), 
+                                       glm::radians(transform.rotation.x), 
+                                       glm::radians(transform.rotation.z));
+                    physicsTransform.setRotation(rotation);
+                    
+                    physics.rigidBody->setWorldTransform(physicsTransform);
+                    physics.rigidBody->getMotionState()->setWorldTransform(physicsTransform);
+                    physics.rigidBody->activate(true); // Wake up the physics body
+                }
+            } catch (...) {
+                // No physics component, that's okay
+            }
+        }
+    }
 }
 
 void UIManager::DrawRenderComponent(RenderComponent& render) {

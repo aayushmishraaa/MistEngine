@@ -139,6 +139,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="modules\ExampleModule\src\ExampleModule.cpp" />
     <ClCompile Include="src\AI\AIConfig.cpp" />
     <ClCompile Include="src\AI\AIManager.cpp" />
     <ClCompile Include="src\AI\AIWindow.cpp" />
@@ -157,9 +158,11 @@
     <ClCompile Include="src\imgui_impl_opengl3.cpp" />
     <ClCompile Include="src\imgui_tables.cpp" />
     <ClCompile Include="src\imgui_widgets.cpp" />
+    <ClCompile Include="src\InputManager.cpp" />
     <ClCompile Include="src\Mesh.cpp" />
     <ClCompile Include="src\MistEngine.cpp" />
     <ClCompile Include="src\Model.cpp" />
+    <ClCompile Include="src\ModuleManager.cpp" />
     <ClCompile Include="src\Orb.cpp" />
     <ClCompile Include="src\PhysicsSystem.cpp" />
     <ClCompile Include="src\Renderer.cpp" />
@@ -175,17 +178,31 @@
     <None Include="build_release.bat" />
     <None Include="build_release.ps1" />
     <None Include="CONTRIBUTING.md" />
+    <None Include="COOPERATIVE_MOUSE_FIX.md" />
+    <None Include="docs\README.md" />
+    <None Include="DOCUMENTATION_ORGANIZATION.md" />
+    <None Include="FINAL_MOUSE_FIX.md" />
+    <None Include="FINAL_POLLING_SOLUTION.md" />
+    <None Include="GITHUB_PATCH_RELEASE_v0.2.1.md" />
     <None Include="GITHUB_RELEASE_TEMPLATE.md" />
+    <None Include="IMPLEMENTATION_SUMMARY.md" />
     <None Include="LAUNCH_SUMMARY.md" />
     <None Include="manual_build_release.bat" />
+    <None Include="MASTER_MOUSE_LOCK_SOLUTION.md" />
+    <None Include="MODULARITY_GUIDE.md" />
+    <None Include="modules\ExampleModule\ExampleModule.vcxproj" />
+    <None Include="MOUSE_LOOK_LOCK_FIX.md" />
     <None Include="packages.config" />
+    <None Include="PATCH_CHANGELOG_v0.2.1.md" />
     <None Include="ReleaseOverride.props" />
     <None Include="RELEASE_GUIDE.md" />
     <None Include="RELEASE_NOTES.md" />
+    <None Include="SCENE_EDITOR_FIXES.md" />
     <None Include="shaders\depth_fragment.glsl" />
     <None Include="shaders\depth_vertex.glsl" />
     <None Include="shaders\fragment.glsl" />
     <None Include="shaders\vertex.glsl" />
+    <None Include="WASD_INPUT_FIX.md" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\AI\AIConfig.h" />
@@ -212,8 +229,10 @@
     <ClInclude Include="include\ECS\Systems\RenderSystem.h" />
     <ClInclude Include="include\imgui_impl_glfw.h" />
     <ClInclude Include="include\imgui_impl_opengl3.h" />
+    <ClInclude Include="include\InputManager.h" />
     <ClInclude Include="include\Mesh.h" />
     <ClInclude Include="include\Model.h" />
+    <ClInclude Include="include\ModuleManager.h" />
     <ClInclude Include="include\Orb.h" />
     <ClInclude Include="include\PhysicsSystem.h" />
     <ClInclude Include="include\Renderable.h" />
@@ -224,6 +243,7 @@
     <ClInclude Include="include\Texture.h" />
     <ClInclude Include="include\UIManager.h" />
     <ClInclude Include="include\Version.h" />
+    <ClInclude Include="modules\ExampleModule\include\ExampleModule.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

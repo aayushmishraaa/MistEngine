@@ -114,6 +114,15 @@
     <ClCompile Include="src\AI\GeminiProvider.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\InputManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ModuleManager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="modules\ExampleModule\src\ExampleModule.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="shaders\fragment.glsl">
@@ -144,6 +153,20 @@
       <Filter>Source Files</Filter>
     </None>
     <None Include="build_release.ps1" />
+    <None Include="modules\ExampleModule\ExampleModule.vcxproj" />
+    <None Include="MODULARITY_GUIDE.md" />
+    <None Include="IMPLEMENTATION_SUMMARY.md" />
+    <None Include="SCENE_EDITOR_FIXES.md" />
+    <None Include="WASD_INPUT_FIX.md" />
+    <None Include="MOUSE_LOOK_LOCK_FIX.md" />
+    <None Include="MASTER_MOUSE_LOCK_SOLUTION.md" />
+    <None Include="COOPERATIVE_MOUSE_FIX.md" />
+    <None Include="FINAL_POLLING_SOLUTION.md" />
+    <None Include="FINAL_MOUSE_FIX.md" />
+    <None Include="docs\README.md" />
+    <None Include="DOCUMENTATION_ORGANIZATION.md" />
+    <None Include="GITHUB_PATCH_RELEASE_v0.2.1.md" />
+    <None Include="PATCH_CHANGELOG_v0.2.1.md" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">
@@ -252,6 +275,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\Version.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\InputManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\ModuleManager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="modules\ExampleModule\include\ExampleModule.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

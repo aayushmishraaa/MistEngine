@@ -62,9 +62,16 @@ bool Renderer::Init() {
     // Set context and callbacks
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    glfwSetCursorPosCallback(window, mouse_callback);
+    
+    // REMOVED: Legacy mouse callback that was causing unwanted camera movement
+    // glfwSetCursorPosCallback(window, mouse_callback);
+    // InputManager now handles all mouse input via polling
+    
     glfwSetScrollCallback(window, scroll_callback);
-    glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    
+    // REMOVED: Don't set cursor to disabled by default
+    // glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    // InputManager now controls cursor mode
 
     // Initialize GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
@@ -83,8 +90,7 @@ bool Renderer::Init() {
     // Setup shadow mapping
     setupShadowMap();
 
-    // Removed: Setup basic shapes (plane and cube) - VAOs, VBOs, EBOs
-
+    std::cout << "Renderer: Legacy mouse callback DISABLED - InputManager has full control" << std::endl;
 
     return true;
 }
@@ -258,23 +264,6 @@ void Renderer::framebuffer_size_callback(GLFWwindow* window, int width, int heig
         glViewport(0, 0, width, height);
         g_renderer->screenWidth = width;
         g_renderer->screenHeight = height;
-    }
-}
-
-void Renderer::mouse_callback(GLFWwindow* window, double xpos, double ypos) {
-    if (g_renderer) {
-        if (g_renderer->firstMouse) {
-            g_renderer->lastX = xpos;
-            g_renderer->lastY = ypos;
-            g_renderer->firstMouse = false;
-        }
-
-        float xoffset = xpos - g_renderer->lastX;
-        float yoffset = g_renderer->lastY - ypos; // reversed since y-coordinates go from bottom to top
-        g_renderer->lastX = xpos;
-        g_renderer->lastY = ypos;
-
-        g_renderer->camera.ProcessMouseMovement(xoffset, yoffset);
     }
 }
 

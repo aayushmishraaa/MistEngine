@@ -11,6 +11,8 @@
 #include "Texture.h" 
 #include "ShapeGenerator.h" 
 #include "UIManager.h"
+#include "InputManager.h"    // New input system
+#include "ModuleManager.h"   // New module system
 #include <glm/gtc/type_ptr.hpp>
 
 // ECS includes
@@ -24,63 +26,21 @@
 // Global ECS coordinator
 Coordinator gCoordinator;
 
-// Global UI manager
+// Global managers
 UIManager* g_uiManager = nullptr;
+InputManager* g_inputManager = nullptr;
+ModuleManager* g_moduleManager = nullptr;
 
-// Input handling for UI
-void ProcessInputWithUI(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables, float deltaTime) {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, true);
-
-    // Toggle UI demo window with F1
-    if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS) {
-        static bool f1Pressed = false;
-        if (!f1Pressed) {
-            if (g_uiManager) {
-                g_uiManager->SetShowDemo(!g_uiManager->IsShowingDemo());
-            }
-            f1Pressed = true;
-        }
-    } else {
-        static bool f1Pressed = false;
-        f1Pressed = false;
-    }
-
-    // Toggle AI window with F2
-    if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_PRESS) {
-        static bool f2Pressed = false;
-        if (!f2Pressed) {
-            if (g_uiManager) {
-                g_uiManager->SetShowAI(!g_uiManager->IsShowingAI());
-            }
-            f2Pressed = true;
-        }
-    } else {
-        static bool f2Pressed = false;
-        f2Pressed = false;
-    }
-
-    // Check if ImGui wants to capture mouse/keyboard
+// Legacy input handling for backward compatibility with physics controls
+void ProcessLegacyPhysicsInput(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables, float deltaTime) {
+    // Check if ImGui wants to capture input
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
-        return; // Don't process game input when UI is active
+        return;
     }
 
-    // Camera controls
-    Camera& camera = *reinterpret_cast<Camera*>(glfwGetWindowUserPointer(window));
-    
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        camera.ProcessKeyboard(FORWARD, deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        camera.ProcessKeyboard(BACKWARD, deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        camera.ProcessKeyboard(LEFT, deltaTime);
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        camera.ProcessKeyboard(RIGHT, deltaTime);
-
-    // Physics controls
-    if (!physicsRenderables.empty()) {
-        // Assuming the cube is the second physics object added
+    // Physics controls (legacy system - keep for now)
+    if (!physicsRenderables.empty() && physicsRenderables.size() > 1) {
         auto cubeBody = physicsRenderables[1].body;
         float force = 100.0f;
 
@@ -97,10 +57,33 @@ void ProcessInputWithUI(GLFWwindow* window, PhysicsSystem& physicsSystem, std::v
     }
 }
 
+// Helper function to check if directory exists (C++14 compatible)
+bool DirectoryExists(const std::string& path) {
+#ifdef _WIN32
+    DWORD attributes = GetFileAttributesA(path.c_str());
+    return (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY));
+#else
+    struct stat statbuf;
+    return (stat(path.c_str(), &statbuf) == 0 && S_ISDIR(statbuf.st_mode));
+#endif
+}
+
 int main() {
     // Settings
     const unsigned int SCR_WIDTH = 1200;
     const unsigned int SCR_HEIGHT = 800;
+
+    std::cout << "=== MistEngine v0.2.0 Starting Up ===" << std::endl;
+    std::cout << "Scene Editor Mode: Enabled" << std::endl;
+    std::cout << "Controls:" << std::endl;
+    std::cout << "  - WASD/QE: Camera movement (always available)" << std::endl;
+    std::cout << "  - RIGHT-CLICK + HOLD: Enable mouse look (locked by default)" << std::endl;
+    std::cout << "  - Mouse Scroll: Zoom in/out" << std::endl;
+    std::cout << "  - F3: Toggle Scene Editor / Gameplay mode" << std::endl;
+    std::cout << "  - F1: Toggle ImGui Demo" << std::endl;
+    std::cout << "  - F2: Toggle AI Assistant" << std::endl;
+    std::cout << "  - GameObject Menu: Create cubes, planes, etc." << std::endl;
+    std::cout << "  - IJKL + Space: Physics cube controls (legacy)" << std::endl;
 
     // Initialize ECS
     gCoordinator.Init();
@@ -139,21 +122,37 @@ int main() {
         return -1;
     }
 
+    // Initialize Input Manager AFTER UI Manager (NEW!)
+    // This ensures ImGui doesn't override our callbacks
+    InputManager inputManager;
+    g_inputManager = &inputManager;
+    inputManager.Initialize(renderer.GetWindow());
+    inputManager.SetCamera(&renderer.GetCamera());
+    inputManager.EnableSceneEditorMode(true); // Start in scene editor mode
+    std::cout << "Input Manager initialized AFTER UI Manager - callbacks should work now" << std::endl;
+
+    // Initialize Module Manager (NEW!)
+    ModuleManager moduleManager;
+    g_moduleManager = &moduleManager;
+    moduleManager.SetCoordinator(&gCoordinator);
+    moduleManager.SetRenderer(&renderer);
+    
+    // Try to load modules from modules directory
+    if (DirectoryExists("modules")) {
+        std::cout << "Loading modules from 'modules' directory..." << std::endl;
+        moduleManager.LoadModulesFromDirectory("modules");
+    } else {
+        std::cout << "No 'modules' directory found - continuing without external modules" << std::endl;
+    }
+
     // Set up UI references
     uiManager.SetCoordinator(&gCoordinator);
-    uiManager.SetPhysicsSystem(nullptr); // Will be set after physics system is created
-
-    // Initialize AI (example - replace with your actual API key)
-    // Note: In production, load this from a config file or environment variable
-    // uiManager.InitializeAI("your-openai-api-key-here", "OpenAI");
-
-    // Set up mouse input for UI
-    glfwSetInputMode(renderer.GetWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-    glfwSetWindowUserPointer(renderer.GetWindow(), &renderer.GetCamera());
+    moduleManager.SetScene(nullptr); // Will be set after scene creation
 
     // Create Scene (keeping for backward compatibility)
     Scene scene;
     uiManager.SetScene(&scene);
+    moduleManager.SetScene(&scene);
 
     // Create glowing orb (existing system)
     Orb* glowingOrb = new Orb(glm::vec3(1.5f, 1.0f, 0.0f), 0.3f, glm::vec3(2.0f, 1.6f, 0.4f));
@@ -211,12 +210,53 @@ int main() {
     gCoordinator.AddComponent(cubeEntity, RenderComponent{ cubeMesh, true });
     gCoordinator.AddComponent(cubeEntity, PhysicsComponent{ cubeBody, true });
 
+    std::cout << "=== Initialization Complete ===" << std::endl;
+    std::cout << "Engine ready! Right-click and drag to look around in Scene Editor mode." << std::endl;
+
     // Main loop
     while (!glfwWindowShouldClose(renderer.GetWindow())) {
         float deltaTime = renderer.GetDeltaTime();
 
-        // Input handling with UI support
-        ProcessInputWithUI(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
+        // Handle UI toggle inputs (F1, F2)
+        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
+            glfwSetWindowShouldClose(renderer.GetWindow(), true);
+
+        // Toggle UI demo window with F1
+        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F1) == GLFW_PRESS) {
+            static bool f1Pressed = false;
+            if (!f1Pressed) {
+                if (g_uiManager) {
+                    g_uiManager->SetShowDemo(!g_uiManager->IsShowingDemo());
+                }
+                f1Pressed = true;
+            }
+        } else {
+            static bool f1Pressed = false;
+            f1Pressed = false;
+        }
+
+        // Toggle AI window with F2
+        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F2) == GLFW_PRESS) {
+            static bool f2Pressed = false;
+            if (!f2Pressed) {
+                if (g_uiManager) {
+                    g_uiManager->SetShowAI(!g_uiManager->IsShowingAI());
+                }
+                f2Pressed = true;
+            }
+        } else {
+            static bool f2Pressed = false;
+            f2Pressed = false;
+        }
+
+        // Update new input system
+        inputManager.Update(deltaTime);
+
+        // Legacy physics input (for backwards compatibility)
+        ProcessLegacyPhysicsInput(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
+
+        // Update modules
+        moduleManager.UpdateModules(deltaTime);
 
         // Physics Update (both systems)
         physicsSystem.Update(deltaTime);
@@ -226,13 +266,18 @@ int main() {
         renderer.RenderWithECSAndUI(scene, renderSystem, &uiManager);
     }
 
+    std::cout << "=== MistEngine Shutting Down ===" << std::endl;
+    
     // Cleanup
     uiManager.Shutdown();
+    moduleManager.UnloadAllModules();
+    
     delete groundMesh;
     delete cubeMesh;
     delete glowingOrb;
     delete ourModel;
 
+    std::cout << "=== Shutdown Complete ===" << std::endl;
     return 0;
 }
 
