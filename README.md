@@ -1,4 +1,4 @@
-# ?? MistEngine
+#    MistEngine
 
 **A Modern C++14 Game Engine with Integrated AI Development Assistant**
 
@@ -11,22 +11,22 @@
 
 ---
 
-## ? Key Features
+##   Key Features
 
-### ?? **Core Engine**
+###    **Core Engine**
 - **Entity Component System (ECS)** - High-performance data-oriented architecture
 - **Modern OpenGL Rendering** - PBR-ready pipeline with shadow mapping
 - **Bullet Physics Integration** - Realistic physics simulation with dual legacy/ECS systems
 - **Professional Scene Editor** - Unity-like interface with ImGui integration
 - **Modular Plugin System** - Runtime extensibility through dynamic module loading
 
-### ?? **AI-Powered Development**
+###    **AI-Powered Development**
 - **Integrated AI Assistant** - Real-time coding help via Google Gemini API
 - **Context-Aware Suggestions** - AI understands your engine architecture
 - **Code Analysis & Review** - Get instant feedback on your implementations
 - **Feature Brainstorming** - AI helps design new engine features
 
-### ? **Advanced Systems**
+###   **Advanced Systems**
 - **Smart Input Management** - Context-aware input handling (Scene Editor / Gameplay modes)
 - **Hot Module Reloading** - Update engine functionality without restart
 - **Cross-Platform Foundation** - Designed for Windows with Linux/macOS extensibility
@@ -34,14 +34,14 @@
 
 ---
 
-## ?? Quick Start
+##    Quick Start
 
 ### Prerequisites
 - **Visual Studio 2017+** (Windows)
 - **Git** for version control
 - **Basic C++14 knowledge**
 
-### ?? Installation & Setup
+###    Installation & Setup
 
 1. **Clone the repository**
    ```bash
@@ -66,9 +66,9 @@
 
 ---
 
-## ?? Controls & Interface
+##    Controls & Interface
 
-### ??? **Scene Editor Mode** (Default)
+###     **Scene Editor Mode** (Default)
 - **WASD/QE** - Camera movement (fly around the scene)
 - **Right-click + Drag** - Mouse look (Unity-style camera control)
 - **Mouse Scroll** - Zoom in/out
@@ -76,12 +76,12 @@
 - **F1** - Toggle ImGui demo window
 - **F2** - Open/Close AI Assistant
 
-### ?? **Gameplay Mode**
+###    **Gameplay Mode**
 - **WASD/QE** - Camera movement
 - **Mouse Movement** - Free look (FPS-style)
 - **F3** - Return to Scene Editor mode
 
-### ??? **Development Tools**
+###     **Development Tools**
 - **GameObject Menu** - Create cubes, planes, spheres
 - **Hierarchy Window** - Manage scene objects
 - **Inspector Window** - Edit object properties in real-time
@@ -90,25 +90,25 @@
 
 ---
 
-## ??? Architecture Overview
+##     Architecture Overview
 
 MistEngine demonstrates advanced software engineering through its layered architecture:
 
 ```
-???????????????????????????????????????????
-?        Application Layer                 ?  ? Main Engine Loop & Game Logic
-???????????????????????????????????????????
-?        Systems Layer                     ?  ? ECS Systems, Module Manager
-???????????????????????????????????????????
-?        Component Layer                   ?  ? ECS Components, Data Structures  
-???????????????????????????????????????????
-?        Subsystems Layer                  ?  ? Renderer, Physics, Input, UI, AI
-???????????????????????????????????????????
-?        Foundation Layer                  ?  ? Math, Memory, Platform Abstraction
-???????????????????????????????????????????
+                                           
+         Application Layer                      Main Engine Loop & Game Logic
+                                           
+         Systems Layer                          ECS Systems, Module Manager
+                                           
+         Component Layer                        ECS Components, Data Structures  
+                                           
+         Subsystems Layer                       Renderer, Physics, Input, UI, AI
+                                           
+         Foundation Layer                       Math, Memory, Platform Abstraction
+                                           
 ```
 
-### ?? **Design Principles**
+###    **Design Principles**
 - **Data-Oriented Design** - ECS for cache-friendly performance
 - **Composition over Inheritance** - Flexible entity creation
 - **Dependency Injection** - Clean, testable system architecture
@@ -117,24 +117,24 @@ MistEngine demonstrates advanced software engineering through its layered archit
 
 ---
 
-## ?? AI Integration Features
+##    AI Integration Features
 
 ### **Real-time Development Assistance**
 ```cpp
 // Ask AI about engine architecture
-"How should I implement a new component type?"
+"How should I implement a new component type "
 
 // Get code suggestions  
 "Help me optimize this rendering loop"
 
 // Debug assistance
-"Why is my physics simulation unstable?"
+"Why is my physics simulation unstable "
 ```
 
 ### **Supported AI Providers**
-- ? **Google Gemini** - Excellent for code analysis and architecture advice
-- ?? **OpenAI GPT** (Coming Soon) - Alternative provider support
-- ?? **Anthropic Claude** (Planned) - Additional provider option
+-   **Google Gemini** - Excellent for code analysis and architecture advice
+-    **OpenAI GPT** (Coming Soon) - Alternative provider support
+-    **Anthropic Claude** (Planned) - Additional provider option
 
 ### **AI Features**
 - **Conversation Memory** - Maintains context across development sessions
@@ -144,12 +144,12 @@ MistEngine demonstrates advanced software engineering through its layered archit
 
 ---
 
-## ?? Module System
+##    Module System
 
 ### **For Users - Adding Modules**
 1. Download a module (`.dll` file)
 2. Copy to `modules/` folder
-3. Restart MistEngine ? Module loads automatically!
+3. Restart MistEngine   Module loads automatically!
 
 ### **For Developers - Creating Modules**
 ```cpp
@@ -176,7 +176,7 @@ DECLARE_MODULE(PhysicsEnhancementModule)
 
 ---
 
-## ??? Technical Specifications
+##     Technical Specifications
 
 ### **Core Technologies**
 - **Language**: C++14 (maximum compatibility)
@@ -204,26 +204,26 @@ DECLARE_MODULE(PhysicsEnhancementModule)
 
 ---
 
-## ?? Documentation
+##    Documentation
 
-### **?? Getting Started**
+### **   Getting Started**
 - [Contributing Guide](CONTRIBUTING.md) - How to contribute to MistEngine
 - [Release Notes](RELEASE_NOTES.md) - Latest changes and updates
 - [AI Setup Guide](docs/user-guide/AI_README.md) - Configure AI assistant
 
-### **?? Technical Documentation**
+### **   Technical Documentation**
 - [Implementation Analysis](docs/technical/MistEngine_Implementation_Analysis.md) - Detailed system architecture
 - [Module Development Guide](docs/technical/MODULARITY_GUIDE.md) - Create custom plugins
 - [ECS Architecture](docs/technical/IMPLEMENTATION_SUMMARY.md) - Entity Component System details
 
-### **?? Development Docs**
+### **   Development Docs**
 - [Input System](docs/development/FINAL_MOUSE_FIX.md) - Mouse and keyboard handling
 - [Scene Editor](docs/development/SCENE_EDITOR_FIXES.md) - Editor implementation details
 - [Physics Integration](docs/development/) - Physics system documentation
 
 ---
 
-## ?? Showcase
+##    Showcase
 
 ### **What You Can Build**
 - **3D Games** - Full-featured game development
@@ -233,25 +233,25 @@ DECLARE_MODULE(PhysicsEnhancementModule)
 - **Engine Modules** - Custom functionality plugins
 
 ### **Perfect For**
-- ?? **Students** learning game engine architecture
-- ?? **Researchers** exploring ECS patterns and AI integration
-- ?? **Indie Developers** building games with modern tools
-- ????? **Professional Developers** prototyping new ideas
-- ?? **Academic Projects** demonstrating software engineering principles
+-    **Students** learning game engine architecture
+-    **Researchers** exploring ECS patterns and AI integration
+-    **Indie Developers** building games with modern tools
+-       **Professional Developers** prototyping new ideas
+-    **Academic Projects** demonstrating software engineering principles
 
 ---
 
-## ?? Contributing
+##    Contributing
 
 We welcome contributions! MistEngine is in active development and there are many ways to help:
 
-### **?? High Priority**
+### **   High Priority**
 - **Cross-platform Support** - Linux and macOS compatibility
 - **Additional AI Providers** - OpenAI, Claude integration
 - **Performance Optimization** - Multi-threading, rendering improvements
 - **Advanced Editor Features** - Asset browser, scene serialization
 
-### **?? Good First Issues**
+### **   Good First Issues**
 - UI improvements and keyboard shortcuts
 - Additional primitive shapes (cylinders, capsules)
 - Code documentation and comments
@@ -261,19 +261,19 @@ We welcome contributions! MistEngine is in active development and there are many
 
 ---
 
-## ?? License
+##    License
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 **You are free to:**
-- ? Use MistEngine for personal and commercial projects
-- ? Modify and extend the engine for your needs
-- ? Distribute your modifications
-- ? Create plugins and modules for the engine
+-   Use MistEngine for personal and commercial projects
+-   Modify and extend the engine for your needs
+-   Distribute your modifications
+-   Create plugins and modules for the engine
 
 ---
 
-## ?? Acknowledgments
+##    Acknowledgments
 
 ### **Dependencies**
 - [OpenGL](https://www.opengl.org/) - Graphics API
@@ -292,7 +292,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ---
 
-## ?? Contact & Community
+##    Contact & Community
 
 - **GitHub Issues** - [Report bugs and request features](https://github.com/aayushmishraaa/MistEngine/issues)
 - **GitHub Discussions** - [Ask questions and share ideas](https://github.com/aayushmishraaa/MistEngine/discussions)
@@ -302,10 +302,10 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 <div align="center">
 
-**?? Ready to build the future of game development?**
+**   Ready to build the future of game development **
 
-[? Star the Project](https://github.com/aayushmishraaa/MistEngine) | [?? Fork & Contribute](https://github.com/aayushmishraaa/MistEngine/fork) | [?? Read the Docs](docs/)
+[Star the Project](https://github.com/aayushmishraaa/MistEngine) | [Fork & Contribute](https://github.com/aayushmishraaa/MistEngine/fork) | [Read the Docs](docs/)
 
-**MistEngine v0.2.1-pre-alpha** | Made with ?? and AI assistance
+**MistEngine v0.2.1-pre-alpha** 
 
 </div>
