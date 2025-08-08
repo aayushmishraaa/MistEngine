@@ -174,39 +174,17 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="ai_config.example.json" />
-    <None Include="AI_README.md" />
-    <None Include="build_patch_v0.2.1.ps1" />
     <None Include="build_release.bat" />
-    <None Include="build_release.ps1" />
     <None Include="CONTRIBUTING.md" />
-    <None Include="COOPERATIVE_MOUSE_FIX.md" />
     <None Include="docs\README.md" />
-    <None Include="DOCUMENTATION_ORGANIZATION.md" />
-    <None Include="FINAL_MOUSE_FIX.md" />
-    <None Include="FINAL_POLLING_SOLUTION.md" />
-    <None Include="GITHUB_PATCH_RELEASE_v0.2.1.md" />
-    <None Include="GITHUB_RELEASE_TEMPLATE.md" />
-    <None Include="IMPLEMENTATION_SUMMARY.md" />
-    <None Include="LAUNCH_SUMMARY.md" />
     <None Include="manual_build_release.bat" />
-    <None Include="MASTER_MOUSE_LOCK_SOLUTION.md" />
-    <None Include="MODULARITY_GUIDE.md" />
     <None Include="modules\ExampleModule\ExampleModule.vcxproj" />
-    <None Include="MODULE_DEPLOYMENT_GUIDE.md" />
-    <None Include="MODULE_DEVELOPMENT_TEMPLATE.md" />
-    <None Include="MOUSE_LOOK_LOCK_FIX.md" />
     <None Include="packages.config" />
-    <None Include="PATCH_CHANGELOG_v0.2.1.md" />
-    <None Include="PATCH_RELEASE_SUMMARY.md" />
     <None Include="ReleaseOverride.props" />
-    <None Include="RELEASE_GUIDE.md" />
-    <None Include="RELEASE_NOTES.md" />
-    <None Include="SCENE_EDITOR_FIXES.md" />
     <None Include="shaders\depth_fragment.glsl" />
     <None Include="shaders\depth_vertex.glsl" />
     <None Include="shaders\fragment.glsl" />
     <None Include="shaders\vertex.glsl" />
-    <None Include="WASD_INPUT_FIX.md" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\AI\AIConfig.h" />

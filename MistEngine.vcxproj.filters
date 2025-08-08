@@ -138,39 +138,17 @@
       <Filter>Shader Files</Filter>
     </None>
     <None Include="packages.config" />
-    <None Include="AI_README.md" />
     <None Include="ai_config.example.json" />
-    <None Include="RELEASE_NOTES.md" />
     <None Include="CONTRIBUTING.md" />
     <None Include="build_release.bat">
       <Filter>Source Files</Filter>
     </None>
-    <None Include="GITHUB_RELEASE_TEMPLATE.md" />
-    <None Include="RELEASE_GUIDE.md" />
-    <None Include="LAUNCH_SUMMARY.md" />
     <None Include="ReleaseOverride.props" />
     <None Include="manual_build_release.bat">
       <Filter>Source Files</Filter>
     </None>
-    <None Include="build_release.ps1" />
     <None Include="modules\ExampleModule\ExampleModule.vcxproj" />
-    <None Include="MODULARITY_GUIDE.md" />
-    <None Include="IMPLEMENTATION_SUMMARY.md" />
-    <None Include="SCENE_EDITOR_FIXES.md" />
-    <None Include="WASD_INPUT_FIX.md" />
-    <None Include="MOUSE_LOOK_LOCK_FIX.md" />
-    <None Include="MASTER_MOUSE_LOCK_SOLUTION.md" />
-    <None Include="COOPERATIVE_MOUSE_FIX.md" />
-    <None Include="FINAL_POLLING_SOLUTION.md" />
-    <None Include="FINAL_MOUSE_FIX.md" />
     <None Include="docs\README.md" />
-    <None Include="DOCUMENTATION_ORGANIZATION.md" />
-    <None Include="GITHUB_PATCH_RELEASE_v0.2.1.md" />
-    <None Include="PATCH_CHANGELOG_v0.2.1.md" />
-    <None Include="build_patch_v0.2.1.ps1" />
-    <None Include="PATCH_RELEASE_SUMMARY.md" />
-    <None Include="MODULE_DEPLOYMENT_GUIDE.md" />
-    <None Include="MODULE_DEVELOPMENT_TEMPLATE.md" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">
