@@ -8,6 +8,7 @@
 #include "Mesh.h"
 #include "Texture.h"
 #include "ShapeGenerator.h"
+#include "Model.h"
 #include "AI/AIManager.h"
 #include "AI/AIWindow.h"
 #include "AI/AIConfig.h"
@@ -17,6 +18,7 @@
 #include <sstream>
 #include <set>
 #include <algorithm>
+#include <cstdlib>  // For rand()
 
 #define MAX_ENTITIES 1000  // Reasonable limit for entity iteration
 
@@ -27,7 +29,7 @@ UIManager::UIManager()
     , m_ShowHierarchy(true)
     , m_ShowInspector(true)
     , m_ShowSceneView(false)
-    , m_ShowAssetBrowser(false)
+    , m_ShowAssetBrowser(true)  // Enable asset browser by default
     , m_ShowConsole(true)    // Open console by default to see debug messages
     , m_ShowAI(false)
     , m_ShowAPIKeyDialog(false)
@@ -47,6 +49,10 @@ UIManager::UIManager()
     // Initialize dialog buffers
     memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
     memset(m_EndpointBuffer, 0, sizeof(m_EndpointBuffer));
+    
+    // Initialize asset browser
+    m_CurrentAssetPath = "models";
+    ScanAssetsDirectory(m_CurrentAssetPath);
 }
 
 UIManager::~UIManager() {
@@ -512,7 +518,7 @@ void UIManager::DrawHierarchy() {
         
         // Check all entities up to our counter
         for (int i = 0; i <= m_EntityCounter && i < MAX_ENTITIES; ++i) {
-            Entity entity = static_cast<Entity>(i);
+            Entity entity = i; // Simple assignment instead of cast
             
             // Check if entity has at least one component (meaning it exists)
             bool hasComponents = false;
@@ -689,8 +695,72 @@ void UIManager::DrawSceneView() {
 void UIManager::DrawAssetBrowser() {
     ImGui::Begin("Asset Browser", &m_ShowAssetBrowser);
     
-    ImGui::Text("Asset browser will be implemented here");
-    ImGui::Text("This would show textures, models, etc.");
+    // Navigation
+    if (ImGui::Button("Refresh")) {
+        ScanAssetsDirectory(m_CurrentAssetPath);
+    }
+    
+    ImGui::SameLine();
+    ImGui::Text("Path: %s", m_CurrentAssetPath.c_str());
+    
+    ImGui::Separator();
+    
+    // Display folders
+    if (!m_AssetFolders.empty()) {
+        ImGui::Text("Folders:");
+        for (const auto& folder : m_AssetFolders) {
+            if (ImGui::Selectable(("?? " + folder).c_str())) {
+                m_CurrentAssetPath = m_CurrentAssetPath + "/" + folder;
+                ScanAssetsDirectory(m_CurrentAssetPath);
+            }
+        }
+        ImGui::Separator();
+    }
+    
+    // Display files
+    if (!m_AssetFiles.empty()) {
+        ImGui::Text("Files:");
+        for (const auto& file : m_AssetFiles) {
+            std::string icon = "??";
+            if (IsModelFile(file)) icon = "??";
+            else if (IsTextureFile(file)) icon = "???";
+            
+            if (ImGui::Selectable((icon + " " + file).c_str())) {
+                if (IsModelFile(file)) {
+                    LoadModelFromAssetBrowser(m_CurrentAssetPath + "/" + file);
+                }
+            }
+            
+            // Show tooltip with file info
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::Text("File: %s", file.c_str());
+                if (IsModelFile(file)) {
+                    ImGui::Text("Type: 3D Model");
+                    ImGui::Text("Double-click to load into scene");
+                } else if (IsTextureFile(file)) {
+                    ImGui::Text("Type: Texture");
+                }
+                ImGui::EndTooltip();
+            }
+        }
+    } else {
+        ImGui::Text("No files found in current directory");
+    }
+    
+    // Back button (if not in root)
+    if (m_CurrentAssetPath != "models" && m_CurrentAssetPath != ".") {
+        ImGui::Separator();
+        if (ImGui::Button("?? Back")) {
+            size_t lastSlash = m_CurrentAssetPath.find_last_of("/\\");
+            if (lastSlash != std::string::npos) {
+                m_CurrentAssetPath = m_CurrentAssetPath.substr(0, lastSlash);
+            } else {
+                m_CurrentAssetPath = "models";
+            }
+            ScanAssetsDirectory(m_CurrentAssetPath);
+        }
+    }
     
     ImGui::End();
 }
@@ -714,7 +784,6 @@ void UIManager::DrawConsole() {
 void UIManager::CreateEntity(const std::string& name) {
     if (m_Coordinator) {
         Entity entity = m_Coordinator->CreateEntity();
-        m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
         
         // Add default transform component
         TransformComponent transform;
@@ -748,7 +817,7 @@ void UIManager::SelectEntity(Entity entity) {
 void UIManager::CreateCube() {
     if (m_Coordinator && m_PhysicsSystem) {
         Entity entity = m_Coordinator->CreateEntity();
-        m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
+        int entityInt = entity;
         
         m_ConsoleMessages.push_back("Creating cube entity " + std::to_string(entity));
         
@@ -796,7 +865,7 @@ void UIManager::CreateSphere() {
 void UIManager::CreatePlane() {
     if (m_Coordinator && m_PhysicsSystem) {
         Entity entity = m_Coordinator->CreateEntity();
-        m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
+        int entityInt = entity;
         
         m_ConsoleMessages.push_back("Creating plane entity " + std::to_string(entity));
         
@@ -883,6 +952,43 @@ void UIManager::DrawRenderComponent(RenderComponent& render) {
     
     if (render.renderable) {
         ImGui::Text("Renderable: Valid");
+        
+        // Try to cast to ModelRenderable to get more info
+        ModelRenderable* modelRenderable = dynamic_cast<ModelRenderable*>(render.renderable);
+        if (modelRenderable) {
+            ImGui::Text("Type: Model");
+            
+            // Try to get the model pointer (this requires exposing it)
+            // For now, we'll just indicate it's a model
+        } else {
+            // Check if it's a Mesh (simple geometry)
+            Mesh* mesh = dynamic_cast<Mesh*>(render.renderable);
+            if (mesh) {
+                ImGui::Text("Type: Simple Mesh");
+                ImGui::Text("Vertices: %d", static_cast<int>(mesh->vertices.size()));
+                ImGui::Text("Indices: %d", static_cast<int>(mesh->indices.size()));
+                
+                // Show bounding box info if we can calculate it
+                if (!mesh->vertices.empty()) {
+                    glm::vec3 minBounds = mesh->vertices[0].Position;
+                    glm::vec3 maxBounds = mesh->vertices[0].Position;
+                    
+                    for (const auto& vertex : mesh->vertices) {
+                        minBounds = glm::min(minBounds, vertex.Position);
+                        maxBounds = glm::max(maxBounds, vertex.Position);
+                    }
+                    
+                    glm::vec3 size = maxBounds - minBounds;
+                    ImGui::Text("Size: %.2f x %.2f x %.2f", size.x, size.y, size.z);
+                    ImGui::Text("Center: %.2f, %.2f, %.2f", 
+                               (minBounds.x + maxBounds.x) * 0.5f,
+                               (minBounds.y + maxBounds.y) * 0.5f,
+                               (minBounds.z + maxBounds.z) * 0.5f);
+                }
+            } else {
+                ImGui::Text("Type: Unknown");
+            }
+        }
     } else {
         ImGui::Text("Renderable: None");
     }
@@ -960,4 +1066,147 @@ void UIManager::DrawVec3Control(const std::string& label, glm::vec3& values, flo
     ImGui::PopItemWidth();
     ImGui::Columns(1);
     ImGui::PopID();
+}
+
+// Asset Browser Helper Methods
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+void UIManager::ScanAssetsDirectory(const std::string& path) {
+    m_AssetFolders.clear();
+    m_AssetFiles.clear();
+    
+#ifdef _WIN32
+    // Windows-specific directory scanning
+    WIN32_FIND_DATAA findData;
+    std::string searchPath = path + "\\*";
+    HANDLE hFind = FindFirstFileA(searchPath.c_str(), &findData);
+    
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            std::string fileName = findData.cFileName;
+            
+            // Skip . and ..
+            if (fileName == "." || fileName == "..") continue;
+            
+            if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                m_AssetFolders.push_back(fileName);
+            } else {
+                m_AssetFiles.push_back(fileName);
+            }
+        } while (FindNextFileA(hFind, &findData));
+        FindClose(hFind);
+    }
+#else
+    // Unix-like systems (placeholder)
+    m_ConsoleMessages.push_back("Asset browser: Unix directory scanning not implemented yet");
+#endif
+    
+    // Sort files and folders
+    std::sort(m_AssetFolders.begin(), m_AssetFolders.end());
+    std::sort(m_AssetFiles.begin(), m_AssetFiles.end());
+    
+    m_ConsoleMessages.push_back("Scanned " + path + ": " + 
+                                std::to_string(m_AssetFolders.size()) + " folders, " +
+                                std::to_string(m_AssetFiles.size()) + " files");
+}
+
+void UIManager::LoadModelFromAssetBrowser(const std::string& path) {
+    if (!m_Coordinator) {
+        m_ConsoleMessages.push_back("ERROR: Cannot load model - no coordinator");
+        return;
+    }
+    
+    m_ConsoleMessages.push_back("Loading model from asset browser: " + path);
+    
+    // Create a new model and ECS entity
+    Model* model = new Model(path);
+    
+    if (model->IsLoaded()) {
+        m_ConsoleMessages.push_back("Model loaded successfully, converting to ECS entity...");
+        
+        // Debug: Report model mesh information
+        const auto& meshes = model->GetMeshes();
+        m_ConsoleMessages.push_back("Model has " + std::to_string(meshes.size()) + " meshes");
+        
+        for (size_t i = 0; i < meshes.size(); ++i) {
+            m_ConsoleMessages.push_back("Mesh " + std::to_string(i) + ": " + 
+                                       std::to_string(meshes[i].vertices.size()) + " vertices, " +
+                                       std::to_string(meshes[i].indices.size()) + " indices");
+        }
+        
+        // Create ECS entity for the model
+        Entity entity = m_Coordinator->CreateEntity();
+        int entityInt = entity;
+        if (entityInt >= m_EntityCounter) {
+            m_EntityCounter = entityInt + 1;
+        }
+        
+        // Create renderable wrapper
+        ModelRenderable* renderable = new ModelRenderable(model);
+        
+        // Add transform component - place it at a position to avoid overlap
+        TransformComponent transform;
+        transform.position = glm::vec3(2.0f, 0.5f, 0.0f); // Fixed position for now
+        transform.scale = glm::vec3(0.5f); // Scale down to 50%
+        m_Coordinator->AddComponent(entity, transform);
+        
+        // Add render component
+        m_Coordinator->AddComponent(entity, RenderComponent{ 
+            renderable, 
+            true  // visible
+        });
+        
+        // Select the new entity
+        SelectEntity(entity);
+        
+        m_ConsoleMessages.push_back("Model loaded successfully as entity " + std::to_string(entity));
+        m_ConsoleMessages.push_back("Entity positioned at: (" + std::to_string(transform.position.x) + ", " + 
+                                   std::to_string(transform.position.y) + ", " + std::to_string(transform.position.z) + ")");
+        m_ConsoleMessages.push_back("Entity scale: " + std::to_string(transform.scale.x));
+    } else {
+        m_ConsoleMessages.push_back("ERROR: Failed to load model: " + path);
+        m_ConsoleMessages.push_back("Check console output for detailed Assimp error messages");
+        delete model;
+    }
+}
+
+bool UIManager::IsModelFile(const std::string& filename) const {
+    // Convert to lowercase for comparison
+    std::string lower = filename;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    
+    // Helper lambda to check if string ends with suffix
+    auto endsWith = [](const std::string& str, const std::string& suffix) {
+        if (suffix.size() > str.size()) return false;
+        return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+    };
+    
+    return (endsWith(lower, ".obj") || 
+            endsWith(lower, ".fbx") || 
+            endsWith(lower, ".dae") || 
+            endsWith(lower, ".3ds") ||
+            endsWith(lower, ".blend") ||
+            endsWith(lower, ".gltf") ||
+            endsWith(lower, ".glb"));
+}
+
+bool UIManager::IsTextureFile(const std::string& filename) const {
+    // Convert to lowercase for comparison
+    std::string lower = filename;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    
+    // Helper lambda to check if string ends with suffix
+    auto endsWith = [](const std::string& str, const std::string& suffix) {
+        if (suffix.size() > str.size()) return false;
+        return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+    };
+    
+    return (endsWith(lower, ".jpg") || 
+            endsWith(lower, ".jpeg") || 
+            endsWith(lower, ".png") || 
+            endsWith(lower, ".bmp") ||
+            endsWith(lower, ".tga") ||
+            endsWith(lower, ".dds"));
 }
