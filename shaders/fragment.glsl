@@ -19,34 +19,17 @@ float ShadowCalculation(vec4 fragPosLightSpace) {
     // Perform perspective divide
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
-    
-    // Check if we're outside the shadow map
-    if (projCoords.z > 1.0) {
-        return 0.0;
-    }
-    
     float closestDepth = texture(shadowMap, projCoords.xy).r;
     float currentDepth = projCoords.z;
-    
-    // Simple shadow bias to reduce shadow acne
-    float bias = 0.005;
-    float shadow = currentDepth - bias > closestDepth ? 1.0 : 0.0;
-    
+    float shadow = currentDepth > closestDepth ? 1.0 : 0.0;
     return shadow;
 }
 
 void main() {
-    // Sample the diffuse texture
-    vec4 textureColor = texture(diffuseTexture, TexCoords);
-    vec3 color = textureColor.rgb;
-    
-    // If texture sampling failed or returned very dark colors, use a default color
-    if (length(color) < 0.1) {
-        color = vec3(0.8, 0.8, 0.8); // Light gray default
-    }
+    vec3 color = texture(diffuseTexture, TexCoords).rgb;
     
     // Ambient
-    float ambientStrength = 0.3;
+    float ambientStrength = 0.5;
     vec3 ambient = ambientStrength * lightColor;
     
     // Diffuse
@@ -56,26 +39,22 @@ void main() {
     vec3 diffuse = diff * lightColor;
     
     // Specular
-    float specularStrength = 0.2;
+    float specularStrength = 0.5;
     vec3 viewDir = normalize(viewPos - FragPos);
     vec3 reflectDir = reflect(-lightDirNorm, norm);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
     vec3 specular = specularStrength * spec * lightColor;
 
-    // Orb lighting (if orb exists)
-    vec3 orbLighting = vec3(0.0);
-    if (length(orbPosition) > 0.1) {
-        vec3 orbDir = normalize(orbPosition - FragPos);
-        float orbDistance = length(orbPosition - FragPos);
-        float orbAttenuation = 1.0 / (1.0 + 0.1 * orbDistance + 0.01 * orbDistance * orbDistance);
-        vec3 orbDiffuse = max(dot(norm, orbDir), 0.0) * orbColor * orbAttenuation * 2.0;
-        vec3 orbAmbient = orbColor * orbAttenuation * 0.2;
-        orbLighting = orbDiffuse + orbAmbient;
-    }
+    // Orb lighting
+    vec3 orbDir = normalize(orbPosition - FragPos);
+    float orbDistance = length(orbPosition - FragPos);
+    float orbAttenuation = 1.0 / (1.0 + 0.1 * orbDistance + 0.01 * orbDistance * orbDistance);
+    vec3 orbDiffuse = max(dot(norm, orbDir), 0.0) * orbColor * orbAttenuation * 2.0;
+    vec3 orbAmbient = orbColor * orbAttenuation * 0.2;
     
     // Shadow
     float shadow = ShadowCalculation(FragPosLightSpace);
-    vec3 lighting = (ambient + orbLighting + (1.0 - shadow) * (diffuse + specular)) * color;
+    vec3 lighting = (ambient + orbAmbient + (1.0 - shadow) * (diffuse + specular + orbDiffuse)) * color;
     
-    FragColor = vec4(lighting, textureColor.a);
+    FragColor = vec4(lighting, 1.0);
 }

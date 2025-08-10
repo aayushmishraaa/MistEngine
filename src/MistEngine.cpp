@@ -68,93 +68,13 @@ bool DirectoryExists(const std::string& path) {
 #endif
 }
 
-// Create a procedural "backpack" model using cubes to verify rendering
-void CreateProceduralBackpackMesh(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices) {
-    vertices.clear();
-    indices.clear();
-    
-    // Create a simple backpack-like shape using multiple cube parts
-    // Main body (larger cube)
-    float bodySize = 0.8f;
-    std::vector<glm::vec3> bodyPositions = {
-        // Front face
-        glm::vec3(-bodySize, -bodySize, bodySize),
-        glm::vec3(bodySize, -bodySize, bodySize),
-        glm::vec3(bodySize, bodySize, bodySize),
-        glm::vec3(-bodySize, bodySize, bodySize),
-        
-        // Back face
-        glm::vec3(-bodySize, -bodySize, -bodySize),
-        glm::vec3(bodySize, -bodySize, -bodySize),
-        glm::vec3(bodySize, bodySize, -bodySize),
-        glm::vec3(-bodySize, bodySize, -bodySize)
-    };
-    
-    // Add vertices for main body
-    for (const auto& pos : bodyPositions) {
-        Vertex vertex;
-        vertex.Position = pos;
-        vertex.Normal = glm::normalize(pos); // Simple normal approximation
-        vertex.TexCoords = glm::vec2(0.5f, 0.5f); // Center UV
-        vertices.push_back(vertex);
-    }
-    
-    // Add indices for cube faces (12 triangles, 36 indices)
-    std::vector<unsigned int> cubeIndices = {
-        // Front face
-        0, 1, 2, 2, 3, 0,
-        // Back face  
-        4, 6, 5, 6, 4, 7,
-        // Left face
-        4, 0, 3, 3, 7, 4,
-        // Right face
-        1, 5, 6, 6, 2, 1,
-        // Top face
-        3, 2, 6, 6, 7, 3,
-        // Bottom face
-        4, 1, 0, 1, 4, 5
-    };
-    
-    indices.insert(indices.end(), cubeIndices.begin(), cubeIndices.end());
-    
-    // Add straps (smaller cubes)
-    unsigned int baseIndex = vertices.size();
-    float strapSize = 0.1f;
-    
-    // Left strap
-    std::vector<glm::vec3> leftStrapPos = {
-        glm::vec3(-bodySize - 0.2f, bodySize - 0.1f, 0.0f),
-        glm::vec3(-bodySize - 0.1f, bodySize - 0.1f, 0.0f),
-        glm::vec3(-bodySize - 0.1f, bodySize, 0.0f),
-        glm::vec3(-bodySize - 0.2f, bodySize, 0.0f)
-    };
-    
-    // Add vertices for left strap (simplified as quad)
-    for (const auto& pos : leftStrapPos) {
-        Vertex vertex;
-        vertex.Position = pos;
-        vertex.Normal = glm::vec3(0.0f, 0.0f, 1.0f);
-        vertex.TexCoords = glm::vec2(0.8f, 0.8f); // Different UV for straps
-        vertices.push_back(vertex);
-    }
-    
-    // Add indices for left strap (2 triangles)
-    std::vector<unsigned int> strapIndices = {
-        baseIndex + 0, baseIndex + 1, baseIndex + 2,
-        baseIndex + 2, baseIndex + 3, baseIndex + 0
-    };
-    indices.insert(indices.end(), strapIndices.begin(), strapIndices.end());
-    
-    std::cout << "Created procedural backpack with " << vertices.size() << " vertices and " << indices.size() << " indices" << std::endl;
-}
-
 int main() {
     // Settings
     const unsigned int SCR_WIDTH = 1200;
     const unsigned int SCR_HEIGHT = 800;
 
-    std::cout << "=== MistEngine v0.3.0 Starting Up ===" << std::endl;
-    std::cout << "Scene Editor Mode: Clean Unity-like startup" << std::endl;
+    std::cout << "=== MistEngine v0.2.0 Starting Up ===" << std::endl;
+    std::cout << "Scene Editor Mode: Enabled" << std::endl;
     std::cout << "Controls:" << std::endl;
     std::cout << "  - WASD/QE: Camera movement (always available)" << std::endl;
     std::cout << "  - RIGHT-CLICK + HOLD: Enable mouse look (locked by default)" << std::endl;
@@ -162,8 +82,8 @@ int main() {
     std::cout << "  - F3: Toggle Scene Editor / Gameplay mode" << std::endl;
     std::cout << "  - F1: Toggle ImGui Demo" << std::endl;
     std::cout << "  - F2: Toggle AI Assistant" << std::endl;
-    std::cout << "  - F4: Create procedural backpack model (test rendering)" << std::endl;
-    std::cout << "  - GameObject Menu: Create cubes, spheres, planes, models" << std::endl;
+    std::cout << "  - GameObject Menu: Create cubes, planes, etc." << std::endl;
+    std::cout << "  - IJKL + Space: Physics cube controls (legacy)" << std::endl;
 
     // Initialize ECS
     gCoordinator.Init();
@@ -182,21 +102,17 @@ int main() {
     renderSignature.set(gCoordinator.GetComponentType<TransformComponent>());
     renderSignature.set(gCoordinator.GetComponentType<RenderComponent>());
     gCoordinator.SetSystemSignature<RenderSystem>(renderSignature);
-    
+
     Signature physicsSignature;
     physicsSignature.set(gCoordinator.GetComponentType<TransformComponent>());
     physicsSignature.set(gCoordinator.GetComponentType<PhysicsComponent>());
     gCoordinator.SetSystemSignature<ECSPhysicsSystem>(physicsSignature);
-    
-    // Create Renderer with Unity-like settings
+
+    // Create Renderer
     Renderer renderer(SCR_WIDTH, SCR_HEIGHT);
     if (!renderer.Init()) {
         return -1;
     }
-    
-    // Set Unity-like camera position and skybox-like background
-    renderer.SetBackgroundColor(0.2f, 0.3f, 0.3f, 1.0f);  // Unity-like gray background
-    renderer.SetCameraPosition(glm::vec3(0.0f, 1.0f, 5.0f));  // Better starting position
 
     // Initialize UI Manager
     UIManager uiManager;
@@ -206,14 +122,16 @@ int main() {
         return -1;
     }
 
-    // Initialize Input Manager AFTER UI Manager
+    // Initialize Input Manager AFTER UI Manager (NEW!)
+    // This ensures ImGui doesn't override our callbacks
     InputManager inputManager;
     g_inputManager = &inputManager;
     inputManager.Initialize(renderer.GetWindow());
     inputManager.SetCamera(&renderer.GetCamera());
-    inputManager.EnableSceneEditorMode(true);
+    inputManager.EnableSceneEditorMode(true); // Start in scene editor mode
+    std::cout << "Input Manager initialized AFTER UI Manager - callbacks should work now" << std::endl;
 
-    // Initialize Module Manager
+    // Initialize Module Manager (NEW!)
     ModuleManager moduleManager;
     g_moduleManager = &moduleManager;
     moduleManager.SetCoordinator(&gCoordinator);
@@ -229,71 +147,77 @@ int main() {
 
     // Set up UI references
     uiManager.SetCoordinator(&gCoordinator);
+    moduleManager.SetScene(nullptr); // Will be set after scene creation
 
-    // Create Scene (clean - no default objects)
+    // Create Scene (keeping for backward compatibility)
     Scene scene;
     uiManager.SetScene(&scene);
     moduleManager.SetScene(&scene);
 
-    // Initialize Physics System
+    // Create glowing orb (existing system)
+    Orb* glowingOrb = new Orb(glm::vec3(1.5f, 1.0f, 0.0f), 0.3f, glm::vec3(2.0f, 1.6f, 0.4f));
+    scene.AddOrb(glowingOrb);
+
+    // Load 3D model (existing system)
+    Model* ourModel = new Model("models/backpack/backpack.obj");
+    scene.AddRenderable(ourModel);
+
+    // Initialize Physics (original system)
     PhysicsSystem physicsSystem;
     uiManager.SetPhysicsSystem(&physicsSystem);
 
-    // Create Unity-like default directional light (as ECS entity)
-    Entity lightEntity = gCoordinator.CreateEntity();
-    TransformComponent lightTransform;
-    lightTransform.position = glm::vec3(0.0f, 5.0f, 0.0f);
-    lightTransform.rotation = glm::vec3(50.0f, 30.0f, 0.0f);  // Typical Unity directional light angle
-    lightTransform.scale = glm::vec3(1.0f);
-    gCoordinator.AddComponent(lightEntity, lightTransform);
-    
-    // Set up Unity-like lighting in renderer
-    renderer.SetDirectionalLight(glm::vec3(-0.2f, -1.0f, -0.3f), glm::vec3(1.0f, 1.0f, 1.0f));
+    // Create physics ground plane (ECS version)
+    Entity groundEntity = gCoordinator.CreateEntity();
 
-    // Instead of using legacy Scene system, let's test with ECS entities
-    // Create a test cube ECS entity
-    try {
-        std::vector<Vertex> vertices;
-        std::vector<unsigned int> indices;
-        std::vector<Texture> textures; // Empty textures for basic cube
-        
-        generateCubeMesh(vertices, indices);
-        
-        Mesh* testCube = new Mesh(vertices, indices, textures);
-        
-        // Create ECS entity for the test cube
-        Entity testCubeEntity = gCoordinator.CreateEntity();
-        
-        TransformComponent transform;
-        transform.position = glm::vec3(0.0f, 0.0f, 0.0f);
-        transform.rotation = glm::vec3(0.0f, 45.0f, 0.0f); // Rotate 45 degrees for visibility
-        transform.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-        gCoordinator.AddComponent(testCubeEntity, transform);
-        
-        RenderComponent render;
-        render.renderable = testCube;
-        render.visible = true;
-        gCoordinator.AddComponent(testCubeEntity, render);
-        
-        std::cout << "Test cube ECS entity created successfully!" << std::endl;
-    } catch (const std::exception& e) {
-        std::cout << "Warning: Could not create test cube ECS entity: " << e.what() << std::endl;
+    btRigidBody* groundBody = physicsSystem.CreateGroundPlane(glm::vec3(0.0f, -0.5f, 0.0f));
+
+    std::vector<Vertex> planeVertices;
+    std::vector<unsigned int> planeIndices;
+    generatePlaneMesh(planeVertices, planeIndices);
+    std::vector<Texture> groundTextures;
+    Mesh* groundMesh = new Mesh(planeVertices, planeIndices, groundTextures);
+
+    gCoordinator.AddComponent(groundEntity, TransformComponent{
+        glm::vec3(0.0f, -0.5f, 0.0f),
+        glm::vec3(0.0f),
+        glm::vec3(1.0f)
+        });
+    gCoordinator.AddComponent(groundEntity, RenderComponent{ groundMesh, true });
+    gCoordinator.AddComponent(groundEntity, PhysicsComponent{ groundBody, true });
+
+    // Create physics cube (ECS version)
+    Entity cubeEntity = gCoordinator.CreateEntity();
+
+    btRigidBody* cubeBody = physicsSystem.CreateCube(glm::vec3(0.0f, 0.5f, 0.0f), 1.0f);
+
+    std::vector<Vertex> cubeVertices;
+    std::vector<unsigned int> cubeIndices;
+    generateCubeMesh(cubeVertices, cubeIndices);
+    Texture cubeTexture;
+    if (!cubeTexture.LoadFromFile("textures/container.jpg")) {
+        std::cerr << "Failed to load cube texture" << std::endl;
+        return -1;
     }
+    std::vector<Texture> cubeTextures;
+    cubeTextures.push_back(cubeTexture);
+    Mesh* cubeMesh = new Mesh(cubeVertices, cubeIndices, cubeTextures);
 
-    // Variables for test model loading (now as ECS entity)
-    Entity testModelEntity = 0;
-    bool testModelLoadRequested = false;
+    gCoordinator.AddComponent(cubeEntity, TransformComponent{
+        glm::vec3(0.0f, 0.5f, 0.0f),
+        glm::vec3(0.0f),
+        glm::vec3(1.0f)
+        });
+    gCoordinator.AddComponent(cubeEntity, RenderComponent{ cubeMesh, true });
+    gCoordinator.AddComponent(cubeEntity, PhysicsComponent{ cubeBody, true });
 
-    std::cout << "=== Clean Scene Initialization Complete ===" << std::endl;
-    std::cout << "Engine ready! Use GameObject menu to create objects." << std::endl;
-    std::cout << "Right-click and drag to look around in Scene Editor mode." << std::endl;
-    std::cout << "Press F4 to create a procedural backpack model for testing." << std::endl;
+    std::cout << "=== Initialization Complete ===" << std::endl;
+    std::cout << "Engine ready! Right-click and drag to look around in Scene Editor mode." << std::endl;
 
     // Main loop
     while (!glfwWindowShouldClose(renderer.GetWindow())) {
         float deltaTime = renderer.GetDeltaTime();
 
-        // Handle UI toggle inputs (F1, F2, F4)
+        // Handle UI toggle inputs (F1, F2)
         if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(renderer.GetWindow(), true);
 
@@ -325,79 +249,16 @@ int main() {
             f2Pressed = false;
         }
 
-        // Test model loading with F4 (now creates procedural backpack)
-        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F4) == GLFW_PRESS) {
-            static bool f4Pressed = false;
-            if (!f4Pressed && !testModelLoadRequested) {
-                testModelLoadRequested = true;
-                f4Pressed = true;
-                
-                std::cout << "Creating procedural backpack model..." << std::endl;
-                
-                try {
-                    std::vector<Vertex> backpackVertices;
-                    std::vector<unsigned int> backpackIndices;
-                    std::vector<Texture> backpackTextures; // Empty textures
-                    
-                    CreateProceduralBackpackMesh(backpackVertices, backpackIndices);
-                    
-                    Mesh* proceduralBackpack = new Mesh(backpackVertices, backpackIndices, backpackTextures);
-                    
-                    // Create ECS entity for the procedural backpack
-                    testModelEntity = gCoordinator.CreateEntity();
-                    
-                    TransformComponent backpackTransform;
-                    backpackTransform.position = glm::vec3(3.0f, 0.0f, 0.0f);
-                    backpackTransform.rotation = glm::vec3(0.0f, 45.0f, 0.0f); // Rotate for better view
-                    backpackTransform.scale = glm::vec3(1.0f, 1.0f, 1.0f);
-                    gCoordinator.AddComponent(testModelEntity, backpackTransform);
-                    
-                    RenderComponent backpackRender;
-                    backpackRender.renderable = proceduralBackpack;
-                    backpackRender.visible = true;
-                    gCoordinator.AddComponent(testModelEntity, backpackRender);
-                    
-                    std::cout << "Successfully created procedural backpack as ECS entity!" << std::endl;
-                    
-                } catch (const std::exception& e) {
-                    std::cout << "Failed to create procedural backpack: " << e.what() << std::endl;
-                    
-                    // Fallback to simple cube
-                    try {
-                        std::vector<Vertex> vertices2;
-                        std::vector<unsigned int> indices2;
-                        std::vector<Texture> textures2;
-                        
-                        generateCubeMesh(vertices2, indices2);
-                        Mesh* testCube2 = new Mesh(vertices2, indices2, textures2);
-                        
-                        testModelEntity = gCoordinator.CreateEntity();
-                        
-                        TransformComponent fallbackTransform;
-                        fallbackTransform.position = glm::vec3(3.0f, 0.0f, 0.0f);
-                        fallbackTransform.rotation = glm::vec3(0.0f, 0.0f, 45.0f); // Different rotation
-                        fallbackTransform.scale = glm::vec3(0.5f, 1.5f, 0.5f);     // Different scale
-                        gCoordinator.AddComponent(testModelEntity, fallbackTransform);
-                        
-                        RenderComponent fallbackRender;
-                        fallbackRender.renderable = testCube2;
-                        fallbackRender.visible = true;
-                        gCoordinator.AddComponent(testModelEntity, fallbackRender);
-                        
-                        std::cout << "Created fallback test cube as ECS entity" << std::endl;
-                    } catch (const std::exception& e2) {
-                        std::cout << "Failed to create fallback cube: " << e2.what() << std::endl;
-                    }
-                }
-            }
-        } else {
-            static bool f4Pressed = false;
-            f4Pressed = false;
-        }
-
-        // Update systems
+        // Update new input system
         inputManager.Update(deltaTime);
+
+        // Legacy physics input (for backwards compatibility)
+        ProcessLegacyPhysicsInput(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
+
+        // Update modules
         moduleManager.UpdateModules(deltaTime);
+
+        // Physics Update (both systems)
         physicsSystem.Update(deltaTime);
         ecsPhysicsSystem->Update(deltaTime);
 
@@ -410,6 +271,11 @@ int main() {
     // Cleanup
     uiManager.Shutdown();
     moduleManager.UnloadAllModules();
+    
+    delete groundMesh;
+    delete cubeMesh;
+    delete glowingOrb;
+    delete ourModel;
 
     std::cout << "=== Shutdown Complete ===" << std::endl;
     return 0;
