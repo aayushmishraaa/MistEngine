@@ -176,19 +176,11 @@ void Renderer::Render(Scene& scene) {
 
 
     // Render non-physics renderable objects (like the backpack model)
-    std::cout << "[DEBUG] Rendering " << scene.getRenderables().size() << " non-physics renderables" << std::endl;
     for (Renderable* object : scene.getRenderables()) {
          // For non-physics objects, you would set their model matrix here
          // based on their position/orientation in the scene (not from physics)
          // Assuming the Model class handles its own model matrix internally or it's static
          // If you want physics on the model, it should be in the physicsObjects loop
-         
-         // Set a default model matrix for the backpack (move it away from origin)
-         glm::mat4 modelMatrix = glm::mat4(1.0f);
-         modelMatrix = glm::translate(modelMatrix, glm::vec3(2.0f, 0.0f, 0.0f)); // Move 2 units right
-         objectShader.setMat4("model", modelMatrix);
-         
-         std::cout << "[DEBUG] Drawing renderable object" << std::endl;
          object->Draw(objectShader);
     }
 
@@ -361,23 +353,17 @@ void Renderer::RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderS
     // Render ECS entities
     renderSystem->Update(objectShader);
 
-    // Render legacy scene objects to depth map
-    // for (auto& obj : scene.getPhysicsRenderables()) {
-    //     objectShader.setMat4("model", obj.modelMatrix);
-    //     if (obj.renderable) {
-    //         obj.renderable->Draw(objectShader);
-    //     }
-    // }
+    // Render legacy scene objects for backward compatibility
+    for (auto& obj : scene.getPhysicsRenderables()) {
+        objectShader.setMat4("model", obj.modelMatrix);
+        if (obj.renderable) {
+            obj.renderable->Draw(objectShader);
+        }
+    }
 
-    // for (Renderable* object : scene.getRenderables()) {
-    //     // Set a default model matrix for the backpack (move it away from origin)
-    //     glm::mat4 modelMatrix = glm::mat4(1.0f);
-    //     modelMatrix = glm::translate(modelMatrix, glm::vec3(2.0f, 0.0f, 0.0f)); // Move 2 units right
-    //     objectShader.setMat4("model", modelMatrix);
-        
-    //     std::cout << "[DEBUG] ECS Rendering: Drawing renderable object" << std::endl;
-    //     object->Draw(objectShader);
-    // }
+    for (Renderable* object : scene.getRenderables()) {
+        object->Draw(objectShader);
+    }
 
     // Swap buffers and poll events
     glfwSwapBuffers(window);
@@ -448,23 +434,17 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // Render ECS entities
     renderSystem->Update(objectShader);
 
-    // Render legacy scene objects to depth map
-    // for (auto& obj : scene.getPhysicsRenderables()) {
-    //     objectShader.setMat4("model", obj.modelMatrix);
-    //     if (obj.renderable) {
-    //         obj.renderable->Draw(objectShader);
-    //     }
-    // }
+    // Render legacy scene objects for backward compatibility
+    for (auto& obj : scene.getPhysicsRenderables()) {
+        objectShader.setMat4("model", obj.modelMatrix);
+        if (obj.renderable) {
+            obj.renderable->Draw(objectShader);
+        }
+    }
 
-    // for (Renderable* object : scene.getRenderables()) {
-    //     // Set a default model matrix for the backpack (move it away from origin)
-    //     glm::mat4 modelMatrix = glm::mat4(1.0f);
-    //     modelMatrix = glm::translate(modelMatrix, glm::vec3(2.0f, 0.0f, 0.0f)); // Move 2 units right
-    //     objectShader.setMat4("model", modelMatrix);
-        
-    //     std::cout << "[DEBUG] ECSAndUI Rendering: Drawing renderable object" << std::endl;
-    //     object->Draw(objectShader);
-    // }
+    for (Renderable* object : scene.getRenderables()) {
+        object->Draw(objectShader);
+    }
 
     // === UI RENDERING ===
     if (uiManager) {

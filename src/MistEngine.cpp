@@ -1,7 +1,6 @@
 #include <iostream>
 #include <vector>
 #include <cstddef> 
-#include <fstream> // Add this for file checking
 
 #include "Renderer.h"
 #include "Scene.h"
@@ -159,86 +158,9 @@ int main() {
     Orb* glowingOrb = new Orb(glm::vec3(1.5f, 1.0f, 0.0f), 0.3f, glm::vec3(2.0f, 1.6f, 0.4f));
     scene.AddOrb(glowingOrb);
 
-    // Convert backpack model to ECS system
-    std::cout << "[DEBUG] Loading backpack model..." << std::endl;
-    
-    // Check multiple possible paths for the backpack model
-    std::vector<std::string> possiblePaths = {
-        "models/backpack/backpack.obj",
-        "assets/models/backpack/backpack.obj", 
-        "resources/models/backpack/backpack.obj",
-        "data/models/backpack/backpack.obj",
-        "backpack.obj"
-    };
-    
-    Model* backpackModel = nullptr;
-    std::string actualPath;
-    
-    for (const auto& testPath : possiblePaths) {
-        std::cout << "[DEBUG] Trying path: " << testPath << std::endl;
-        std::ifstream testFile(testPath);
-        if (testFile.good()) {
-            std::cout << "[DEBUG] Found backpack model at: " << testPath << std::endl;
-            backpackModel = new Model(testPath);
-            actualPath = testPath;
-            testFile.close();
-            break;
-        }
-        testFile.close();
-    }
-    
-    if (!backpackModel) {
-        std::cout << "[DEBUG] Backpack model not found in any expected location. Loading a test cube instead." << std::endl;
-        // Create a test entity with cube geometry to verify the pipeline works
-        Entity testEntity = gCoordinator.CreateEntity();
-        
-        std::vector<Vertex> vertices;
-        std::vector<unsigned int> indices;
-        generateCubeMesh(vertices, indices);
-        std::vector<Texture> textures;
-        Mesh* testMesh = new Mesh(vertices, indices, textures);
-        
-        gCoordinator.AddComponent(testEntity, TransformComponent{
-            glm::vec3(-2.0f, 1.0f, 0.0f), // Position left of origin, elevated
-            glm::vec3(0.0f),               // No rotation
-            glm::vec3(1.0f)                // Normal scale
-        });
-        
-        gCoordinator.AddComponent(testEntity, RenderComponent{ 
-            testMesh, 
-            true  // visible
-        });
-        
-        std::cout << "[DEBUG] Created test cube entity instead of backpack" << std::endl;
-    }
-    else if (backpackModel->IsLoaded()) {
-        std::cout << "[DEBUG] Backpack model loaded successfully from: " << actualPath << std::endl;
-        
-        // Create ECS entity for backpack
-        Entity backpackEntity = gCoordinator.CreateEntity();
-        
-        // Create renderable wrapper
-        ModelRenderable* backpackRenderable = new ModelRenderable(backpackModel);
-        
-        // Add transform component - place it at a visible position with larger scale for testing
-        gCoordinator.AddComponent(backpackEntity, TransformComponent{
-            glm::vec3(-2.0f, 1.0f, 0.0f), // Position left of origin, elevated
-            glm::vec3(0.0f),               // No rotation
-            glm::vec3(2.0f)                // Scale UP to 200% to ensure visibility
-        });
-        
-        // Add render component
-        gCoordinator.AddComponent(backpackEntity, RenderComponent{ 
-            backpackRenderable, 
-            true  // visible
-        });
-        
-        std::cout << "[DEBUG] Backpack converted to ECS entity successfully!" << std::endl;
-    } else {
-        std::cout << "[ERROR] Failed to load backpack model from: " << actualPath << std::endl;
-        delete backpackModel;
-        backpackModel = nullptr;
-    }
+    // Load 3D model (existing system)
+    Model* ourModel = new Model("models/backpack/backpack.obj");
+    scene.AddRenderable(ourModel);
 
     // Initialize Physics (original system)
     PhysicsSystem physicsSystem;
@@ -353,6 +275,7 @@ int main() {
     delete groundMesh;
     delete cubeMesh;
     delete glowingOrb;
+    delete ourModel;
 
     std::cout << "=== Shutdown Complete ===" << std::endl;
     return 0;

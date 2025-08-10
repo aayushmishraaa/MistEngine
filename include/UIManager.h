@@ -117,17 +117,6 @@ private:
     
     // Entity counter for naming
     int m_EntityCounter;
-    
-    // Asset browser state
-    std::string m_CurrentAssetPath;
-    std::vector<std::string> m_AssetFolders;
-    std::vector<std::string> m_AssetFiles;
-    
-    // Asset browser helpers
-    void ScanAssetsDirectory(const std::string& path);
-    void LoadModelFromAssetBrowser(const std::string& path);
-    bool IsModelFile(const std::string& filename) const;
-    bool IsTextureFile(const std::string& filename) const;
 };
 
 #endif // UIMANAGER_H
