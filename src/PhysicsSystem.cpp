@@ -1,4 +1,3 @@
-
 #include "PhysicsSystem.h"
 #include <glm/gtc/type_ptr.hpp> // Include for glm::make_mat4
 
@@ -89,5 +88,11 @@ void PhysicsSystem::ApplyForce(btRigidBody* body, const glm::vec3& force) {
     if (body) {
         body->activate(true); // Activate the body if it was sleeping
         body->applyCentralForce(btVector3(force.x, force.y, force.z));
+    }
+}
+
+void PhysicsSystem::AddRigidBody(btRigidBody* body) {
+    if (body && dynamicsWorld) {
+        dynamicsWorld->addRigidBody(body);
     }
 }

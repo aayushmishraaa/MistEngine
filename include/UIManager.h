@@ -80,11 +80,21 @@ private:
     Entity m_SelectedEntity;
     bool m_HasSelectedEntity;
     
+    // Multiple selection support
+    std::vector<Entity> m_SelectedEntities;
+    bool m_MultiSelectMode;
+    
     // Entity creation helpers
     void CreateCube();
     void CreateSphere();
     void CreatePlane();
     void CreateModel();
+    void CreateModelEntity(const std::string& modelPath);
+    
+    // Entity manipulation helpers
+    void DuplicateEntity(Entity entity);
+    void ResetEntityPosition(Entity entity);
+    void DeleteSelectedEntities();
     
     // Inspector helpers
     void DrawTransformComponent(TransformComponent& transform);

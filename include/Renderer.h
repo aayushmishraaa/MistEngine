@@ -33,6 +33,11 @@ public:
     GLFWwindow* GetWindow() const { return window; }
     float GetDeltaTime() const;
 
+    // Unity-like scene setup methods
+    void SetBackgroundColor(float r, float g, float b, float a);
+    void SetCameraPosition(const glm::vec3& position);
+    void SetDirectionalLight(const glm::vec3& direction, const glm::vec3& color);
+
 private:
     unsigned int screenWidth;
     unsigned int screenHeight;

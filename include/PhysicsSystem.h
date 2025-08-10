@@ -1,4 +1,3 @@
-
 #ifndef PHYSICS_SYSTEM_H
 #define PHYSICS_SYSTEM_H
 
@@ -15,6 +14,12 @@ public:
 
     btRigidBody* CreateGroundPlane(const glm::vec3& position);
     btRigidBody* CreateCube(const glm::vec3& position, float mass);
+    
+    // Add rigid body to physics world
+    void AddRigidBody(btRigidBody* body);
+    
+    // Get dynamics world for advanced operations
+    btDiscreteDynamicsWorld* GetDynamicsWorld() { return dynamicsWorld; }
 
     void ApplyForce(btRigidBody* body, const glm::vec3& force);
     // Add other physics related methods

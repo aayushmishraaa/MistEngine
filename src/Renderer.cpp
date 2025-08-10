@@ -81,6 +81,11 @@ bool Renderer::Init() {
 
     // Configure global OpenGL state
     glEnable(GL_DEPTH_TEST);
+    
+    // Disable face culling for debugging - models might have incorrect winding order
+    glDisable(GL_CULL_FACE);
+    
+    std::cout << "Renderer: Face culling disabled for model debugging" << std::endl;
 
     // Load shaders
     objectShader = Shader("shaders/vertex.glsl", "shaders/fragment.glsl");
@@ -176,11 +181,13 @@ void Renderer::Render(Scene& scene) {
 
 
     // Render non-physics renderable objects (like the backpack model)
+    static bool debugRenderablesOnce = false;
+    if (!debugRenderablesOnce) {
+        std::cout << "DEBUG: Rendering " << scene.getRenderables().size() << " non-physics renderables" << std::endl;
+        debugRenderablesOnce = true;
+    }
     for (Renderable* object : scene.getRenderables()) {
-         // For non-physics objects, you would set their model matrix here
-         // based on their position/orientation in the scene (not from physics)
-         // Assuming the Model class handles its own model matrix internally or it's static
-         // If you want physics on the model, it should be in the physicsObjects loop
+         // The model matrix is now set by the Model::Draw method itself
          object->Draw(objectShader);
     }
 
@@ -277,6 +284,20 @@ void Renderer::scroll_callback(GLFWwindow* window, double xoffset, double yoffse
 float Renderer::GetDeltaTime() const {
     return deltaTime;
 }
+
+void Renderer::SetBackgroundColor(float r, float g, float b, float a) {
+    glClearColor(r, g, b, a);
+}
+
+void Renderer::SetCameraPosition(const glm::vec3& position) {
+    camera.Position = position;
+}
+
+void Renderer::SetDirectionalLight(const glm::vec3& direction, const glm::vec3& color) {
+    lightDir = direction;
+    lightColor = color;
+}
+
 void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix) {
     if (body) {
         // Get the world transform from the physics body
@@ -327,6 +348,23 @@ void Renderer::RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderS
 
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
     glm::mat4 view = camera.GetViewMatrix();
+    
+    // Debug: Log camera and projection info once
+    static bool debugOnce = false;
+    if (!debugOnce) {
+        std::cout << "=== RENDER DEBUG INFO ===" << std::endl;
+        std::cout << "Camera position: (" << camera.Position.x << ", " << camera.Position.y << ", " << camera.Position.z << ")" << std::endl;
+        std::cout << "Camera front: (" << camera.Front.x << ", " << camera.Front.y << ", " << camera.Front.z << ")" << std::endl;
+        std::cout << "Projection: perspective with FOV=" << camera.Zoom << ", near=0.1, far=100.0" << std::endl;
+        std::cout << "Viewport: " << screenWidth << "x" << screenHeight << std::endl;
+        
+        // Check OpenGL state
+        GLboolean depthTest;
+        glGetBooleanv(GL_DEPTH_TEST, &depthTest);
+        std::cout << "Depth testing: " << (depthTest ? "enabled" : "disabled") << std::endl;
+        
+        debugOnce = true;
+    }
 
     // Draw glowing orbs first
     glowShader.use();
@@ -359,10 +397,6 @@ void Renderer::RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderS
         if (obj.renderable) {
             obj.renderable->Draw(objectShader);
         }
-    }
-
-    for (Renderable* object : scene.getRenderables()) {
-        object->Draw(objectShader);
     }
 
     // Swap buffers and poll events
@@ -408,6 +442,23 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
     glm::mat4 view = camera.GetViewMatrix();
+    
+    // Debug: Log camera and projection info once
+    static bool debugOnce = false;
+    if (!debugOnce) {
+        std::cout << "=== RENDER DEBUG INFO ===" << std::endl;
+        std::cout << "Camera position: (" << camera.Position.x << ", " << camera.Position.y << ", " << camera.Position.z << ")" << std::endl;
+        std::cout << "Camera front: (" << camera.Front.x << ", " << camera.Front.y << ", " << camera.Front.z << ")" << std::endl;
+        std::cout << "Projection: perspective with FOV=" << camera.Zoom << ", near=0.1, far=100.0" << std::endl;
+        std::cout << "Viewport: " << screenWidth << "x" << screenHeight << std::endl;
+        
+        // Check OpenGL state
+        GLboolean depthTest;
+        glGetBooleanv(GL_DEPTH_TEST, &depthTest);
+        std::cout << "Depth testing: " << (depthTest ? "enabled" : "disabled") << std::endl;
+        
+        debugOnce = true;
+    }
 
     // Draw glowing orbs first
     glowShader.use();
@@ -440,10 +491,6 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         if (obj.renderable) {
             obj.renderable->Draw(objectShader);
         }
-    }
-
-    for (Renderable* object : scene.getRenderables()) {
-        object->Draw(objectShader);
     }
 
     // === UI RENDERING ===
