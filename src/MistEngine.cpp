@@ -13,6 +13,7 @@
 #include "UIManager.h"
 #include "InputManager.h"    // New input system
 #include "ModuleManager.h"   // New module system
+#include "GameManager.h"     // FPS Game Manager
 #include <glm/gtc/type_ptr.hpp>
 
 // ECS includes
@@ -23,6 +24,18 @@
 #include "ECS/Systems/RenderSystem.h"
 #include "ECS/Systems/ECSPhysicsSystem.h"  // ECS physics system
 
+// FPS Game ECS components
+#include "ECS/Components/PlayerComponent.h"
+#include "ECS/Components/WeaponComponent.h"
+#include "ECS/Components/BotComponent.h" 
+#include "ECS/Components/HealthComponent.h"
+#include "ECS/Components/ProjectileComponent.h"
+
+// FPS Game ECS systems
+#include "ECS/Systems/PlayerSystem.h"
+#include "ECS/Systems/WeaponSystem.h"
+#include "ECS/Systems/BotSystem.h"
+
 // Global ECS coordinator
 Coordinator gCoordinator;
 
@@ -30,6 +43,8 @@ Coordinator gCoordinator;
 UIManager* g_uiManager = nullptr;
 InputManager* g_inputManager = nullptr;
 ModuleManager* g_moduleManager = nullptr;
+GameManager* g_gameManager = nullptr;
+PhysicsSystem* g_physicsSystem = nullptr;
 
 // Legacy input handling for backward compatibility with physics controls
 void ProcessLegacyPhysicsInput(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables, float deltaTime) {
@@ -52,7 +67,7 @@ void ProcessLegacyPhysicsInput(GLFWwindow* window, PhysicsSystem& physicsSystem,
             physicsSystem.ApplyForce(cubeBody, glm::vec3(-force, 0.0f, 0.0f));
         if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
             physicsSystem.ApplyForce(cubeBody, glm::vec3(force, 0.0f, 0.0f));
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
+        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && !g_gameManager->IsGameMode())
              physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, force * 2.0f, 0.0f));
     }
 }
@@ -73,17 +88,24 @@ int main() {
     const unsigned int SCR_WIDTH = 1200;
     const unsigned int SCR_HEIGHT = 800;
 
-    std::cout << "=== MistEngine v0.2.0 Starting Up ===" << std::endl;
-    std::cout << "Scene Editor Mode: Enabled" << std::endl;
+    std::cout << "=== MistEngine v0.3.0 - FPS Game Edition ===" << std::endl;
+    std::cout << "Scene Editor Mode: Enabled (F3 to toggle Game Mode)" << std::endl;
     std::cout << "Controls:" << std::endl;
-    std::cout << "  - WASD/QE: Camera movement (always available)" << std::endl;
-    std::cout << "  - RIGHT-CLICK + HOLD: Enable mouse look (locked by default)" << std::endl;
+    std::cout << "  EDITOR MODE:" << std::endl;
+    std::cout << "  - WASD/QE: Camera movement" << std::endl;
+    std::cout << "  - RIGHT-CLICK + HOLD: Enable mouse look" << std::endl;
     std::cout << "  - Mouse Scroll: Zoom in/out" << std::endl;
-    std::cout << "  - F3: Toggle Scene Editor / Gameplay mode" << std::endl;
+    std::cout << "  GAME MODE:" << std::endl;
+    std::cout << "  - WASD: Player movement" << std::endl;
+    std::cout << "  - Mouse: Look around (locked cursor)" << std::endl;
+    std::cout << "  - LEFT CLICK: Shoot" << std::endl;
+    std::cout << "  - R: Reload" << std::endl;
+    std::cout << "  - SPACE: Jump" << std::endl;
+    std::cout << "  - ESC: Pause/Resume" << std::endl;
+    std::cout << "  GENERAL:" << std::endl;
+    std::cout << "  - F3: Toggle Scene Editor / Game Mode" << std::endl;
     std::cout << "  - F1: Toggle ImGui Demo" << std::endl;
     std::cout << "  - F2: Toggle AI Assistant" << std::endl;
-    std::cout << "  - GameObject Menu: Create cubes, planes, etc." << std::endl;
-    std::cout << "  - IJKL + Space: Physics cube controls (legacy)" << std::endl;
 
     // Initialize ECS
     gCoordinator.Init();
@@ -92,10 +114,22 @@ int main() {
     gCoordinator.RegisterComponent<TransformComponent>();
     gCoordinator.RegisterComponent<RenderComponent>();
     gCoordinator.RegisterComponent<PhysicsComponent>();
+    
+    // Register FPS game components
+    gCoordinator.RegisterComponent<PlayerComponent>();
+    gCoordinator.RegisterComponent<WeaponComponent>();
+    gCoordinator.RegisterComponent<BotComponent>();
+    gCoordinator.RegisterComponent<HealthComponent>();
+    gCoordinator.RegisterComponent<ProjectileComponent>();
 
     // Register systems
     auto renderSystem = gCoordinator.RegisterSystem<RenderSystem>();
     auto ecsPhysicsSystem = gCoordinator.RegisterSystem<ECSPhysicsSystem>();
+    
+    // Register FPS game systems
+    auto playerSystem = gCoordinator.RegisterSystem<PlayerSystem>();
+    auto weaponSystem = gCoordinator.RegisterSystem<WeaponSystem>();
+    auto botSystem = gCoordinator.RegisterSystem<BotSystem>();
 
     // Set system signatures
     Signature renderSignature;
@@ -107,6 +141,22 @@ int main() {
     physicsSignature.set(gCoordinator.GetComponentType<TransformComponent>());
     physicsSignature.set(gCoordinator.GetComponentType<PhysicsComponent>());
     gCoordinator.SetSystemSignature<ECSPhysicsSystem>(physicsSignature);
+    
+    // Set FPS game system signatures
+    Signature playerSignature;
+    playerSignature.set(gCoordinator.GetComponentType<PlayerComponent>());
+    playerSignature.set(gCoordinator.GetComponentType<TransformComponent>());
+    gCoordinator.SetSystemSignature<PlayerSystem>(playerSignature);
+    
+    Signature weaponSignature;
+    weaponSignature.set(gCoordinator.GetComponentType<WeaponComponent>());
+    weaponSignature.set(gCoordinator.GetComponentType<PlayerComponent>());
+    gCoordinator.SetSystemSignature<WeaponSystem>(weaponSignature);
+    
+    Signature botSignature;
+    botSignature.set(gCoordinator.GetComponentType<BotComponent>());
+    botSignature.set(gCoordinator.GetComponentType<TransformComponent>());
+    gCoordinator.SetSystemSignature<BotSystem>(botSignature);
 
     // Create Renderer
     Renderer renderer(SCR_WIDTH, SCR_HEIGHT);
@@ -145,6 +195,23 @@ int main() {
         std::cout << "No 'modules' directory found - continuing without external modules" << std::endl;
     }
 
+    // Initialize Physics (original system)
+    PhysicsSystem physicsSystem;
+    g_physicsSystem = &physicsSystem;
+    uiManager.SetPhysicsSystem(&physicsSystem);
+    
+    // Initialize FPS Game Manager (NEW!)
+    GameManager gameManager;
+    g_gameManager = &gameManager;
+    gameManager.Initialize(renderer.GetWindow(), &renderer, &uiManager, &physicsSystem);
+    
+    // Initialize FPS game systems
+    playerSystem->Init(renderer.GetWindow(), &renderer.GetCamera());
+    weaponSystem->Init(renderer.GetWindow(), &renderer.GetCamera());
+    
+    // Pass system pointers to GameManager
+    gameManager.SetSystems(playerSystem, weaponSystem, botSystem);
+
     // Set up UI references
     uiManager.SetCoordinator(&gCoordinator);
     moduleManager.SetScene(nullptr); // Will be set after scene creation
@@ -162,10 +229,6 @@ int main() {
     Model* ourModel = new Model("models/backpack/backpack.obj");
     scene.AddRenderable(ourModel);
 
-    // Initialize Physics (original system)
-    PhysicsSystem physicsSystem;
-    uiManager.SetPhysicsSystem(&physicsSystem);
-
     // Create physics ground plane (ECS version)
     Entity groundEntity = gCoordinator.CreateEntity();
 
@@ -180,7 +243,7 @@ int main() {
     gCoordinator.AddComponent(groundEntity, TransformComponent{
         glm::vec3(0.0f, -0.5f, 0.0f),
         glm::vec3(0.0f),
-        glm::vec3(1.0f)
+        glm::vec3(10.0f, 1.0f, 10.0f) // Larger ground plane
         });
     gCoordinator.AddComponent(groundEntity, RenderComponent{ groundMesh, true });
     gCoordinator.AddComponent(groundEntity, PhysicsComponent{ groundBody, true });
@@ -195,11 +258,12 @@ int main() {
     generateCubeMesh(cubeVertices, cubeIndices);
     Texture cubeTexture;
     if (!cubeTexture.LoadFromFile("textures/container.jpg")) {
-        std::cerr << "Failed to load cube texture" << std::endl;
-        return -1;
+        std::cout << "Warning: Failed to load cube texture, continuing without texture" << std::endl;
     }
     std::vector<Texture> cubeTextures;
-    cubeTextures.push_back(cubeTexture);
+    if (cubeTexture.GetID() != 0) {
+        cubeTextures.push_back(cubeTexture);
+    }
     Mesh* cubeMesh = new Mesh(cubeVertices, cubeIndices, cubeTextures);
 
     gCoordinator.AddComponent(cubeEntity, TransformComponent{
@@ -211,49 +275,56 @@ int main() {
     gCoordinator.AddComponent(cubeEntity, PhysicsComponent{ cubeBody, true });
 
     std::cout << "=== Initialization Complete ===" << std::endl;
-    std::cout << "Engine ready! Right-click and drag to look around in Scene Editor mode." << std::endl;
+    std::cout << "Engine ready!" << std::endl;
+    std::cout << "Press F3 to enter FPS Game Mode!" << std::endl;
 
     // Main loop
     while (!glfwWindowShouldClose(renderer.GetWindow())) {
         float deltaTime = renderer.GetDeltaTime();
 
-        // Handle UI toggle inputs (F1, F2)
-        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
-            glfwSetWindowShouldClose(renderer.GetWindow(), true);
-
-        // Toggle UI demo window with F1
-        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F1) == GLFW_PRESS) {
-            static bool f1Pressed = false;
-            if (!f1Pressed) {
-                if (g_uiManager) {
-                    g_uiManager->SetShowDemo(!g_uiManager->IsShowingDemo());
+        // Handle UI toggle inputs (F1, F2) - only in editor mode
+        if (!gameManager.IsGameMode()) {
+            // Toggle UI demo window with F1
+            if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F1) == GLFW_PRESS) {
+                static bool f1Pressed = false;
+                if (!f1Pressed) {
+                    if (g_uiManager) {
+                        g_uiManager->SetShowDemo(!g_uiManager->IsShowingDemo());
+                    }
+                    f1Pressed = true;
                 }
-                f1Pressed = true;
+            } else {
+                static bool f1Pressed = false;
+                f1Pressed = false;
             }
-        } else {
-            static bool f1Pressed = false;
-            f1Pressed = false;
+
+            // Toggle AI window with F2
+            if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F2) == GLFW_PRESS) {
+                static bool f2Pressed = false;
+                if (!f2Pressed) {
+                    if (g_uiManager) {
+                        g_uiManager->SetShowAI(!g_uiManager->IsShowingAI());
+                    }
+                    f2Pressed = true;
+                }
+            } else {
+                static bool f2Pressed = false;
+                f2Pressed = false;
+            }
         }
 
-        // Toggle AI window with F2
-        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F2) == GLFW_PRESS) {
-            static bool f2Pressed = false;
-            if (!f2Pressed) {
-                if (g_uiManager) {
-                    g_uiManager->SetShowAI(!g_uiManager->IsShowingAI());
-                }
-                f2Pressed = true;
-            }
-        } else {
-            static bool f2Pressed = false;
-            f2Pressed = false;
+        // Update Game Manager (handles F3 toggle and game logic)
+        gameManager.Update(deltaTime);
+
+        // Update input system (only in editor mode, player system handles game mode input)
+        if (!gameManager.IsGameMode()) {
+            inputManager.Update(deltaTime);
         }
 
-        // Update new input system
-        inputManager.Update(deltaTime);
-
-        // Legacy physics input (for backwards compatibility)
-        ProcessLegacyPhysicsInput(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
+        // Legacy physics input (only in editor mode and for backwards compatibility)
+        if (!gameManager.IsGameMode()) {
+            ProcessLegacyPhysicsInput(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
+        }
 
         // Update modules
         moduleManager.UpdateModules(deltaTime);
@@ -261,6 +332,11 @@ int main() {
         // Physics Update (both systems)
         physicsSystem.Update(deltaTime);
         ecsPhysicsSystem->Update(deltaTime);
+        
+        // Update FPS game systems
+        playerSystem->Update(deltaTime);
+        weaponSystem->Update(deltaTime);
+        botSystem->Update(deltaTime);
 
         // Render with UI
         renderer.RenderWithECSAndUI(scene, renderSystem, &uiManager);
