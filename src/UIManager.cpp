@@ -3,8 +3,6 @@
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
-#include "ECS/Components/PlayerComponent.h"
-#include "ECS/Components/HealthComponent.h"
 #include "Scene.h"
 #include "PhysicsSystem.h"
 #include "Mesh.h"
@@ -33,8 +31,6 @@ UIManager::UIManager()
     , m_ShowConsole(true)    // Open console by default to see debug messages
     , m_ShowAI(false)
     , m_ShowAPIKeyDialog(false)
-    , m_IsGameMode(false)
-    
     , m_SelectedEntity(0)
     , m_HasSelectedEntity(false)
     , m_Coordinator(nullptr)
@@ -127,31 +123,27 @@ void UIManager::NewFrame() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    if (m_IsGameMode) {
-        // In game mode, only show game UI (crosshair, health, etc.)
-        DrawGameUI();
-    } else {
-        // In editor mode, show all editor UI
-        DrawMainMenuBar();
-        
-        if (m_ShowHierarchy) DrawHierarchy();
-        if (m_ShowInspector) DrawInspector();
-        if (m_ShowSceneView) DrawSceneView();
-        if (m_ShowAssetBrowser) DrawAssetBrowser();
-        if (m_ShowConsole) DrawConsole();
-        
-        if (m_ShowAI && m_AIWindow) {
-            m_AIWindow->SetVisible(true);
-            m_AIWindow->Draw();
-        }
-        
-        if (m_ShowDemo) {
-            ImGui::ShowDemoWindow(&m_ShowDemo);
-        }
-        
-        if (m_ShowAPIKeyDialog) {
-            DrawAPIKeyDialog();
-        }
+    // Main menu bar
+    DrawMainMenuBar();
+
+    // Draw windows
+    if (m_ShowHierarchy) DrawHierarchy();
+    if (m_ShowInspector) DrawInspector();
+    if (m_ShowSceneView) DrawSceneView();
+    if (m_ShowAssetBrowser) DrawAssetBrowser();
+    if (m_ShowConsole) DrawConsole();
+    if (m_ShowDemo) ImGui::ShowDemoWindow(&m_ShowDemo);
+    
+    // Draw AI window
+    if (m_ShowAI && m_AIWindow) {
+        m_AIWindow->SetVisible(true);
+        m_AIWindow->Draw();
+        m_ShowAI = m_AIWindow->IsVisible(); // Sync state if window was closed
+    }
+    
+    // Draw API Key dialog
+    if (m_ShowAPIKeyDialog) {
+        DrawAPIKeyDialog();
     }
 }
 
@@ -968,152 +960,4 @@ void UIManager::DrawVec3Control(const std::string& label, glm::vec3& values, flo
     ImGui::PopItemWidth();
     ImGui::Columns(1);
     ImGui::PopID();
-}
-
-void UIManager::DrawGameUI() {
-    // Get window size for positioning
-    ImGuiIO& io = ImGui::GetIO();
-    ImVec2 windowSize = io.DisplaySize;
-    
-    // Draw crosshair at center of screen
-    DrawCrosshair();
-    
-    // Find player entity and get health
-    float currentHealth = 100.0f;
-    float maxHealth = 100.0f;
-    int killCount = 0;
-    
-    if (m_Coordinator) {
-        // Search for player entity (this is not ideal but works for now)
-        for (Entity entity = 0; entity < 1000; ++entity) {
-            try {
-                auto& player = m_Coordinator->GetComponent<PlayerComponent>(entity);
-                auto& health = m_Coordinator->GetComponent<HealthComponent>(entity);
-                currentHealth = health.currentHealth;
-                maxHealth = health.maxHealth;
-                killCount = player.killCount; // Get kill count from player
-                break;
-            } catch (...) {
-                // Entity doesn't have player or health component
-            }
-        }
-    }
-    
-    // Draw health bar at bottom left
-    DrawHealthBar(currentHealth, maxHealth);
-    
-    // Draw kill counter at top left
-    DrawKillCounter(killCount);
-    
-    // Draw game info overlay (top right)
-    ImGui::SetNextWindowPos(ImVec2(windowSize.x - 200, 20), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(180, 120), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.3f);
-    
-    if (ImGui::Begin("Game Info", nullptr, 
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar)) {
-        
-        ImGui::Text("FPS Game Mode");
-        ImGui::Separator();
-        ImGui::Text("Health: %.0f/%.0f", currentHealth, maxHealth);
-        ImGui::Text("Kills: %d", killCount);
-        ImGui::Separator();
-        ImGui::Text("Left Click: Shoot");
-        ImGui::Text("R: Reload");
-        ImGui::Text("ESC: Pause");
-        ImGui::Text("F3: Editor Mode");
-    }
-    ImGui::End();
-}
-
-void UIManager::DrawCrosshair() {
-    ImGuiIO& io = ImGui::GetIO();
-    ImVec2 center = ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
-    
-    // Get foreground draw list
-    ImDrawList* drawList = ImGui::GetForegroundDrawList();
-    
-    // Crosshair settings
-    float size = 10.0f;
-    float thickness = 2.0f;
-    ImU32 color = IM_COL32(255, 255, 255, 200); // White with transparency
-    
-    // Draw horizontal line
-    drawList->AddLine(
-        ImVec2(center.x - size, center.y),
-        ImVec2(center.x + size, center.y),
-        color, thickness
-    );
-    
-    // Draw vertical line  
-    drawList->AddLine(
-        ImVec2(center.x, center.y - size),
-        ImVec2(center.x, center.y + size),
-        color, thickness
-    );
-    
-    // Add center dot
-    drawList->AddCircleFilled(center, 1.0f, color);
-}
-
-void UIManager::DrawHealthBar(float currentHealth, float maxHealth) {
-    ImGuiIO& io = ImGui::GetIO();
-    
-    // Position at bottom left
-    ImGui::SetNextWindowPos(ImVec2(20, io.DisplaySize.y - 80), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(200, 60), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.3f);
-    
-    if (ImGui::Begin("Health", nullptr,
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar)) {
-        
-        ImGui::Text("Health");
-        
-        // Health bar
-        float healthPercent = maxHealth > 0 ? currentHealth / maxHealth : 0.0f;
-        
-        // Color based on health level
-        ImVec4 healthColor;
-        if (healthPercent > 0.6f) {
-            healthColor = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // Green
-        } else if (healthPercent > 0.3f) {
-            healthColor = ImVec4(1.0f, 1.0f, 0.0f, 1.0f); // Yellow
-        } else {
-            healthColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Red
-        }
-        
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, healthColor);
-        ImGui::ProgressBar(healthPercent, ImVec2(0.0f, 20.0f), "");
-        ImGui::PopStyleColor();
-        
-        ImGui::SameLine();
-        ImGui::Text("%.0f/%.0f", currentHealth, maxHealth);
-    }
-    ImGui::End();
-}
-
-void UIManager::DrawKillCounter(int killCount) {
-    ImGuiIO& io = ImGui::GetIO();
-    
-    // Position at top left
-    ImGui::SetNextWindowPos(ImVec2(20, 20), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(120, 60), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.3f);
-    
-    if (ImGui::Begin("Kills", nullptr,
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar)) {
-        
-        ImGui::Text("KILLS");
-        
-        // Large kill counter text
-        ImGui::PushFont(nullptr); // Use default font but make it prominent
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.0f, 1.0f)); // Golden color
-        ImGui::Text("%d", killCount);
-        ImGui::PopStyleColor();
-        ImGui::PopFont();
-    }
-    ImGui::End();
 }
