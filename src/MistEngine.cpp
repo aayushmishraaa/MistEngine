@@ -74,7 +74,7 @@ int main() {
     const unsigned int SCR_HEIGHT = 800;
 
     std::cout << "=== MistEngine v0.2.0 Starting Up ===" << std::endl;
-    std::cout << "Scene Editor Mode: Enabled" << std::endl;
+    std::cout << "Clean Scene Mode: Enabled" << std::endl;
     std::cout << "Controls:" << std::endl;
     std::cout << "  - WASD/QE: Camera movement (always available)" << std::endl;
     std::cout << "  - RIGHT-CLICK + HOLD: Enable mouse look (locked by default)" << std::endl;
@@ -82,8 +82,8 @@ int main() {
     std::cout << "  - F3: Toggle Scene Editor / Gameplay mode" << std::endl;
     std::cout << "  - F1: Toggle ImGui Demo" << std::endl;
     std::cout << "  - F2: Toggle AI Assistant" << std::endl;
-    std::cout << "  - GameObject Menu: Create cubes, planes, etc." << std::endl;
-    std::cout << "  - IJKL + Space: Physics cube controls (legacy)" << std::endl;
+    std::cout << "  - GameObject Menu: Create cubes, planes, spheres, etc." << std::endl;
+    std::cout << "  - Unity-like Directional Light and Skyline Background" << std::endl;
 
     // Initialize ECS
     gCoordinator.Init();
@@ -145,73 +145,21 @@ int main() {
         std::cout << "No 'modules' directory found - continuing without external modules" << std::endl;
     }
 
-    // Set up UI references
-    uiManager.SetCoordinator(&gCoordinator);
-    moduleManager.SetScene(nullptr); // Will be set after scene creation
-
-    // Create Scene (keeping for backward compatibility)
+    // Create Clean Scene - NO DEFAULT OBJECTS
     Scene scene;
     uiManager.SetScene(&scene);
+    uiManager.SetCoordinator(&gCoordinator);  // Add this missing line!
+    std::cout << "UIManager: Coordinator reference set successfully" << std::endl;
     moduleManager.SetScene(&scene);
 
-    // Create glowing orb (existing system)
-    Orb* glowingOrb = new Orb(glm::vec3(1.5f, 1.0f, 0.0f), 0.3f, glm::vec3(2.0f, 1.6f, 0.4f));
-    scene.AddOrb(glowingOrb);
-
-    // Load 3D model (existing system)
-    Model* ourModel = new Model("models/backpack/backpack.obj");
-    scene.AddRenderable(ourModel);
-
-    // Initialize Physics (original system)
+    // Initialize Physics System (for when objects are created via UI)
     PhysicsSystem physicsSystem;
     uiManager.SetPhysicsSystem(&physicsSystem);
+    std::cout << "UIManager: PhysicsSystem reference set successfully" << std::endl;
 
-    // Create physics ground plane (ECS version)
-    Entity groundEntity = gCoordinator.CreateEntity();
-
-    btRigidBody* groundBody = physicsSystem.CreateGroundPlane(glm::vec3(0.0f, -0.5f, 0.0f));
-
-    std::vector<Vertex> planeVertices;
-    std::vector<unsigned int> planeIndices;
-    generatePlaneMesh(planeVertices, planeIndices);
-    std::vector<Texture> groundTextures;
-    Mesh* groundMesh = new Mesh(planeVertices, planeIndices, groundTextures);
-
-    gCoordinator.AddComponent(groundEntity, TransformComponent{
-        glm::vec3(0.0f, -0.5f, 0.0f),
-        glm::vec3(0.0f),
-        glm::vec3(1.0f)
-        });
-    gCoordinator.AddComponent(groundEntity, RenderComponent{ groundMesh, true });
-    gCoordinator.AddComponent(groundEntity, PhysicsComponent{ groundBody, true });
-
-    // Create physics cube (ECS version)
-    Entity cubeEntity = gCoordinator.CreateEntity();
-
-    btRigidBody* cubeBody = physicsSystem.CreateCube(glm::vec3(0.0f, 0.5f, 0.0f), 1.0f);
-
-    std::vector<Vertex> cubeVertices;
-    std::vector<unsigned int> cubeIndices;
-    generateCubeMesh(cubeVertices, cubeIndices);
-    Texture cubeTexture;
-    if (!cubeTexture.LoadFromFile("textures/container.jpg")) {
-        std::cerr << "Failed to load cube texture" << std::endl;
-        return -1;
-    }
-    std::vector<Texture> cubeTextures;
-    cubeTextures.push_back(cubeTexture);
-    Mesh* cubeMesh = new Mesh(cubeVertices, cubeIndices, cubeTextures);
-
-    gCoordinator.AddComponent(cubeEntity, TransformComponent{
-        glm::vec3(0.0f, 0.5f, 0.0f),
-        glm::vec3(0.0f),
-        glm::vec3(1.0f)
-        });
-    gCoordinator.AddComponent(cubeEntity, RenderComponent{ cubeMesh, true });
-    gCoordinator.AddComponent(cubeEntity, PhysicsComponent{ cubeBody, true });
-
-    std::cout << "=== Initialization Complete ===" << std::endl;
-    std::cout << "Engine ready! Right-click and drag to look around in Scene Editor mode." << std::endl;
+    std::cout << "=== Clean Scene Initialization Complete ===" << std::endl;
+    std::cout << "Scene is empty! Use the GameObject menu to add cubes, planes, spheres, etc." << std::endl;
+    std::cout << "Engine ready with Unity-like directional lighting and skyline background!" << std::endl;
 
     // Main loop
     while (!glfwWindowShouldClose(renderer.GetWindow())) {
@@ -252,8 +200,10 @@ int main() {
         // Update new input system
         inputManager.Update(deltaTime);
 
-        // Legacy physics input (for backwards compatibility)
-        ProcessLegacyPhysicsInput(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
+        // Legacy physics input (for backwards compatibility) - now only if objects exist
+        if (!scene.getPhysicsRenderables().empty()) {
+            ProcessLegacyPhysicsInput(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
+        }
 
         // Update modules
         moduleManager.UpdateModules(deltaTime);
@@ -271,11 +221,6 @@ int main() {
     // Cleanup
     uiManager.Shutdown();
     moduleManager.UnloadAllModules();
-    
-    delete groundMesh;
-    delete cubeMesh;
-    delete glowingOrb;
-    delete ourModel;
 
     std::cout << "=== Shutdown Complete ===" << std::endl;
     return 0;

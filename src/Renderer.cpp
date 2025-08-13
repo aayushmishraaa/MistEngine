@@ -19,12 +19,17 @@ Renderer::Renderer(unsigned int width, unsigned int height)
       deltaTime(0.0f), lastFrame(0.0f),
       lightDir(-0.2f, -1.0f, -0.3f), lightColor(1.0f, 1.0f, 1.0f),
       shadowWidth(1024), shadowHeight(1024),
-      planeVAO(0), planeVBO(0), cubeVAO(0), cubeVBO(0), cubeEBO(0) // Still needed for cleanup, but setup is removed
+      planeVAO(0), planeVBO(0), cubeVAO(0), cubeVBO(0), cubeEBO(0), // Still needed for cleanup, but setup is removed
+      skyboxVAO(0), skyboxVBO(0)
 {
     g_renderer = this; // Set the global pointer
 }
 
 Renderer::~Renderer() {
+    // Cleanup skybox
+    glDeleteVertexArrays(1, &skyboxVAO);
+    glDeleteBuffers(1, &skyboxVBO);
+
     // Cleanup (VAOs, VBOs, EBOs for basic shapes are now managed by Mesh objects)
     // glDeleteVertexArrays(1, &cubeVAO); // Removed
     // glDeleteVertexArrays(1, &planeVAO); // Removed
@@ -82,13 +87,18 @@ bool Renderer::Init() {
     // Configure global OpenGL state
     glEnable(GL_DEPTH_TEST);
 
+    // Set a nice sky-like clear color instead of black
+    glClearColor(0.5f, 0.7f, 1.0f, 1.0f);
+
     // Load shaders
     objectShader = Shader("shaders/vertex.glsl", "shaders/fragment.glsl");
     depthShader = Shader("shaders/depth_vertex.glsl", "shaders/depth_fragment.glsl");
     glowShader = Shader("shaders/glow_vertex.glsl", "shaders/glow_fragment.glsl");
+    skyboxShader = Shader("shaders/skybox_vertex.glsl", "shaders/skybox_fragment.glsl");
 
-    // Setup shadow mapping
+    // Setup shadow mapping and skybox
     setupShadowMap();
+    setupSkybox();
 
     std::cout << "Renderer: Legacy mouse callback DISABLED - InputManager has full control" << std::endl;
 
@@ -139,6 +149,9 @@ void Renderer::Render(Scene& scene) {
     // Reset viewport
     glViewport(0, 0, screenWidth, screenHeight);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Render skybox first (before other objects)
+    renderSkybox();
 
     // Draw glowing orbs first (for proper blending if enabled)
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
@@ -256,6 +269,83 @@ void Renderer::setupShadowMap() {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+void Renderer::setupSkybox() {
+    // Skybox vertices (cube centered at origin)
+    float skyboxVertices[] = {
+        // positions          
+        -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        -1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+
+        -1.0f, -1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+        -1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f
+    };
+
+    glGenVertexArrays(1, &skyboxVAO);
+    glGenBuffers(1, &skyboxVBO);
+    glBindVertexArray(skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glBindVertexArray(0);
+}
+
+void Renderer::renderSkybox() {
+    // Change depth function to draw skybox behind everything else
+    glDepthFunc(GL_LEQUAL);
+    
+    skyboxShader.use();
+    glm::mat4 view = glm::mat4(glm::mat3(camera.GetViewMatrix())); // Remove translation
+    glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
+    
+    skyboxShader.setMat4("view", view);
+    skyboxShader.setMat4("projection", projection);
+    
+    // Render skybox cube
+    glBindVertexArray(skyboxVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+    
+    // Reset depth function
+    glDepthFunc(GL_LESS);
+}
+
 
 
 // --- Callback implementations ---
@@ -327,6 +417,9 @@ void Renderer::RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderS
 
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
     glm::mat4 view = camera.GetViewMatrix();
+
+    // Render skybox first (before other objects)
+    renderSkybox();
 
     // Draw glowing orbs first
     glowShader.use();
@@ -408,6 +501,9 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
     glm::mat4 view = camera.GetViewMatrix();
+
+    // Render skybox first (before other objects)
+    renderSkybox();
 
     // Draw glowing orbs first
     glowShader.use();

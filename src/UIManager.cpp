@@ -789,8 +789,46 @@ void UIManager::CreateCube() {
 }
 
 void UIManager::CreateSphere() {
-    CreateEntity("Sphere");
-    m_ConsoleMessages.push_back("Created sphere entity (mesh generation not implemented)");
+    if (m_Coordinator && m_PhysicsSystem) {
+        Entity entity = m_Coordinator->CreateEntity();
+        m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
+        
+        m_ConsoleMessages.push_back("Creating sphere entity " + std::to_string(entity));
+        
+        // Transform
+        TransformComponent transform;
+        transform.position = glm::vec3(2.0f, 3.0f, 0.0f);  // Spawn to the side and higher up
+        transform.scale = glm::vec3(1.0f);
+        m_Coordinator->AddComponent(entity, transform);
+        m_ConsoleMessages.push_back("Added transform component");
+        
+        // Create sphere mesh
+        std::vector<Vertex> vertices;
+        std::vector<unsigned int> indices;
+        generateSphereMesh(vertices, indices, 1.0f, 36, 18); // radius, sectors, stacks
+        std::vector<Texture> textures;
+        Mesh* mesh = new Mesh(vertices, indices, textures);
+        
+        // Render
+        RenderComponent render;
+        render.renderable = mesh;
+        render.visible = true;
+        m_Coordinator->AddComponent(entity, render);
+        m_ConsoleMessages.push_back("Added render component");
+        
+        // Physics - create sphere physics body
+        btRigidBody* body = m_PhysicsSystem->CreateSphere(transform.position, 1.0f, 1.0f); // position, radius, mass
+        PhysicsComponent physics;
+        physics.rigidBody = body;
+        physics.syncTransform = true;
+        m_Coordinator->AddComponent(entity, physics);
+        m_ConsoleMessages.push_back("Added physics component");
+        
+        m_ConsoleMessages.push_back("Sphere entity created successfully with " + std::to_string(vertices.size()) + " vertices");
+        SelectEntity(entity);
+    } else {
+        m_ConsoleMessages.push_back("ERROR: Cannot create sphere - missing coordinator or physics system");
+    }
 }
 
 void UIManager::CreatePlane() {

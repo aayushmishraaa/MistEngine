@@ -42,6 +42,7 @@ private:
     Shader objectShader;
     Shader depthShader;
     Shader glowShader;
+    Shader skyboxShader;
 
     // Camera
     Camera camera;
@@ -63,11 +64,17 @@ private:
     unsigned int depthMapFBO;
     unsigned int depthMap;
 
+    // Skybox
+    unsigned int skyboxVAO;
+    unsigned int skyboxVBO;
+
     // Basic shapes (VAOs, VBOs, EBOs are now managed by Mesh objects)
     unsigned int planeVAO, planeVBO; // Still needed for cleanup in destructor
     unsigned int cubeVAO, cubeVBO, cubeEBO; // Still needed for cleanup in destructor
 
     void setupShadowMap();
+    void setupSkybox();
+    void renderSkybox();
 
     // Callback functions (will be set as static and call member functions)
     static void framebuffer_size_callback(GLFWwindow* window, int width, int height);

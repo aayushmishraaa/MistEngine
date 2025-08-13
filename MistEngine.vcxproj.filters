@@ -149,6 +149,9 @@
     </None>
     <None Include="modules\ExampleModule\ExampleModule.vcxproj" />
     <None Include="docs\README.md" />
+    <None Include="shaders\skybox_vertex.glsl" />
+    <None Include="shaders\skybox_fragment.glsl" />
+    <None Include="SLIDE_DECK_INSTRUCTIONS.md" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">

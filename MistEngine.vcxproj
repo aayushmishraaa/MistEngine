@@ -184,7 +184,10 @@
     <None Include="shaders\depth_fragment.glsl" />
     <None Include="shaders\depth_vertex.glsl" />
     <None Include="shaders\fragment.glsl" />
+    <None Include="shaders\skybox_fragment.glsl" />
+    <None Include="shaders\skybox_vertex.glsl" />
     <None Include="shaders\vertex.glsl" />
+    <None Include="SLIDE_DECK_INSTRUCTIONS.md" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\AI\AIConfig.h" />

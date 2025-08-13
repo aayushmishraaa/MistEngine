@@ -1,4 +1,3 @@
-
 #include "PhysicsSystem.h"
 #include <glm/gtc/type_ptr.hpp> // Include for glm::make_mat4
 
@@ -83,6 +82,25 @@ btRigidBody* PhysicsSystem::CreateCube(const glm::vec3& position, float mass) {
     dynamicsWorld->addRigidBody(cubeBody);
 
     return cubeBody;
+}
+
+btRigidBody* PhysicsSystem::CreateSphere(const glm::vec3& position, float radius, float mass) {
+    // Create a dynamic sphere
+    btCollisionShape* sphereShape = new btSphereShape(radius);
+    collisionShapes.push_back(sphereShape);
+
+    btDefaultMotionState* sphereMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, 1), btVector3(position.x, position.y, position.z)));
+    motionStates.push_back(sphereMotionState);
+
+    btVector3 fallInertia(0, 0, 0);
+    sphereShape->calculateLocalInertia(mass, fallInertia);
+
+    btRigidBody::btRigidBodyConstructionInfo sphereRigidBodyCI(mass, sphereMotionState, sphereShape, fallInertia);
+    btRigidBody* sphereBody = new btRigidBody(sphereRigidBodyCI);
+
+    dynamicsWorld->addRigidBody(sphereBody);
+
+    return sphereBody;
 }
 
 void PhysicsSystem::ApplyForce(btRigidBody* body, const glm::vec3& force) {
