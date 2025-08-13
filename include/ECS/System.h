@@ -6,6 +6,9 @@
 
 class System {
 public:
+    virtual ~System() = default;
+    virtual void Update(float deltaTime) {}
+    
     std::set<Entity> m_Entities;
 };
 

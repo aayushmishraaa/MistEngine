@@ -26,6 +26,8 @@ class PhysicsSystem;
 class AIManager;
 class AIWindow;
 struct ChatMessage;
+class GameExporter;  // NEW: GameExporter forward declaration
+class FPSGameManager; // NEW: FPSGameManager forward declaration
 
 typedef uint32_t Entity;
 
@@ -65,6 +67,14 @@ public:
     void SetCoordinator(Coordinator* coordinator) { m_Coordinator = coordinator; }
     void SetScene(Scene* scene) { m_Scene = scene; }
     void SetPhysicsSystem(PhysicsSystem* physics) { m_PhysicsSystem = physics; }
+    
+    // NEW: FPS Game Manager reference
+    void SetFPSGameManager(FPSGameManager* fpsManager) { m_FPSGameManager = fpsManager; }
+
+    // NEW: Public methods for FPS game to create objects
+    void CreateGameCube() { CreateCube(); }
+    void CreateGamePlane() { CreatePlane(); }
+    void CreateGameSphere() { CreateSphere(); }
 
 private:
     bool m_ShowDemo;
@@ -75,6 +85,7 @@ private:
     bool m_ShowConsole;
     bool m_ShowAI;
     bool m_ShowAPIKeyDialog;
+    bool m_ShowExportDialog;  // NEW: Export dialog flag
     
     // Selected entity
     Entity m_SelectedEntity;
@@ -94,6 +105,17 @@ private:
     // AI helpers
     void DrawAPIKeyDialog();
     
+    // NEW: Export dialog
+    void DrawExportDialog();
+    
+    // NEW: FPS Game Launcher
+    void DrawFPSGameLauncher();
+    
+    // NEW: FPS Game HUD
+    void DrawFPSGameHUD();
+    void DrawCrosshair();
+    void DrawGameOverScreen();
+    
     // Utility
     void DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 100.0f);
     
@@ -102,15 +124,29 @@ private:
     Scene* m_Scene;
     PhysicsSystem* m_PhysicsSystem;
     
+    // NEW: FPS Game Manager reference
+    FPSGameManager* m_FPSGameManager;
+
     // AI components
     std::unique_ptr<AIManager> m_AIManager;
     std::unique_ptr<AIWindow> m_AIWindow;
+    
+    // NEW: Game export components
+    std::unique_ptr<GameExporter> m_GameExporter;
     
     // API Key dialog state
     char m_APIKeyBuffer[512];
     char m_EndpointBuffer[512];
     int m_SelectedProvider;
     
+    // NEW: Export dialog state
+    char m_GameNameBuffer[256];
+    char m_OutputPathBuffer[512];
+    int m_NumLevels;
+    int m_EnemiesPerLevel;
+    bool m_IncludeAssets;
+    bool m_CompressAssets;
+
     // UI state
     std::vector<std::pair<Entity, std::string>> m_EntityList;
     std::vector<std::string> m_ConsoleMessages;

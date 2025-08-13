@@ -2,6 +2,7 @@
 #define INPUT_MANAGER_H
 
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
 #include <functional>
 #include <unordered_map>
 #include <vector>
@@ -53,6 +54,13 @@ public:
     // Check if mouse look should be processed
     bool ShouldProcessMouseLook() const { return m_CameraMouseCaptured && m_Camera && m_CameraControlEnabled; }
 
+    // Input queries for FPS system
+    bool IsKeyPressed(int key) const;
+    bool IsKeyJustPressed(int key) const;
+    bool IsMouseButtonPressed(int button) const;
+    bool IsMouseButtonJustPressed(int button) const;
+    glm::vec2 GetMouseDelta() const { return m_MouseDelta; }
+
     // Callbacks
     void OnMouseMove(double xpos, double ypos);
     void OnMouseButton(int button, int action, int mods);
@@ -73,10 +81,13 @@ private:
     double m_LastMouseX, m_LastMouseY;
     bool m_FirstMouse;
     bool m_RightMousePressed;
+    glm::vec2 m_MouseDelta; // Mouse movement delta for current frame
     
     // Input state tracking
     std::unordered_map<int, bool> m_KeyStates;
+    std::unordered_map<int, bool> m_PrevKeyStates; // For just pressed detection
     std::unordered_map<int, bool> m_MouseStates;
+    std::unordered_map<int, bool> m_PrevMouseStates; // For just pressed detection
     
     // Handle different input contexts
     void ProcessSceneEditorInput(float deltaTime);

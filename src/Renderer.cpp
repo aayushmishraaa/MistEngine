@@ -3,6 +3,7 @@
 #include "Scene.h"
 #include "PhysicsSystem.h"
 #include "UIManager.h"
+#include "Version.h"  // Add Version.h include
 #include <glm/gtc/type_ptr.hpp> // For glm::make_mat4 (used in updateModelMatrixFromPhysics)
 
 #include "Orb.h" // Add this include to ensure the Orb class is defined
@@ -57,7 +58,8 @@ bool Renderer::Init() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     // Create window
-    window = glfwCreateWindow(screenWidth, screenHeight, "MistEngine", NULL, NULL);
+    std::string windowTitle = std::string(MIST_ENGINE_NAME) + " " + MIST_ENGINE_VERSION_STRING;
+    window = glfwCreateWindow(screenWidth, screenHeight, windowTitle.c_str(), NULL, NULL);
     if (!window) {
         std::cerr << "Failed to create GLFW window\n";
         glfwTerminate();

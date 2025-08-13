@@ -1,311 +1,342 @@
-#    MistEngine
+# ?? MistEngine 0.3.0
 
-**A Modern C++14 Game Engine with Integrated AI Development Assistant**
+[![Version](https://img.shields.io/badge/version-0.3.0--prealpha-brightgreen.svg)](https://github.com/yourusername/MistEngine)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64-blue.svg)](https://github.com/yourusername/MistEngine)
+[![C++](https://img.shields.io/badge/C%2B%2B-14-blue.svg)](https://github.com/yourusername/MistEngine)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![C++](https://img.shields.io/badge/C%2B%2B-14-blue.svg)](https://en.cppreference.com/w/cpp/14)
-[![OpenGL](https://img.shields.io/badge/OpenGL-3.3-green.svg)](https://www.opengl.org/)
-[![Status](https://img.shields.io/badge/Status-Pre--Alpha-red.svg)](https://github.com/aayushmishraaa/MistEngine)
+> **A Modern C++ Game Engine with AI Integration and FPS Game Mode**
 
-> **Revolutionary game engine that integrates AI assistance directly into the development workflow, featuring a sophisticated Entity Component System and modular plugin architecture.**
-
----
-
-##   Key Features
-
-###    **Core Engine**
-- **Entity Component System (ECS)** - High-performance data-oriented architecture
-- **Modern OpenGL Rendering** - PBR-ready pipeline with shadow mapping
-- **Bullet Physics Integration** - Realistic physics simulation with dual legacy/ECS systems
-- **Professional Scene Editor** - Unity-like interface with ImGui integration
-- **Modular Plugin System** - Runtime extensibility through dynamic module loading
-
-###    **AI-Powered Development**
-- **Integrated AI Assistant** - Real-time coding help via Google Gemini API
-- **Context-Aware Suggestions** - AI understands your engine architecture
-- **Code Analysis & Review** - Get instant feedback on your implementations
-- **Feature Brainstorming** - AI helps design new engine features
-
-###   **Advanced Systems**
-- **Smart Input Management** - Context-aware input handling (Scene Editor / Gameplay modes)
-- **Hot Module Reloading** - Update engine functionality without restart
-- **Cross-Platform Foundation** - Designed for Windows with Linux/macOS extensibility
-- **Professional Workflow** - Industry-standard development tools and interfaces
+MistEngine is a sophisticated 3D game engine built with modern C++14, featuring an Entity-Component-System (ECS) architecture, advanced physics simulation, AI-powered development assistance, and a complete FPS game implementation.
 
 ---
 
-##    Quick Start
+## ? **Key Features**
 
-### Prerequisites
-- **Visual Studio 2017+** (Windows)
-- **Git** for version control
-- **Basic C++14 knowledge**
+### ?? **Complete FPS Game**
+- **Fully playable FPS experience** with enemy AI, weapons, and levels
+- **Real-time combat** with physics-based projectiles
+- **Intelligent enemy behaviors** including patrol, chase, and attack states
+- **Multiple weapon types** (Pistol, Rifle, Shotgun, Sniper)
+- **Health and scoring systems** with game progression
 
-###    Installation & Setup
+### ??? **Advanced Engine Architecture**
+- **Entity-Component-System (ECS)** for maximum performance and flexibility
+- **Modular plugin system** with hot-reloadable modules
+- **Dual physics integration** (Bullet Physics + custom ECS physics)
+- **Modern OpenGL 3.3 rendering** with shadow mapping and skybox
+- **Scene editor** with transform manipulation and object creation
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/aayushmishraaa/MistEngine.git
-   cd MistEngine
-   ```
+### ?? **AI-Powered Development**
+- **Real-time AI assistance** integrated directly into the engine
+- **Google Gemini API support** for intelligent code suggestions
+- **Context-aware development help** with F2 hotkey access
+- **AI-assisted debugging** and problem-solving
 
-2. **Open in Visual Studio**
-   ```bash
-   # Open the solution file
-   start MistEngine.sln
-   ```
+### ?? **Professional Editor Interface**
+- **ImGui-based editor** with hierarchy, inspector, and console
+- **Game export system** for distributing standalone games
+- **Asset browser** and scene management
+- **Multiple input modes** (Scene Editor, FPS Game, UI-focused)
 
-3. **Build & Run**
-   - Press `F5` to build and run
-   - The engine should compile and run immediately (all dependencies included)
-
-4. **First Launch Setup**
-   - Press `F2` to open AI Assistant
-   - Configure your Gemini API key (optional but recommended)
-   - Start creating your first 3D scene!
-
----
-
-##    Controls & Interface
-
-###     **Scene Editor Mode** (Default)
-- **WASD/QE** - Camera movement (fly around the scene)
-- **Right-click + Drag** - Mouse look (Unity-style camera control)
-- **Mouse Scroll** - Zoom in/out
-- **F3** - Toggle to Gameplay mode
-- **F1** - Toggle ImGui demo window
-- **F2** - Open/Close AI Assistant
-
-###    **Gameplay Mode**
-- **WASD/QE** - Camera movement
-- **Mouse Movement** - Free look (FPS-style)
-- **F3** - Return to Scene Editor mode
-
-###     **Development Tools**
-- **GameObject Menu** - Create cubes, planes, spheres
-- **Hierarchy Window** - Manage scene objects
-- **Inspector Window** - Edit object properties in real-time
-- **Console Window** - Debug output and engine messages
-- **AI Assistant** - Get help with coding and engine features
+### ?? **Developer Experience**
+- **Hot-reloadable plugins** for rapid development
+- **Comprehensive logging** and debug console
+- **Modern C++14 practices** with RAII and smart pointers
+- **Cross-platform foundation** with Windows x64 primary support
 
 ---
 
-##     Architecture Overview
+## ?? **Quick Start**
 
-MistEngine demonstrates advanced software engineering through its layered architecture:
+### **Prerequisites**
+- Visual Studio 2019 or later with C++14 support
+- Windows 10/11 (x64)
+- OpenGL 3.3 compatible graphics card
+- 4GB RAM minimum, 8GB recommended
 
-```
-                                           
-         Application Layer                      Main Engine Loop & Game Logic
-                                           
-         Systems Layer                          ECS Systems, Module Manager
-                                           
-         Component Layer                        ECS Components, Data Structures  
-                                           
-         Subsystems Layer                       Renderer, Physics, Input, UI, AI
-                                           
-         Foundation Layer                       Math, Memory, Platform Abstraction
-                                           
+### **Build & Run**
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/MistEngine.git
+cd MistEngine
+
+# Open the solution file
+start MistEngine.sln
+
+# Build and run in Visual Studio (Ctrl+F5)
 ```
 
-###    **Design Principles**
-- **Data-Oriented Design** - ECS for cache-friendly performance
-- **Composition over Inheritance** - Flexible entity creation
-- **Dependency Injection** - Clean, testable system architecture
-- **RAII Resource Management** - Automatic memory and OpenGL resource cleanup
-- **Plugin Architecture** - Extensible through dynamic modules
+### **First Launch**
+1. **?? Try the FPS Game**: Click the green "?? START FPS GAME" button
+2. **??? Explore the Editor**: Use GameObject menu to create cubes, spheres, planes
+3. **?? Setup AI Assistant**: Press F2 and configure your Gemini API key
+4. **?? Read Documentation**: Check the `docs/` folder for comprehensive guides
 
 ---
 
-##    AI Integration Features
+## ?? **FPS Game Controls**
 
-### **Real-time Development Assistance**
+### **Scene Editor Mode**
+- `WASD` + `QE` - Camera movement
+- `Right-click + Hold` - Mouse look
+- `F3` - Toggle between Editor and FPS modes
+
+### **FPS Game Mode** 
+- `WASD` - Player movement
+- `Mouse` - Look around (automatically captured)
+- `Left Click` - Shoot
+- `R` - Reload weapon
+- `1/2` - Switch weapons
+- `ESC` - Pause/Resume game
+
+### **General**
+- `F1` - Toggle ImGui demo window
+- `F2` - Open AI Assistant
+- `F3` - Toggle input modes
+
+---
+
+## ?? **Architecture Overview**
+
+MistEngine implements several advanced software engineering patterns:
+
+### **Entity-Component-System (ECS)**
 ```cpp
-// Ask AI about engine architecture
-"How should I implement a new component type "
-
-// Get code suggestions  
-"Help me optimize this rendering loop"
-
-// Debug assistance
-"Why is my physics simulation unstable "
+// Create entity with components
+Entity player = gCoordinator.CreateEntity();
+gCoordinator.AddComponent(player, TransformComponent{});
+gCoordinator.AddComponent(player, PlayerComponent{});
+gCoordinator.AddComponent(player, WeaponComponent{});
 ```
 
-### **Supported AI Providers**
--   **Google Gemini** - Excellent for code analysis and architecture advice
--    **OpenAI GPT** (Coming Soon) - Alternative provider support
--    **Anthropic Claude** (Planned) - Additional provider option
+### **Modular Plugin System**
+```cpp
+// Hot-reloadable plugin development
+class MyPlugin : public Module {
+    void Initialize() override { /* Plugin initialization */ }
+    void Update(float deltaTime) override { /* Plugin logic */ }
+};
+```
 
-### **AI Features**
-- **Conversation Memory** - Maintains context across development sessions
-- **Code Analysis** - Understands C++ and game engine patterns
-- **Architecture Guidance** - Helps design new systems and features
-- **Debugging Support** - Assists with troubleshooting complex issues
+### **AI Integration**
+```cpp
+// Real-time development assistance
+AIResponse response = aiManager.GetCodeSuggestions(currentContext);
+```
 
 ---
 
-##    Module System
+## ?? **Project Highlights**
 
-### **For Users - Adding Modules**
-1. Download a module (`.dll` file)
-2. Copy to `modules/` folder
-3. Restart MistEngine   Module loads automatically!
+### **?? Advanced Features**
+- **Complete FPS Game Implementation** - Playable shooter with AI enemies
+- **AI-Powered Development Environment** - Revolutionary coding assistance
+- **Professional Game Export System** - Distribute standalone games
+- **Hot-Reloadable Plugin Architecture** - Rapid development workflow
+- **Dual Physics Systems** - Both Bullet Physics and custom ECS physics
+- **Comprehensive Documentation** - Extensive user and technical guides
 
-### **For Developers - Creating Modules**
+### **?? Technical Achievements**
+- **Modern C++14 Implementation** with advanced template metaprogramming
+- **Memory-Safe Architecture** using RAII and smart pointers
+- **High-Performance ECS** with optimized component storage
+- **Cross-System Integration** between physics, rendering, and AI
+- **Professional Build System** with comprehensive error handling
+
+### **?? Academic Quality**
+- **MSc Dissertation Level Documentation** in `docs/technical/`
+- **Comprehensive Architecture Analysis** with design pattern coverage
+- **Research-Quality Implementation** suitable for academic study
+- **Extensive Problem-Solving Documentation** showing development process
+
+---
+
+## ?? **Project Structure**
+
+```
+MistEngine/
+??? ??? src/                    # Source code
+?   ??? ECS/                   # Entity-Component-System
+?   ??? AI/                    # AI integration system
+?   ??? Physics/               # Physics systems
+?   ??? ...                    # Core engine systems
+??? ?? include/                # Header files
+??? ?? shaders/                # GLSL shaders
+??? ?? modules/                # Plugin modules
+??? ?? docs/                   # Comprehensive documentation
+??? ?? exports/                # Game export outputs
+??? ?? MistEngine.sln          # Visual Studio solution
+```
+
+---
+
+## ?? **AI Assistant Setup**
+
+MistEngine includes revolutionary AI-powered development assistance:
+
+1. **Get API Key**: Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. **Configure in Engine**: Press `F2` ? Configure API Key ? Paste key
+3. **Start Coding**: Get real-time suggestions, debugging help, and code reviews
+
+**AI Features:**
+- ?? Real-time code suggestions
+- ?? Intelligent debugging assistance  
+- ?? Context-aware documentation
+- ?? Code refactoring recommendations
+
+---
+
+## ?? **System Requirements**
+
+### **Minimum**
+- Windows 10 x64
+- Visual Studio 2019
+- OpenGL 3.3 GPU
+- 4GB RAM
+- 2GB disk space
+
+### **Recommended**
+- Windows 11 x64
+- Visual Studio 2022
+- Modern GPU (GTX 1060+)
+- 8GB+ RAM
+- SSD storage
+
+---
+
+## ?? **Development**
+
+### **Contributing**
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
+
+### **Build Configuration**
 ```cpp
-// Example: Custom Physics Enhancement Module
-class PhysicsEnhancementModule : public IModule {
-public:
-    bool Initialize() override {
-        // Initialize your custom physics features
-        return true;
+// Debug build - full debugging information
+#ifdef _DEBUG
+    #define MIST_ENGINE_BUILD_TYPE "Debug"
+#else
+    #define MIST_ENGINE_BUILD_TYPE "Release"
+#endif
+```
+
+### **Plugin Development**
+```cpp
+// Create custom plugin
+class MyGameLogic : public Module {
+    void Initialize() override {
+        // Plugin initialization
     }
     
     void Update(float deltaTime) override {
-        // Update your custom systems
-    }
-    
-    ModuleInfo GetInfo() const override {
-        return {"PhysicsEnhancement", "1.0", "Your Name", "Enhanced physics features"};
+        // Game logic updates
     }
 };
-
-// Register the module
-DECLARE_MODULE(PhysicsEnhancementModule)
 ```
 
 ---
 
-##     Technical Specifications
+## ?? **Academic Use**
 
-### **Core Technologies**
-- **Language**: C++14 (maximum compatibility)
-- **Graphics**: OpenGL 3.3 Core Profile
-- **Physics**: Bullet Physics 3.x
-- **GUI**: Dear ImGui (immediate mode)
-- **Windowing**: GLFW 3
-- **Mathematics**: GLM (OpenGL Mathematics)
-- **AI Integration**: Google Gemini API
-- **HTTP Client**: Custom WinINet wrapper (Windows)
+MistEngine is designed for educational and research purposes:
 
-### **Performance Features**
-- **Data-Oriented ECS** - Cache-friendly component storage
-- **Batch Rendering** - Efficient draw call management
-- **Smart Culling** - Frustum and occlusion culling
-- **Hot Module Reloading** - Runtime code updates
-- **Multithreaded Systems** - Parallel system execution (planned)
+- **?? MSc Dissertation Material** - Complete technical analysis
+- **??? Software Engineering Patterns** - Advanced design pattern implementations
+- **?? Research Applications** - Suitable for game engine research
+- **?? Educational Resource** - Comprehensive learning material
 
-### **Development Features**
-- **Live Component Editing** - Real-time property modification
-- **Scene Serialization** - Save/load complete scenes
-- **Asset Hot Reloading** - Update assets without restart
-- **Comprehensive Logging** - Detailed debug information
-- **Memory Profiling** - Track resource usage
+See `docs/technical/MistEngine_Implementation_Analysis.md` for academic-quality documentation.
 
 ---
 
-##    Documentation
+## ?? **Version History**
 
-### **   Getting Started**
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute to MistEngine
-- [Release Notes](RELEASE_NOTES.md) - Latest changes and updates
-- [AI Setup Guide](docs/user-guide/AI_README.md) - Configure AI assistant
+### **?? v0.3.0 - Release (Current)**
+- ? Complete FPS game implementation
+- ? AI-powered development assistance
+- ? Professional game export system
+- ? Hot-reloadable plugin architecture
+- ? Advanced ECS with dual physics
+- ? Comprehensive documentation
 
-### **   Technical Documentation**
-- [Implementation Analysis](docs/technical/MistEngine_Implementation_Analysis.md) - Detailed system architecture
-- [Module Development Guide](docs/technical/MODULARITY_GUIDE.md) - Create custom plugins
-- [ECS Architecture](docs/technical/IMPLEMENTATION_SUMMARY.md) - Entity Component System details
-
-### **   Development Docs**
-- [Input System](docs/development/FINAL_MOUSE_FIX.md) - Mouse and keyboard handling
-- [Scene Editor](docs/development/SCENE_EDITOR_FIXES.md) - Editor implementation details
-- [Physics Integration](docs/development/) - Physics system documentation
+### **?? Previous Versions**
+- `v0.2.1` - Pre-alpha with basic ECS
+- `v0.1.0` - Initial prototype
 
 ---
 
-##    Showcase
+## ?? **Showcase**
 
-### **What You Can Build**
-- **3D Games** - Full-featured game development
-- **Simulations** - Physics-based simulations and demos
-- **Prototypes** - Rapid game concept prototyping
-- **Learning Projects** - Advanced C++ and game engine concepts
-- **Engine Modules** - Custom functionality plugins
+### **?? FPS Game Features**
+- Multiple enemy AI types with different behaviors
+- Physics-based projectile system
+- Real-time health and scoring
+- Multiple weapon types with unique characteristics
+- Pause/resume game functionality
 
-### **Perfect For**
--    **Students** learning game engine architecture
--    **Researchers** exploring ECS patterns and AI integration
--    **Indie Developers** building games with modern tools
--       **Professional Developers** prototyping new ideas
--    **Academic Projects** demonstrating software engineering principles
+### **??? Development Tools**
+- Real-time scene editing with transform manipulation
+- GameObject creation and component management
+- AI-powered code assistance and debugging
+- Export system for standalone game distribution
+- Hot-reloadable plugin development
 
----
-
-##    Contributing
-
-We welcome contributions! MistEngine is in active development and there are many ways to help:
-
-### **   High Priority**
-- **Cross-platform Support** - Linux and macOS compatibility
-- **Additional AI Providers** - OpenAI, Claude integration
-- **Performance Optimization** - Multi-threading, rendering improvements
-- **Advanced Editor Features** - Asset browser, scene serialization
-
-### **   Good First Issues**
-- UI improvements and keyboard shortcuts
-- Additional primitive shapes (cylinders, capsules)
-- Code documentation and comments
-- Bug fixes and stability improvements
-
-**See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.**
+### **??? Architecture Achievements**
+- High-performance ECS with optimized memory layout
+- Dual physics integration (Bullet + custom ECS)
+- Advanced AI integration with context awareness
+- Professional editor interface with ImGui
+- Cross-platform foundation with Windows primary support
 
 ---
 
-##    License
+## ?? **Support & Community**
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+### **Documentation**
+- ?? **Complete Guides** - See `docs/` folder
+- ?? **AI Assistant** - Press F2 in engine
+- ?? **GitHub Discussions** - Community support
+- ?? **Issue Tracker** - Bug reports and feature requests
 
-**You are free to:**
--   Use MistEngine for personal and commercial projects
--   Modify and extend the engine for your needs
--   Distribute your modifications
--   Create plugins and modules for the engine
-
----
-
-##    Acknowledgments
-
-### **Dependencies**
-- [OpenGL](https://www.opengl.org/) - Graphics API
-- [GLFW](https://www.glfw.org/) - Cross-platform windowing
-- [GLAD](https://glad.dav1d.de/) - OpenGL function loader
-- [GLM](https://glm.g-truc.net/) - Mathematics library
-- [Bullet Physics](https://bulletphysics.org/) - Physics simulation
-- [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI
-- [Google Gemini API](https://ai.google.dev/) - AI integration
-
-### **Inspiration**
-- **Unity** - Scene editor interface and workflow design
-- **Unreal Engine** - Professional development tool inspiration
-- **EnTT** - Modern ECS architecture patterns
-- **Godot** - Open-source game engine architecture
+### **Learning Resources**
+- ?? **Architecture Guide** - `docs/technical/MistEngine_Implementation_Analysis.md`
+- ?? **Development Setup** - `docs/user-guide/AI_README.md`
+- ?? **Game Development** - `docs/technical/IMPLEMENTATION_SUMMARY.md`
+- ?? **Plugin Creation** - `docs/technical/MODULARITY_GUIDE.md`
 
 ---
 
-##    Contact & Community
+## ?? **License**
 
-- **GitHub Issues** - [Report bugs and request features](https://github.com/aayushmishraaa/MistEngine/issues)
-- **GitHub Discussions** - [Ask questions and share ideas](https://github.com/aayushmishraaa/MistEngine/discussions)
-- **AI Assistant** - Press F2 in the engine for real-time help!
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## ?? **Acknowledgments**
+
+- **Bullet Physics** - Physics simulation
+- **OpenGL** - Graphics rendering
+- **GLFW** - Window management
+- **GLM** - Mathematics library
+- **ImGui** - Immediate mode GUI
+- **Google Gemini** - AI assistance
 
 ---
 
 <div align="center">
 
-**   Ready to build the future of game development **
+**?? Ready to build amazing games? Start with MistEngine! ??**
 
-[Star the Project](https://github.com/aayushmishraaa/MistEngine) | [Fork & Contribute](https://github.com/aayushmishraaa/MistEngine/fork) | [Read the Docs](docs/)
+[?? Documentation](docs/README.md) | [?? AI Setup](docs/user-guide/AI_README.md) | [??? Architecture](docs/technical/MistEngine_Implementation_Analysis.md) | [?? Plugins](docs/technical/MODULARITY_GUIDE.md)
 
-**MistEngine v0.2.1-pre-alpha** 
+---
+
+**Built with ?? using Modern C++14 • ECS Architecture • AI Integration**
+
+*MistEngine 0.3.0 - Where Games Meet Innovation*
 
 </div>

@@ -29,26 +29,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v142</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -149,7 +149,14 @@
     <ClCompile Include="src\AI\SimpleJson.cpp" />
     <ClCompile Include="src\Camera.cpp" />
     <ClCompile Include="src\ECS\Systems\ECSPhysicsSystem.cpp" />
+    <ClCompile Include="src\ECS\Systems\EnemyAISystem.cpp" />
+    <ClCompile Include="src\ECS\Systems\GameStateSystem.cpp" />
+    <ClCompile Include="src\ECS\Systems\PlayerSystem.cpp" />
+    <ClCompile Include="src\ECS\Systems\ProjectileSystem.cpp" />
     <ClCompile Include="src\ECS\Systems\RenderSystem.cpp" />
+    <ClCompile Include="src\ECS\Systems\WeaponSystem.cpp" />
+    <ClCompile Include="src\FPSGameManager.cpp" />
+    <ClCompile Include="src\GameExporter.cpp" />
     <ClCompile Include="src\glad.c" />
     <ClCompile Include="src\imgui.cpp" />
     <ClCompile Include="src\imgui_demo.cpp" />
@@ -180,7 +187,23 @@
     <None Include="manual_build_release.bat" />
     <None Include="modules\ExampleModule\ExampleModule.vcxproj" />
     <None Include="packages.config" />
+    <None Include="package\v0.3.0-prealpha\Launch-MistEngine.bat" />
+    <None Include="package\v0.3.0-prealpha\modules\README.md" />
+    <None Include="package\v0.3.0-prealpha\PREALPHA-README.md" />
     <None Include="ReleaseOverride.props" />
+    <None Include="RELEASE_NOTES.md" />
+    <None Include="scripts\create-github-release.bat" />
+    <None Include="scripts\create-github-release.ps1" />
+    <None Include="scripts\create-github-release.sh" />
+    <None Include="scripts\create-prealpha-package.bat" />
+    <None Include="scripts\diagnose-assets.bat" />
+    <None Include="scripts\make-zip-fixed.bat" />
+    <None Include="scripts\make-zip.bat" />
+    <None Include="scripts\prepare-release-README.md" />
+    <None Include="scripts\prepare-release.bat" />
+    <None Include="scripts\prepare-release.sh" />
+    <None Include="scripts\README.md" />
+    <None Include="scripts\setup-release-environment.sh" />
     <None Include="shaders\depth_fragment.glsl" />
     <None Include="shaders\depth_vertex.glsl" />
     <None Include="shaders\fragment.glsl" />
@@ -202,16 +225,29 @@
     <ClInclude Include="include\ECS\Component.h" />
     <ClInclude Include="include\ECS\ComponentArray.h" />
     <ClInclude Include="include\ECS\ComponentManager.h" />
+    <ClInclude Include="include\ECS\Components\EnemyComponent.h" />
+    <ClInclude Include="include\ECS\Components\GameStateComponent.h" />
+    <ClInclude Include="include\ECS\Components\LevelComponent.h" />
     <ClInclude Include="include\ECS\Components\PhysicsComponent.h" />
+    <ClInclude Include="include\ECS\Components\PlayerComponent.h" />
+    <ClInclude Include="include\ECS\Components\ProjectileComponent.h" />
     <ClInclude Include="include\ECS\Components\RenderComponent.h" />
     <ClInclude Include="include\ECS\Components\TransformComponent.h" />
+    <ClInclude Include="include\ECS\Components\WeaponComponent.h" />
     <ClInclude Include="include\ECS\Coordinator.h" />
     <ClInclude Include="include\ECS\Entity.h" />
     <ClInclude Include="include\ECS\EntityManager.h" />
     <ClInclude Include="include\ECS\System.h" />
     <ClInclude Include="include\ECS\SystemManager.h" />
     <ClInclude Include="include\ECS\Systems\ECSPhysicsSystem.h" />
+    <ClInclude Include="include\ECS\Systems\EnemyAISystem.h" />
+    <ClInclude Include="include\ECS\Systems\GameStateSystem.h" />
+    <ClInclude Include="include\ECS\Systems\PlayerSystem.h" />
+    <ClInclude Include="include\ECS\Systems\ProjectileSystem.h" />
     <ClInclude Include="include\ECS\Systems\RenderSystem.h" />
+    <ClInclude Include="include\ECS\Systems\WeaponSystem.h" />
+    <ClInclude Include="include\FPSGameManager.h" />
+    <ClInclude Include="include\GameExporter.h" />
     <ClInclude Include="include\imgui_impl_glfw.h" />
     <ClInclude Include="include\imgui_impl_opengl3.h" />
     <ClInclude Include="include\InputManager.h" />

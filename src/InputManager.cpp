@@ -71,27 +71,57 @@ void InputManager::Initialize(GLFWwindow* window) {
 }
 
 void InputManager::Update(float deltaTime) {
-    // Check ImGui state first
+    // Store previous states for just-pressed detection
+    m_PrevKeyStates = m_KeyStates;
+    m_PrevMouseStates = m_MouseStates;
+    
+    // Reset mouse delta
+    m_MouseDelta = glm::vec2(0.0f);
+    
+    // Update input states from polling
+    UpdateKeyStatesFromPolling();
+    UpdateMouseStatesFromPolling();
+    
+    // Update mouse delta if camera mouse is captured
+    if (m_CameraMouseCaptured) {
+        double currentX, currentY;
+        glfwGetCursorPos(m_Window, &currentX, &currentY);
+        
+        if (!m_FirstMouse) {
+            m_MouseDelta.x = static_cast<float>(currentX - m_LastMouseX);
+            m_MouseDelta.y = static_cast<float>(currentY - m_LastMouseY);
+        } else {
+            m_FirstMouse = false;
+        }
+        
+        m_LastMouseX = currentX;
+        m_LastMouseY = currentY;
+    }
+    
+    // Check if ImGui wants to capture input
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
-        m_CurrentContext = InputContext::UI_FOCUSED;
-        // When UI has focus, ensure camera look is disabled
-        if (m_CameraMouseCaptured) {
-            SetCameraMouseCapture(false);
+        SetInputContext(InputContext::UI_FOCUSED);
+    } else {
+        // Restore previous context if UI was focused
+        if (m_CurrentContext == InputContext::UI_FOCUSED) {
+            if (m_SceneEditorMode) {
+                SetInputContext(InputContext::SCENE_EDITOR);
+            } else {
+                SetInputContext(InputContext::GAME_PLAY);
+            }
         }
-        return;
     }
     
-    // Reset context if not UI focused
-    if (m_CurrentContext == InputContext::UI_FOCUSED) {
-        m_CurrentContext = m_SceneEditorMode ? InputContext::SCENE_EDITOR : InputContext::GAME_PLAY;
+    // Handle F3 toggle between scene editor and gameplay
+    static bool f3WasPressed = false;
+    bool f3IsPressed = glfwGetKey(m_Window, GLFW_KEY_F3) == GLFW_PRESS;
+    
+    if (f3IsPressed && !f3WasPressed) {
+        EnableSceneEditorMode(!m_SceneEditorMode);
+        std::cout << "Switched to " << (m_SceneEditorMode ? "Scene Editor" : "Gameplay") << " mode" << std::endl;
     }
-    
-    // Update key states using direct polling
-    UpdateKeyStatesFromPolling();
-    
-    // Update mouse button states using polling (critical for mouse look control)
-    UpdateMouseStatesFromPolling();
+    f3WasPressed = f3IsPressed;
     
     // Process input based on current context
     switch (m_CurrentContext) {
@@ -394,4 +424,36 @@ void InputManager::UpdateMouseStatesFromPolling() {
     
     // When mouse look is disabled, we don't touch mouse position at all
     // This leaves ImGui free to handle all mouse events for UI interactions
+}
+
+// Add these functions at the end of InputManager.cpp before the closing brace
+
+bool InputManager::IsKeyPressed(int key) const {
+    auto it = m_KeyStates.find(key);
+    return it != m_KeyStates.end() && it->second;
+}
+
+bool InputManager::IsKeyJustPressed(int key) const {
+    auto currentIt = m_KeyStates.find(key);
+    auto prevIt = m_PrevKeyStates.find(key);
+    
+    bool currentPressed = currentIt != m_KeyStates.end() && currentIt->second;
+    bool prevPressed = prevIt != m_PrevKeyStates.end() && prevIt->second;
+    
+    return currentPressed && !prevPressed;
+}
+
+bool InputManager::IsMouseButtonPressed(int button) const {
+    auto it = m_MouseStates.find(button);
+    return it != m_MouseStates.end() && it->second;
+}
+
+bool InputManager::IsMouseButtonJustPressed(int button) const {
+    auto currentIt = m_MouseStates.find(button);
+    auto prevIt = m_PrevMouseStates.find(button);
+    
+    bool currentPressed = currentIt != m_MouseStates.end() && currentIt->second;
+    bool prevPressed = prevIt != m_PrevMouseStates.end() && prevIt->second;
+    
+    return currentPressed && !prevPressed;
 }

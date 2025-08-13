@@ -13,6 +13,8 @@
 #include "UIManager.h"
 #include "InputManager.h"    // New input system
 #include "ModuleManager.h"   // New module system
+#include "FPSGameManager.h"  // FPS Game Manager
+#include "Version.h"         // Version information
 #include <glm/gtc/type_ptr.hpp>
 
 // ECS includes
@@ -30,6 +32,13 @@ Coordinator gCoordinator;
 UIManager* g_uiManager = nullptr;
 InputManager* g_inputManager = nullptr;
 ModuleManager* g_moduleManager = nullptr;
+FPSGameManager* g_fpsGameManager = nullptr;  // NEW: FPS Game Manager
+
+// Global physics system reference for FPS enemies
+PhysicsSystem* g_physicsSystem = nullptr;
+
+// Global enemy system reference for projectile damage
+EnemyAISystem* g_enemySystem = nullptr;
 
 // Legacy input handling for backward compatibility with physics controls
 void ProcessLegacyPhysicsInput(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables, float deltaTime) {
@@ -73,31 +82,41 @@ int main() {
     const unsigned int SCR_WIDTH = 1200;
     const unsigned int SCR_HEIGHT = 800;
 
-    std::cout << "=== MistEngine v0.2.0 Starting Up ===" << std::endl;
-    std::cout << "Clean Scene Mode: Enabled" << std::endl;
-    std::cout << "Controls:" << std::endl;
-    std::cout << "  - WASD/QE: Camera movement (always available)" << std::endl;
-    std::cout << "  - RIGHT-CLICK + HOLD: Enable mouse look (locked by default)" << std::endl;
-    std::cout << "  - Mouse Scroll: Zoom in/out" << std::endl;
-    std::cout << "  - F3: Toggle Scene Editor / Gameplay mode" << std::endl;
-    std::cout << "  - F1: Toggle ImGui Demo" << std::endl;
-    std::cout << "  - F2: Toggle AI Assistant" << std::endl;
-    std::cout << "  - GameObject Menu: Create cubes, planes, spheres, etc." << std::endl;
-    std::cout << "  - Unity-like Directional Light and Skyline Background" << std::endl;
+    std::cout << "=== " << MIST_ENGINE_NAME << " " << MIST_ENGINE_VERSION_STRING << " with FPS Game Starting Up ===" << std::endl;
+    std::cout << "NEW: FPS Game Mode Available!" << std::endl;
+    std::cout << "Built with " << MIST_ENGINE_COMPILER << " on " << MIST_ENGINE_PLATFORM << std::endl;
+    std::cout << "Build Type: " << MIST_ENGINE_BUILD_TYPE << std::endl;
+    std::cout << "Features: ";
+    #if MIST_ENGINE_HAS_AI_INTEGRATION
+    std::cout << "AI ";
+    #endif
+    #if MIST_ENGINE_HAS_PHYSICS
+    std::cout << "Physics ";
+    #endif
+    #if MIST_ENGINE_HAS_OPENGL
+    std::cout << "OpenGL ";
+    #endif
+    #if MIST_ENGINE_HAS_IMGUI
+    std::cout << "ImGui ";
+    #endif
+    #if MIST_ENGINE_HAS_FPS_GAME
+    std::cout << "FPS-Game ";
+    #endif
+    std::cout << std::endl;
 
     // Initialize ECS
     gCoordinator.Init();
 
-    // Register components
+    // Register core components
     gCoordinator.RegisterComponent<TransformComponent>();
     gCoordinator.RegisterComponent<RenderComponent>();
     gCoordinator.RegisterComponent<PhysicsComponent>();
 
-    // Register systems
+    // Register core systems
     auto renderSystem = gCoordinator.RegisterSystem<RenderSystem>();
     auto ecsPhysicsSystem = gCoordinator.RegisterSystem<ECSPhysicsSystem>();
 
-    // Set system signatures
+    // Set core system signatures
     Signature renderSignature;
     renderSignature.set(gCoordinator.GetComponentType<TransformComponent>());
     renderSignature.set(gCoordinator.GetComponentType<RenderComponent>());
@@ -122,16 +141,35 @@ int main() {
         return -1;
     }
 
-    // Initialize Input Manager AFTER UI Manager (NEW!)
-    // This ensures ImGui doesn't override our callbacks
+    // Initialize Input Manager AFTER UI Manager
     InputManager inputManager;
     g_inputManager = &inputManager;
     inputManager.Initialize(renderer.GetWindow());
     inputManager.SetCamera(&renderer.GetCamera());
     inputManager.EnableSceneEditorMode(true); // Start in scene editor mode
-    std::cout << "Input Manager initialized AFTER UI Manager - callbacks should work now" << std::endl;
+    std::cout << "Input Manager initialized successfully" << std::endl;
 
-    // Initialize Module Manager (NEW!)
+    // Initialize Physics System
+    PhysicsSystem physicsSystem;
+    g_physicsSystem = &physicsSystem;  // Set global reference for FPS enemies
+    uiManager.SetPhysicsSystem(&physicsSystem);
+    
+    // NEW: Initialize FPS Game Manager
+    FPSGameManager fpsGameManager;
+    g_fpsGameManager = &fpsGameManager;
+    if (!fpsGameManager.Initialize(&inputManager, &renderer.GetCamera(), &uiManager, &physicsSystem)) {
+        std::cerr << "Failed to initialize FPS Game Manager" << std::endl;
+        return -1;
+    }
+    
+    // Set global enemy system reference after FPS manager is initialized
+    if (fpsGameManager.m_enemySystem) {
+        g_enemySystem = fpsGameManager.m_enemySystem.get();
+    }
+    
+    std::cout << "FPS Game Manager initialized successfully" << std::endl;
+
+    // Initialize Module Manager
     ModuleManager moduleManager;
     g_moduleManager = &moduleManager;
     moduleManager.SetCoordinator(&gCoordinator);
@@ -145,29 +183,31 @@ int main() {
         std::cout << "No 'modules' directory found - continuing without external modules" << std::endl;
     }
 
-    // Create Clean Scene - NO DEFAULT OBJECTS
+    // Create Clean Scene
     Scene scene;
     uiManager.SetScene(&scene);
-    uiManager.SetCoordinator(&gCoordinator);  // Add this missing line!
-    std::cout << "UIManager: Coordinator reference set successfully" << std::endl;
+    uiManager.SetCoordinator(&gCoordinator);
+    uiManager.SetFPSGameManager(&fpsGameManager);  // NEW: Set FPS Game Manager reference
     moduleManager.SetScene(&scene);
 
-    // Initialize Physics System (for when objects are created via UI)
-    PhysicsSystem physicsSystem;
-    uiManager.SetPhysicsSystem(&physicsSystem);
-    std::cout << "UIManager: PhysicsSystem reference set successfully" << std::endl;
-
-    std::cout << "=== Clean Scene Initialization Complete ===" << std::endl;
-    std::cout << "Scene is empty! Use the GameObject menu to add cubes, planes, spheres, etc." << std::endl;
-    std::cout << "Engine ready with Unity-like directional lighting and skyline background!" << std::endl;
+    std::cout << "=== Engine Initialization Complete ===" << std::endl;
+    std::cout << "Ready! Press SPACE to start FPS game, or use Scene Editor (F3)" << std::endl;
+    std::cout << "FPS Game Features:" << std::endl;
+    std::cout << "  - Room-based levels with enemy AI" << std::endl;
+    std::cout << "  - Multiple weapon types" << std::endl;
+    std::cout << "  - Projectile physics and hit detection" << std::endl;
+    std::cout << "  - Score and health systems" << std::endl;
 
     // Main loop
     while (!glfwWindowShouldClose(renderer.GetWindow())) {
         float deltaTime = renderer.GetDeltaTime();
 
-        // Handle UI toggle inputs (F1, F2)
-        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
-            glfwSetWindowShouldClose(renderer.GetWindow(), true);
+        // Handle ESC to close (only if not in FPS game mode)
+        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+            if (!fpsGameManager.IsGameActive()) {
+                glfwSetWindowShouldClose(renderer.GetWindow(), true);
+            }
+        }
 
         // Toggle UI demo window with F1
         if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F1) == GLFW_PRESS) {
@@ -197,11 +237,14 @@ int main() {
             f2Pressed = false;
         }
 
-        // Update new input system
+        // NEW: Update FPS Game Manager FIRST (before legacy physics input)
+        fpsGameManager.Update(deltaTime);
+
+        // Update input system
         inputManager.Update(deltaTime);
 
-        // Legacy physics input (for backwards compatibility) - now only if objects exist
-        if (!scene.getPhysicsRenderables().empty()) {
+        // Legacy physics input (for backwards compatibility) - only if FPS game is not active
+        if (!scene.getPhysicsRenderables().empty() && !fpsGameManager.IsGameActive()) {
             ProcessLegacyPhysicsInput(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
         }
 
@@ -219,6 +262,7 @@ int main() {
     std::cout << "=== MistEngine Shutting Down ===" << std::endl;
     
     // Cleanup
+    fpsGameManager.Shutdown();  // NEW: Cleanup FPS Game Manager
     uiManager.Shutdown();
     moduleManager.UnloadAllModules();
 

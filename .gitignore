@@ -19,6 +19,7 @@ imgui_*.ini
 # Documentation Folder (contains development notes and technical docs)
 docs/
 package/
+scripts/
 
 # =========================
 # Visual Studio Files

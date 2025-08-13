@@ -1,407 +1,393 @@
 # ?? Contributing to MistEngine
 
-Thank you for your interest in contributing to MistEngine! This project is in pre-alpha stage and we welcome all types of contributions.
+Welcome to **MistEngine 0.3.0**! We're excited to have you contribute to this modern C++ game engine with AI integration and complete FPS game functionality.
+
+## ?? **Project Overview**
+
+MistEngine is a sophisticated 3D game engine featuring:
+- **Complete FPS Game Implementation** with intelligent enemy AI
+- **AI-Powered Development Environment** with Google Gemini integration  
+- **Advanced ECS Architecture** with dual physics systems
+- **Professional Game Export System** for standalone distribution
+- **Hot-Reloadable Plugin System** for rapid development
 
 ---
 
-## ?? Quick Start for Contributors
+## ?? **Quick Start for Contributors**
 
-### 1. Set Up Development Environment
+### **Prerequisites**
+- Visual Studio 2019+ with C++14 support
+- Windows 10/11 (x64)
+- Git for version control
+- Basic knowledge of C++, OpenGL, and game engine architecture
 
-**Prerequisites:**
-- Visual Studio 2017+ (Windows)
-- Git
-- Basic C++14 knowledge
-
-**Setup Steps:**
-1. Fork the repository on GitHub
-2. Clone your fork:
-   ```bash
-   git clone https://github.com/aayushmishraaa/MistEngine.git
-   cd MistEngine
-   ```
-3. Open `MistEngine.sln` in Visual Studio
-4. Build the solution (should work out of the box)
-5. Run to ensure everything works
-
-### 2. Create Your First Contribution
-
-1. Create a new branch:
-   ```bash
-   git checkout -b feature/your-amazing-feature
-   ```
-2. Make your changes
-3. Test thoroughly
-4. Commit and push:
-   ```bash
-   git commit -m "Add: your amazing feature"
-   git push origin feature/your-amazing-feature
-   ```
-5. Open a Pull Request
-
----
-
-## ?? Ways to Contribute
-
-### ?? Bug Fixes
-- **High Impact**: Crashes, memory leaks, major functionality issues
-- **Medium Impact**: UI glitches, minor functionality problems
-- **Low Impact**: Polish, small improvements
-
-### ? New Features
-- **Core Engine**: ECS improvements, rendering features, physics enhancements
-- **AI Integration**: New AI providers, better chat interface, AI-powered tools
-- **Editor Tools**: New windows, improved workflows, debugging tools
-- **Cross-platform**: Linux/macOS support (high priority!)
-
-### ?? Documentation
-- **Code Documentation**: Comments, API docs
-- **User Guides**: Tutorials, how-to guides
-- **Developer Docs**: Architecture explanations, contribution guides
-
-### ?? Testing
-- **Bug Reports**: Find and report issues
-- **Feature Testing**: Test new functionality
-- **Performance Testing**: Profile and optimize
-
----
-
-## ??? Development Guidelines
-
-### Code Style
-
-**C++ Standards:**
-- Use **C++14** features (project requirement)
-- Follow **PascalCase** for classes/structs: `PhysicsComponent`
-- Follow **camelCase** for functions/variables: `updatePhysics()`
-- Use **m_** prefix for member variables: `m_entityCount`
-- Use descriptive names: `calculateLightingMatrix()` not `calc()`
-
-**File Organization:**
-```
-include/          # Header files (.h)
-src/              # Implementation files (.cpp)
-shaders/          # GLSL shader files
-AI/               # AI-related code (separate namespace)
-ECS/              # Entity Component System
-```
-
-**Example Code Style:**
-```cpp
-class RenderComponent {
-private:
-    Mesh* m_mesh;
-    bool m_isVisible;
-    
-public:
-    void SetMesh(Mesh* mesh) { m_mesh = mesh; }
-    bool IsVisible() const { return m_isVisible; }
-    
-    void UpdateRenderState(float deltaTime) {
-        // Implementation here
-    }
-};
-```
-
-### Architecture Principles
-
-**ECS Pattern:**
-- **Components**: Pure data, no logic
-- **Systems**: Pure logic, operate on components  
-- **Entities**: Just IDs, managed by coordinator
-
-**RAII and Memory Management:**
-- Use smart pointers where appropriate
-- Manual memory management for performance-critical parts
-- Always clean up resources in destructors
-
-**AI Integration:**
-- Keep AI code in separate `AI/` namespace
-- Use provider pattern for different AI services
-- Make AI features optional (fail gracefully if no API key)
-
-### Commit Guidelines
-
-**Format:**
-```
-Type: Brief description (50 chars max)
-
-Longer explanation if needed (wrap at 72 chars)
-- What changed
-- Why it changed  
-- Any breaking changes
-```
-
-**Types:**
-- **Add**: New features
-- **Fix**: Bug fixes
-- **Update**: Modifications to existing features
-- **Remove**: Removing features/code
-- **Refactor**: Code reorganization
-- **Docs**: Documentation changes
-
-**Examples:**
+### **Setup Development Environment**
 ```bash
-Add: Gemini AI provider integration
+# Clone the repository
+git clone https://github.com/yourusername/MistEngine.git
+cd MistEngine
 
-- Implement GeminiProvider class with HTTP client
-- Add configuration management for API keys  
-- Integrate with existing AIManager
-- Closes #42
+# Open in Visual Studio
+start MistEngine.sln
 
-Fix: Memory leak in mesh loading system
-
-- Properly delete vertex buffers in Mesh destructor
-- Add RAII wrapper for OpenGL resources
-- Fixes crash on scene reload
+# Build and test
+# Press Ctrl+F5 to build and run
+# Click "?? START FPS GAME" to test FPS functionality
 ```
 
 ---
 
-## ?? Testing Guidelines
+## ?? **How to Contribute**
 
-### Before Submitting PR
+### **1. Choose Your Contribution Type**
 
-**Functionality Testing:**
-- [ ] Build succeeds in Debug and Release
-- [ ] No new compiler warnings
-- [ ] Core features still work (create objects, AI chat, physics)
-- [ ] No obvious memory leaks (check Task Manager)
+#### **?? Game Features**
+- Enemy AI behaviors and improvements
+- New weapon types and mechanics
+- Level design and generation
+- Player mechanics and abilities
 
-**AI Testing (if applicable):**
-- [ ] Test with valid API key
-- [ ] Test with invalid API key (should fail gracefully)
-- [ ] Test rate limiting behavior
-- [ ] Test long conversations
+#### **?? AI Integration**
+- AI assistant improvements
+- New AI-powered features
+- Better context awareness
+- Additional AI provider support
 
-**Integration Testing:**
-- [ ] Test with other systems (physics + rendering, ECS + AI, etc.)
-- [ ] Test edge cases and error conditions
-- [ ] Verify backward compatibility
+#### **??? Engine Systems**
+- ECS components and systems
+- Rendering pipeline enhancements
+- Physics system improvements
+- Audio system implementation
 
-### Performance Testing
+#### **?? Plugin Development**
+- Create reusable modules
+- Hot-reloadable functionality
+- Cross-platform compatibility
+- Template-based generators
 
-**For Performance Changes:**
-- Profile before and after changes
-- Document performance impact in PR
-- Consider memory usage and frame rate impact
+#### **?? Documentation**
+- Code documentation and comments
+- User guides and tutorials
+- Architecture explanations
+- Problem-solving guides
 
-**Tools:**
-- Visual Studio Diagnostics
-- Application Verifier (for memory issues)
-- GPU profilers (for rendering changes)
+### **2. Development Workflow**
 
----
+#### **Create Feature Branch**
+```bash
+# Create and switch to feature branch
+git checkout -b feature/your-feature-name
 
-## ?? Priority Areas
+# Make your changes
+# ... code, test, iterate ...
 
-### ?? High Priority (Help Wanted!)
+# Commit with descriptive messages
+git commit -m "Add intelligent enemy flanking behavior
 
-1. **Cross-platform Support**
-   - Replace WinINet HTTP client with cross-platform alternative
-   - CMake build system
-   - Linux/macOS testing
+- Implement pathfinding around obstacles
+- Add cooperative AI for multiple enemies  
+- Include distance-based behavior switching
+- Add comprehensive unit tests"
+```
 
-2. **Performance Optimization**
-   - Multi-threading for systems
-   - Better memory management
-   - Rendering optimizations
+#### **Testing Requirements**
+```cpp
+// Test your changes thoroughly
+// 1. Build in both Debug and Release
+// 2. Test FPS game functionality
+// 3. Verify UI responsiveness
+// 4. Check AI assistant integration
+// 5. Test plugin loading (if applicable)
+```
 
-3. **AI Provider Expansion**
-   - OpenAI GPT integration
-   - Anthropic Claude support
-   - Local AI model support
-
-4. **Core Engine Features**
-   - Audio system
-   - Advanced materials
-   - Animation system
-
-### ?? Medium Priority
-
-1. **Editor Improvements**
-   - Asset browser
-   - Scene serialization
-   - Better debugging tools
-
-2. **Documentation**
-   - API documentation
-   - Video tutorials
-   - Architecture guides
-
-### ?? Good First Issues
-
-Perfect for new contributors:
-
-1. **UI Improvements**
-   - Add keyboard shortcuts
-   - Improve tooltips
-   - Fix layout issues
-
-2. **Code Quality**
-   - Add comments to unclear code
-   - Fix compiler warnings
-   - Improve error messages
-
-3. **Small Features**
-   - Add new primitive shapes
-   - Improve console output
-   - Add configuration options
+#### **Submit Pull Request**
+- Ensure all tests pass
+- Include screenshots/videos for visual changes
+- Write clear description of changes
+- Reference related issues if applicable
 
 ---
 
-## ?? AI-Specific Contributions
+## ?? **Development Guidelines**
 
-### New AI Providers
+### **Code Style**
+```cpp
+// Follow existing patterns
+class MyComponent {
+public:
+    // Public members first
+    void Update(float deltaTime);
+    
+private:
+    // Private members with m_ prefix
+    float m_deltaAccumulator = 0.0f;
+};
 
-To add a new AI provider (e.g., OpenAI, Claude):
+// Use modern C++14 features
+auto enemies = std::make_unique<std::vector<Entity>>();
+auto weapon = gCoordinator.GetComponent<WeaponComponent>(entity);
+```
 
-1. **Create provider class:**
-   ```cpp
-   class OpenAIProvider : public AIProvider {
-       // Implement required methods
-   };
-   ```
+### **Architecture Principles**
+- **ECS First** - Use Entity-Component-System for new features
+- **Memory Safety** - RAII and smart pointers required
+- **Error Handling** - Comprehensive try-catch blocks
+- **Performance** - Profile and optimize critical paths
+- **Modularity** - Design for plugin integration
 
-2. **Update AIManager:**
-   - Add provider registration
-   - Update configuration handling
-
-3. **Test thoroughly:**
-   - Different API endpoints
-   - Error handling
-   - Rate limiting
-
-4. **Document setup:**
-   - How to get API key
-   - Configuration steps
-   - Usage examples
-
-### AI Feature Ideas
-
-- **Code Analysis**: AI reviews user code for suggestions
-- **Asset Generation**: AI creates textures/models
-- **Debugging Assistant**: AI helps diagnose issues
-- **Documentation**: AI explains engine systems
-
----
-
-## ?? What NOT to Contribute
-
-### Avoid These Changes
-
-1. **Breaking API Changes** (without discussion)
-2. **Major Architecture Changes** (discuss first in issues)
-3. **Platform-Specific Code** (without cross-platform alternatives)
-4. **Large Dependencies** (keep it lightweight)
-5. **Non-Free Assets** (use CC0/MIT licensed assets only)
-
-### Code Standards to Avoid
-
-1. **Global Variables** (use singletons or dependency injection)
-2. **Magic Numbers** (use named constants)
-3. **Deep Inheritance** (prefer composition)
-4. **Platform-Specific Headers** in common code
+### **Testing Standards**
+- **Unit Tests** for critical functionality
+- **Integration Tests** for system interactions
+- **Manual Testing** in FPS game mode
+- **Performance Testing** for optimization features
 
 ---
 
-## ?? Communication
+## ?? **High-Priority Areas**
 
-### Before Starting Major Work
+### **Immediate Needs**
+1. **Cross-Platform Support** - Linux and macOS compatibility
+2. **Audio System** - 3D positional audio for FPS game
+3. **Networking** - Multiplayer FPS capability
+4. **Asset Pipeline** - Improved model/texture loading
+5. **Scripting System** - Lua or Python integration
 
-**Please discuss:**
-- Large features or architecture changes
-- New dependencies
-- Breaking changes
-- Significant performance modifications
+### **Advanced Features**
+1. **Advanced AI** - Machine learning enemy behaviors
+2. **Procedural Generation** - Dynamic level creation
+3. **VR Support** - Virtual reality FPS mode
+4. **Ray Tracing** - Modern rendering techniques
+5. **Cloud Integration** - Save games and settings sync
 
-**Where to Discuss:**
-- **GitHub Issues**: For bugs and small features
-- **GitHub Discussions**: For design decisions and questions
-- **Pull Requests**: For code review and specific implementation
-
-### Getting Help
-
-**Stuck on something?**
-1. Check existing issues and discussions
-2. Use the AI assistant (F2) for coding questions
-3. Ask in GitHub Discussions
-4. Look at existing code for patterns
-
-**Response Times:**
-- We aim to respond to issues within 48 hours
-- Pull requests reviewed within a week
-- Complex discussions may take longer
+### **Developer Experience**
+1. **Visual Scripting** - Node-based gameplay logic
+2. **Asset Browser** - Complete asset management UI
+3. **Profiler Integration** - Real-time performance monitoring
+4. **Automated Testing** - CI/CD pipeline setup
+5. **Plugin Marketplace** - Community plugin sharing
 
 ---
 
-## ?? Recognition
+## ?? **Contribution Guidelines**
 
-### Contributors
+### **Code Quality Standards**
+- ? **Compiles without warnings** in both Debug and Release
+- ? **Follows existing code style** and naming conventions
+- ? **Includes appropriate comments** explaining complex logic
+- ? **Uses modern C++14 features** appropriately
+- ? **Handles errors gracefully** with proper exception handling
 
-All contributors are recognized:
-- **README.md**: Major contributors listed
-- **Release Notes**: Contributions acknowledged
-- **Commit History**: Your commits are permanent record
+### **Feature Requirements**
+- ? **Integrates with existing systems** without breaking compatibility
+- ? **Includes user documentation** for new features
+- ? **Provides example usage** in comments or separate files
+- ? **Considers performance impact** on overall engine
+- ? **Supports hot-reloading** where applicable
 
-### Special Recognition
-
-- **First-time Contributors**: Special thanks in release notes
-- **Major Features**: Highlighted in project documentation
-- **Bug Hunters**: Recognition for finding critical issues
-
----
-
-## ?? Legal
-
-### Licensing
-
-By contributing to MistEngine:
-- You agree your contributions will be licensed under MIT License
-- You confirm you have the right to submit the code
-- You retain copyright to your contributions
-
-### Code of Conduct
-
-**Be Respectful:**
-- Welcome newcomers and help them learn
-- Provide constructive feedback
-- Focus on the code, not the person
-- Respect different opinions and approaches
-
-**Be Professional:**
-- Use clear, professional language in issues/PRs
-- Test your code before submitting
-- Write meaningful commit messages
-- Follow the established patterns
+### **Testing Expectations**
+- ? **Manual testing** in FPS game mode
+- ? **UI responsiveness** testing with different screen sizes
+- ? **Memory leak checking** using Visual Studio diagnostics
+- ? **Performance profiling** for optimization features
+- ? **Plugin compatibility** testing where relevant
 
 ---
 
-## ?? Getting Started Checklist
+## ?? **AI-Assisted Development**
 
-Ready to contribute? Here's your checklist:
+MistEngine includes revolutionary AI-powered development assistance:
 
-**Setup:**
-- [ ] Fork and clone the repository
-- [ ] Build the project successfully
-- [ ] Run the engine and test basic functionality
-- [ ] Read through the codebase to understand structure
+### **Setup AI Assistant**
+1. Press `F2` in the engine
+2. Get Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
+3. Configure and enjoy AI-powered coding help
 
-**First Contribution:**
-- [ ] Pick a "good first issue" or small bug
-- [ ] Create a new branch for your work
-- [ ] Make your changes following code style guidelines
-- [ ] Test thoroughly
-- [ ] Submit a pull request with clear description
+### **AI Development Workflow**
+```cpp
+// Use AI assistant for:
+// - Code suggestions and improvements
+// - Architecture advice and patterns  
+// - Debugging assistance and problem-solving
+// - Code review and optimization tips
+// - Best practices and standards guidance
+```
 
-**Ongoing:**
-- [ ] Join GitHub Discussions for project updates
-- [ ] Help other contributors with questions
-- [ ] Suggest improvements and new features
-- [ ] Share your experience building with MistEngine
+### **Contributing to AI Features**
+- Improve context awareness for better suggestions
+- Add new AI providers (OpenAI, Claude, etc.)
+- Enhance prompt engineering for better responses
+- Create specialized AI tools for game development
 
 ---
 
-**Welcome to the MistEngine community! ???**
+## ?? **Recognition**
 
-*Let's build something amazing together!*
+### **Contributor Levels**
+- **?? First-Time Contributor** - First merged PR
+- **? Regular Contributor** - 5+ merged PRs
+- **?? Core Contributor** - 20+ PRs + major feature
+- **?? Maintainer** - Ongoing project leadership
+
+### **Recognition Methods**
+- **README Credits** - Listed in main project README
+- **Release Notes** - Featured in version release notes
+- **GitHub Badges** - Special contributor badges
+- **Documentation** - Author credits in contributed docs
+- **Community Highlights** - Featured in project discussions
+
+---
+
+## ?? **Communication Channels**
+
+### **Development Discussion**
+- **GitHub Issues** - Bug reports and feature requests
+- **GitHub Discussions** - Architecture and design conversations
+- **Pull Request Comments** - Code-specific discussions
+- **Project Board** - Track development progress
+
+### **Getting Help**
+- **AI Assistant** - Press F2 in engine for real-time help
+- **Documentation** - Comprehensive guides in `docs/` folder
+- **Code Comments** - Extensive inline documentation
+- **GitHub Issues** - Ask questions with "question" label
+
+### **Community Guidelines**
+- **Be Respectful** - Professional and inclusive communication
+- **Be Constructive** - Helpful feedback and suggestions
+- **Be Patient** - Remember everyone is learning and contributing
+- **Be Collaborative** - Work together toward shared goals
+
+---
+
+## ?? **Issue and PR Templates**
+
+### **Bug Report Template**
+```markdown
+**Bug Description**
+Clear description of the bug
+
+**Steps to Reproduce**
+1. Step one
+2. Step two  
+3. Step three
+
+**Expected Behavior**
+What should happen
+
+**Actual Behavior** 
+What actually happens
+
+**Environment**
+- OS: Windows 11
+- Visual Studio: 2022
+- MistEngine Version: 0.3.0
+```
+
+### **Feature Request Template**
+```markdown
+**Feature Description**
+Clear description of the proposed feature
+
+**Use Case**
+Why this feature would be valuable
+
+**Implementation Ideas**
+Suggestions for implementation approach
+
+**Additional Context**
+Any other relevant information
+```
+
+---
+
+## ?? **Development Process**
+
+### **Release Cycle**
+- **Major Releases** (0.x.0) - New major features every 3-4 months
+- **Minor Releases** (0.3.x) - Bug fixes and small improvements monthly
+- **Hotfixes** - Critical bug fixes as needed
+
+### **Quality Gates**
+1. **Code Review** - All PRs reviewed by maintainers
+2. **Testing** - Comprehensive testing in multiple scenarios
+3. **Documentation** - Updated docs for all new features
+4. **Performance** - No significant performance regressions
+5. **Compatibility** - Backward compatibility maintained
+
+### **Merge Requirements**
+- ? All CI checks passing
+- ? Code review approval from maintainer
+- ? No merge conflicts with main branch
+- ? Feature documentation completed
+- ? Manual testing completed successfully
+
+---
+
+## ?? **Learning Resources**
+
+### **Game Engine Development**
+- **"Game Engine Architecture" by Jason Gregory** - Comprehensive engine design
+- **"Real-Time Rendering" by Möller & Haines** - Advanced rendering techniques
+- **"AI for Games" by Millington & Funge** - Game AI implementation
+- **OpenGL SuperBible** - Modern OpenGL programming
+
+### **C++ Best Practices**
+- **"Effective Modern C++" by Scott Meyers** - C++11/14 best practices
+- **"C++ Core Guidelines"** - Industry standard practices
+- **"Game Programming Patterns" by Robert Nystrom** - Common game patterns
+- **CppCon Talks** - Latest C++ developments and techniques
+
+### **MistEngine Specific**
+- **docs/technical/MistEngine_Implementation_Analysis.md** - Complete architecture guide
+- **docs/user-guide/AI_README.md** - AI assistant setup and usage
+- **docs/development/** - Problem-solving and debugging guides
+- **Source Code Comments** - Extensive inline documentation
+
+---
+
+## ?? **Current Contributors**
+
+### **Core Team**
+- **[Your Name]** - Project Creator & Lead Developer
+- **[Future Contributors]** - To be added as project grows
+
+### **Special Thanks**
+- **OpenGL Community** - Graphics programming foundation
+- **Bullet Physics** - Collision detection and physics simulation
+- **Dear ImGui** - Immediate mode GUI framework  
+- **GLFW** - Window management and input handling
+- **GLM** - OpenGL mathematics library
+- **Google** - Gemini AI API for development assistance
+
+---
+
+## ?? **Contact Information**
+
+### **Project Maintainer**
+- **GitHub:** @yourusername
+- **Email:** your.email@example.com
+- **Project:** https://github.com/yourusername/MistEngine
+
+### **Project Links**
+- **Documentation:** [docs/README.md](docs/README.md)
+- **Issues:** https://github.com/yourusername/MistEngine/issues
+- **Discussions:** https://github.com/yourusername/MistEngine/discussions
+- **Releases:** https://github.com/yourusername/MistEngine/releases
+
+---
+
+<div align="center">
+
+**?? Ready to contribute to the future of game engine development? ??**
+
+*Join the MistEngine community and help build something amazing!*
+
+[?? Report Bug](https://github.com/yourusername/MistEngine/issues/new?template=bug_report.md) | [?? Request Feature](https://github.com/yourusername/MistEngine/issues/new?template=feature_request.md) | [?? Start Discussion](https://github.com/yourusername/MistEngine/discussions)
+
+---
+
+**Built with ?? by the MistEngine Community**
+
+*Modern C++14 • ECS Architecture • AI Integration • Complete FPS Game*
+
+</div>

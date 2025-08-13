@@ -1,4 +1,7 @@
 #include "UIManager.h"
+#include "GameExporter.h"  // NEW: Add GameExporter include
+#include "FPSGameManager.h"  // NEW: Add FPSGameManager include
+#include "ECS/Systems/EnemyAISystem.h"  // NEW: Add EnemyAISystem include
 #include "ECS/Coordinator.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/RenderComponent.h"
@@ -11,6 +14,7 @@
 #include "AI/AIManager.h"
 #include "AI/AIWindow.h"
 #include "AI/AIConfig.h"
+#include "Version.h"  // Add Version.h include for version information
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
@@ -31,11 +35,13 @@ UIManager::UIManager()
     , m_ShowConsole(true)    // Open console by default to see debug messages
     , m_ShowAI(false)
     , m_ShowAPIKeyDialog(false)
+    , m_ShowExportDialog(false)  // NEW: Initialize export dialog flag
     , m_SelectedEntity(0)
     , m_HasSelectedEntity(false)
     , m_Coordinator(nullptr)
     , m_Scene(nullptr)
     , m_PhysicsSystem(nullptr)
+    , m_FPSGameManager(nullptr)  // NEW: Initialize FPS Game Manager reference
     , m_SelectedProvider(0)
     , m_EntityCounter(0)
 {
@@ -44,9 +50,22 @@ UIManager::UIManager()
     m_AIWindow = std::make_unique<AIWindow>();
     m_AIWindow->SetAIManager(m_AIManager.get());
     
+    // NEW: Initialize GameExporter
+    m_GameExporter = std::make_unique<GameExporter>();
+    
     // Initialize dialog buffers
     memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
     memset(m_EndpointBuffer, 0, sizeof(m_EndpointBuffer));
+    memset(m_GameNameBuffer, 0, sizeof(m_GameNameBuffer));
+    memset(m_OutputPathBuffer, 0, sizeof(m_OutputPathBuffer));
+    
+    // Initialize export settings with defaults
+    strncpy_s(m_GameNameBuffer, sizeof(m_GameNameBuffer), "MistFPS", _TRUNCATE);
+    strncpy_s(m_OutputPathBuffer, sizeof(m_OutputPathBuffer), "exports", _TRUNCATE);
+    m_NumLevels = 5;
+    m_EnemiesPerLevel = 10;
+    m_IncludeAssets = true;
+    m_CompressAssets = true;
 }
 
 UIManager::~UIManager() {
@@ -123,27 +142,54 @@ void UIManager::NewFrame() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Main menu bar
-    DrawMainMenuBar();
-
-    // Draw windows
-    if (m_ShowHierarchy) DrawHierarchy();
-    if (m_ShowInspector) DrawInspector();
-    if (m_ShowSceneView) DrawSceneView();
-    if (m_ShowAssetBrowser) DrawAssetBrowser();
-    if (m_ShowConsole) DrawConsole();
-    if (m_ShowDemo) ImGui::ShowDemoWindow(&m_ShowDemo);
+    // Check if we're in FPS game mode
+    bool isFPSGameActive = (m_FPSGameManager && m_FPSGameManager->IsGameActive());
+    bool isPlayerDead = false; // TODO: Check if player is dead
     
-    // Draw AI window
-    if (m_ShowAI && m_AIWindow) {
-        m_AIWindow->SetVisible(true);
-        m_AIWindow->Draw();
-        m_ShowAI = m_AIWindow->IsVisible(); // Sync state if window was closed
+    // DEBUG: Log the FPS game state transitions only
+    static bool lastGameState = false;
+    if (isFPSGameActive != lastGameState) {
+        std::string stateText = isFPSGameActive ? "?? UI SWITCHED TO FPS MODE!" : "??? UI SWITCHED TO EDITOR MODE";
+        m_ConsoleMessages.push_back(stateText);
+        lastGameState = isFPSGameActive;
     }
     
-    // Draw API Key dialog
-    if (m_ShowAPIKeyDialog) {
-        DrawAPIKeyDialog();
+    if (isFPSGameActive) {
+        // In FPS game mode - show FPS HUD and possibly game over screen
+        DrawFPSGameHUD();
+        DrawCrosshair();
+        
+        if (isPlayerDead) {
+            DrawGameOverScreen();
+        }
+    } else {
+        // In editor mode - show all editor UI
+        DrawMainMenuBar();
+        DrawFPSGameLauncher();
+
+        if (m_ShowHierarchy) DrawHierarchy();
+        if (m_ShowInspector) DrawInspector();
+        if (m_ShowSceneView) DrawSceneView();
+        if (m_ShowAssetBrowser) DrawAssetBrowser();
+        if (m_ShowConsole) DrawConsole();
+        if (m_ShowDemo) ImGui::ShowDemoWindow(&m_ShowDemo);
+        
+        // Draw AI window
+        if (m_ShowAI && m_AIWindow) {
+            m_AIWindow->SetVisible(true);
+            m_AIWindow->Draw();
+            m_ShowAI = m_AIWindow->IsVisible();
+        }
+        
+        // Draw API Key dialog
+        if (m_ShowAPIKeyDialog) {
+            DrawAPIKeyDialog();
+        }
+        
+        // Draw Export Game dialog
+        if (m_ShowExportDialog) {
+            DrawExportDialog();
+        }
     }
 }
 
@@ -198,6 +244,11 @@ void UIManager::DrawMainMenuBar() {
             }
             if (ImGui::MenuItem("Save Scene")) {
                 // TODO: Implement save scene
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Export FPS Game...", "Ctrl+E")) {
+                // TODO: Show export dialog
+                m_ShowExportDialog = true;
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) {
@@ -998,4 +1049,414 @@ void UIManager::DrawVec3Control(const std::string& label, glm::vec3& values, flo
     ImGui::PopItemWidth();
     ImGui::Columns(1);
     ImGui::PopID();
+}
+
+void UIManager::DrawExportDialog() {
+    if (m_ShowExportDialog) {
+        ImGui::OpenPopup("Export FPS Game");
+    }
+    
+    // Always draw the popup modal
+    if (ImGui::BeginPopupModal("Export FPS Game", &m_ShowExportDialog, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Export your FPS game as a standalone playable!");
+        ImGui::Separator();
+        
+        // Game Settings
+        if (ImGui::CollapsingHeader("Game Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Text("Game Name:");
+            ImGui::SetNextItemWidth(300);
+            ImGui::InputText("##GameName", m_GameNameBuffer, sizeof(m_GameNameBuffer));
+            
+            ImGui::Text("Output Directory:");
+            ImGui::SetNextItemWidth(300);
+            ImGui::InputText("##OutputPath", m_OutputPathBuffer, sizeof(m_OutputPathBuffer));
+            ImGui::SameLine();
+            if (ImGui::Button("Browse...")) {
+                // TODO: Could implement file browser here
+                m_ConsoleMessages.push_back("File browser not implemented, manually enter path");
+            }
+        }
+        
+        // Level Settings
+        if (ImGui::CollapsingHeader("Level Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::SliderInt("Number of Levels", &m_NumLevels, 1, 20);
+            ImGui::SliderInt("Enemies per Level", &m_EnemiesPerLevel, 5, 50);
+            
+            ImGui::Spacing();
+            ImGui::Text("Each level will have %d + (level-1)*2 enemies", m_EnemiesPerLevel);
+            ImGui::Text("Total enemies across all levels: %d", 
+                m_NumLevels * m_EnemiesPerLevel + (m_NumLevels * (m_NumLevels - 1)));
+        }
+        
+        // Export Options
+        if (ImGui::CollapsingHeader("Export Options", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::Checkbox("Include Assets", &m_IncludeAssets);
+            if (m_IncludeAssets) {
+                ImGui::Checkbox("Compress Assets", &m_CompressAssets);
+            }
+            
+            ImGui::Spacing();
+            ImGui::Text("Export will include:");
+            ImGui::BulletText("Game executable (placeholder)");
+            ImGui::BulletText("Configuration files");
+            ImGui::BulletText("Level data for %d levels", m_NumLevels);
+            if (m_IncludeAssets) {
+                ImGui::BulletText("Asset files %s", m_CompressAssets ? "(compressed)" : "(uncompressed)");
+            }
+            ImGui::BulletText("Launcher script");
+            ImGui::BulletText("README with instructions");
+        }
+        
+        // Export Progress
+        if (m_GameExporter && m_GameExporter->IsExporting()) {
+            ImGui::Separator();
+            ImGui::Text("Export Progress:");
+            ImGui::ProgressBar(m_GameExporter->GetExportProgress() / 100.0f);
+            ImGui::Text("Status: %s", m_GameExporter->GetExportStatus().c_str());
+        }
+        
+        ImGui::Separator();
+        
+        // Action Buttons
+        bool canExport = !m_GameExporter->IsExporting() && strlen(m_GameNameBuffer) > 0;
+        
+        if (!canExport) {
+            ImGui::BeginDisabled();
+        }
+        
+        if (ImGui::Button("Export Game", ImVec2(120, 0))) {
+            // Prepare export settings
+            ExportSettings settings;
+            settings.gameName = m_GameNameBuffer;
+            settings.outputDirectory = m_OutputPathBuffer;
+            settings.numberOfLevels = m_NumLevels;
+            settings.enemiesPerLevel = m_EnemiesPerLevel;
+            settings.includeAssets = m_IncludeAssets;
+            settings.compressAssets = m_CompressAssets;
+            settings.version = MIST_ENGINE_VERSION_STRING;  // Use actual MistEngine version
+            settings.weaponTypes = {"Pistol", "Rifle", "Shotgun", "Sniper"};
+            
+            // Start export
+            m_ConsoleMessages.push_back("Starting game export...");
+            m_ConsoleMessages.push_back("Game: " + std::string(m_GameNameBuffer));
+            m_ConsoleMessages.push_back("Output: " + std::string(m_OutputPathBuffer));
+            
+            bool success = m_GameExporter->ExportGame(settings);
+            if (success) {
+                m_ConsoleMessages.push_back("Export completed successfully!");
+            } else {
+                m_ConsoleMessages.push_back("Export failed!");
+            }
+        }
+        
+        if (!canExport) {
+            ImGui::EndDisabled();
+        }
+        
+        ImGui::SameLine();
+        
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            m_ShowExportDialog = false;
+        }
+        
+        // Help text
+        if (strlen(m_GameNameBuffer) == 0) {
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "Please enter a game name to enable export");
+        }
+        
+        ImGui::Spacing();
+        if (ImGui::CollapsingHeader("Help")) {
+            ImGui::TextWrapped("This will create a complete standalone game package including:");
+            ImGui::BulletText("Game executable (currently creates placeholder)");
+            ImGui::BulletText("All necessary configuration files");
+            ImGui::BulletText("Level data with enemy spawn points");
+            ImGui::BulletText("Asset files (textures, models, sounds)");
+            ImGui::BulletText("Launcher script for easy starting");
+            ImGui::BulletText("Complete README with instructions");
+            
+            ImGui::Spacing();
+            ImGui::TextWrapped("In a production version, this would:");
+            ImGui::BulletText("Copy the actual compiled game executable");
+            ImGui::BulletText("Package real assets and resources");
+            ImGui::BulletText("Create proper installers if requested");
+            ImGui::BulletText("Handle dependency distribution");
+        }
+        
+        ImGui::EndPopup();
+    }
+}
+
+void UIManager::DrawFPSGameLauncher() {
+    // Create a prominent window for FPS game controls
+    ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(400, 250), ImGuiCond_FirstUseEver);
+    
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse;
+    
+    if (ImGui::Begin("?? FPS Game Controller", nullptr, window_flags)) {
+        
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.4f, 1.0f)); // Bright green
+        ImGui::Text("MistEngine FPS Game Mode");
+        ImGui::PopStyleColor();
+        
+        ImGui::Separator();
+        
+        if (m_FPSGameManager) {
+            bool isGameActive = m_FPSGameManager->IsGameActive();
+            bool isGamePaused = m_FPSGameManager->IsGamePaused();
+            
+            if (!isGameActive) {
+                // Game not started - show start button
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.8f, 0.0f, 1.0f)); // Green
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.0f, 0.6f, 0.0f, 1.0f));
+                
+                if (ImGui::Button("?? START FPS GAME", ImVec2(200, 50))) {
+                    m_ConsoleMessages.push_back("?? STARTING FPS GAME FROM UI BUTTON!");
+                    m_FPSGameManager->StartNewGame();
+                    
+                    // Note: Scene clearing would be implemented here in a full version
+                    m_ConsoleMessages.push_back("FPS Game starting - clearing editor scene");
+                }
+                ImGui::PopStyleColor(3);
+                
+                ImGui::Spacing();
+                ImGui::Text("Click the button above to start your FPS adventure!");
+                ImGui::Text("Game Features:");
+                ImGui::BulletText("9 Enemy AI opponents");
+                ImGui::BulletText("Multiple weapon types");
+                ImGui::BulletText("Physics-based combat");
+                ImGui::BulletText("Score and health system");
+                
+            } else if (isGamePaused) {
+                // Game is paused - show resume button
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.6f, 0.8f, 1.0f)); // Blue
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 0.8f, 1.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.0f, 0.4f, 0.6f, 1.0f));
+                
+                if (ImGui::Button("?? RESUME GAME", ImVec2(150, 40))) {
+                    m_FPSGameManager->ResumeGame();
+                    m_ConsoleMessages.push_back("Game resumed from UI");
+                }
+                ImGui::PopStyleColor(3);
+                
+                ImGui::SameLine();
+                
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.4f, 0.0f, 1.0f)); // Orange
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.5f, 0.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.3f, 0.0f, 1.0f));
+                
+                if (ImGui::Button("?? RESTART", ImVec2(100, 40))) {
+                    m_FPSGameManager->RestartGame();
+                    m_ConsoleMessages.push_back("Game restarted from UI");
+                }
+                ImGui::PopStyleColor(3);
+                
+                ImGui::Text("?? Game is PAUSED");
+                
+            } else {
+                // Game is active - show pause and quit buttons
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.8f, 0.0f, 1.0f)); // Yellow
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 0.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.6f, 0.0f, 1.0f));
+                
+                if (ImGui::Button("?? PAUSE GAME", ImVec2(120, 40))) {
+                    m_FPSGameManager->PauseGame();
+                    m_ConsoleMessages.push_back("Game paused from UI");
+                }
+                ImGui::PopStyleColor(3);
+                
+                ImGui::SameLine();
+                
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.0f, 0.0f, 1.0f)); // Red
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.0f, 0.0f, 1.0f));
+                
+                if (ImGui::Button("?? QUIT GAME", ImVec2(100, 40))) {
+                    m_FPSGameManager->QuitGame();
+                    m_ConsoleMessages.push_back("Game quit from UI");
+                }
+                ImGui::PopStyleColor(3);
+                
+                ImGui::Spacing();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.0f, 1.0f)); // Green
+                ImGui::Text("?? GAME IS RUNNING!");
+                ImGui::PopStyleColor();
+                
+                ImGui::Text("Controls:");
+                ImGui::BulletText("WASD - Move player");
+                ImGui::BulletText("Mouse - Look around");
+                ImGui::BulletText("Left Click - Shoot");
+                ImGui::BulletText("R - Reload weapon");
+                ImGui::BulletText("1/2 - Switch weapons");
+            }
+            
+            ImGui::Separator();
+            
+            // Game stats if available
+            if (isGameActive && m_FPSGameManager->m_enemySystem) {
+                int aliveEnemies = m_FPSGameManager->m_enemySystem->GetAliveEnemyCount();
+                ImGui::Text("?? Enemies Remaining: %d", aliveEnemies);
+                
+                if (aliveEnemies == 0) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.0f, 1.0f)); // Yellow
+                    ImGui::Text("?? VICTORY! All enemies defeated!");
+                    ImGui::PopStyleColor();
+                }
+            }
+            
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f)); // Red
+            ImGui::Text("? FPS Game Manager not available");
+            ImGui::Text("The FPS system is not properly initialized.");
+            ImGui::PopStyleColor();
+        }
+        
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Press F3 to toggle Scene Editor mode");
+    }
+    
+    ImGui::End();
+}
+
+void UIManager::DrawFPSGameHUD() {
+    // Get screen size
+    ImGuiIO& io = ImGui::GetIO();
+    float screenWidth = io.DisplaySize.x;
+    float screenHeight = io.DisplaySize.y;
+    
+    // Health bar (top-left)
+    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(200, 60), ImGuiCond_Always);
+    ImGui::Begin("Health", nullptr, 
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoBackground);
+    
+    // Mock player health - in real implementation, get from PlayerComponent
+    float playerHealth = 100.0f; // TODO: Get from actual player
+    float maxHealth = 100.0f;
+    
+    ImGui::Text("HEALTH");
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.8f, 0.2f, 0.2f, 1.0f)); // Red
+    ImGui::ProgressBar(playerHealth / maxHealth, ImVec2(180, 20), "");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::Text("%.0f", playerHealth);
+    
+    ImGui::End();
+    
+    // Ammo counter (top-right)
+    ImGui::SetNextWindowPos(ImVec2(screenWidth - 210, 10), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(200, 60), ImGuiCond_Always);
+    ImGui::Begin("Ammo", nullptr, 
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoBackground);
+    
+    // Mock ammo count - in real implementation, get from WeaponComponent  
+    int currentAmmo = 30;
+    int maxAmmo = 30;
+    
+    ImGui::Text("AMMO");
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.2f, 0.8f, 0.2f, 1.0f)); // Green
+    ImGui::ProgressBar((float)currentAmmo / (float)maxAmmo, ImVec2(180, 20), "");
+    ImGui::PopStyleColor();
+    ImGui::SameLine();
+    ImGui::Text("%d/%d", currentAmmo, maxAmmo);
+    
+    ImGui::End();
+    
+    // Score (bottom-left)
+    ImGui::SetNextWindowPos(ImVec2(10, screenHeight - 70), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(200, 60), ImGuiCond_Always);
+    ImGui::Begin("Score", nullptr, 
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoBackground);
+    
+    int playerScore = 0; // TODO: Get from actual player
+    int enemiesKilled = 0;
+    
+    ImGui::Text("SCORE: %d", playerScore);
+    ImGui::Text("KILLS: %d", enemiesKilled);
+    
+    ImGui::End();
+}
+
+void UIManager::DrawCrosshair() {
+    ImGuiIO& io = ImGui::GetIO();
+    float screenWidth = io.DisplaySize.x;
+    float screenHeight = io.DisplaySize.y;
+    
+    // Center of screen
+    float centerX = screenWidth * 0.5f;
+    float centerY = screenHeight * 0.5f;
+    
+    // Draw crosshair using ImGui draw list
+    ImDrawList* drawList = ImGui::GetForegroundDrawList();
+    
+    float crosshairSize = 20.0f;
+    float crosshairThickness = 2.0f;
+    ImU32 crosshairColor = IM_COL32(255, 255, 255, 200); // White with transparency
+    
+    // Horizontal line
+    drawList->AddLine(
+        ImVec2(centerX - crosshairSize, centerY),
+        ImVec2(centerX + crosshairSize, centerY),
+        crosshairColor, crosshairThickness
+    );
+    
+    // Vertical line
+    drawList->AddLine(
+        ImVec2(centerX, centerY - crosshairSize),
+        ImVec2(centerX, centerY + crosshairSize),
+        crosshairColor, crosshairThickness
+    );
+    
+    // Center dot
+    drawList->AddCircleFilled(
+        ImVec2(centerX, centerY),
+        2.0f,
+        crosshairColor
+    );
+}
+
+void UIManager::DrawGameOverScreen() {
+    if (!m_FPSGameManager) return;
+    
+    ImGuiIO& io = ImGui::GetIO();
+    float screenWidth = io.DisplaySize.x;
+    float screenHeight = io.DisplaySize.y;
+    
+    // Full screen overlay
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(screenWidth, screenHeight), ImGuiCond_Always);
+    ImGui::Begin("GameOver", nullptr, 
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoScrollbar);
+    
+    // Dark overlay background
+    ImGui::GetBackgroundDrawList()->AddRectFilled(
+        ImVec2(0, 0), ImVec2(screenWidth, screenHeight),
+        IM_COL32(0, 0, 0, 180)
+    );
+    
+    // Center the GAME OVER text
+    ImGui::SetCursorPos(ImVec2(screenWidth * 0.5f - 150, screenHeight * 0.4f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f)); // Red
+    ImGui::SetWindowFontScale(3.0f);
+    ImGui::Text("GAME OVER");
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleColor();
+    
+    // Restart button
+    ImGui::SetCursorPos(ImVec2(screenWidth * 0.5f - 75, screenHeight * 0.6f));
+    if (ImGui::Button("RESTART", ImVec2(150, 50))) {
+        m_FPSGameManager->RestartGame();
+    }
+    
+    ImGui::End();
 }
