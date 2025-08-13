@@ -189,6 +189,23 @@
     <None Include="scripts\make-zip.bat">
       <Filter>Source Files</Filter>
     </None>
+    <None Include="package\v0.3.0-prealpha\Launch-MistEngine.bat">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="package\v0.3.0-prealpha\modules\README.md" />
+    <None Include="package\v0.3.0-prealpha\PREALPHA-README.md" />
+    <None Include="scripts\create-prealpha-package.bat">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="scripts\diagnose-assets.bat">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="scripts\make-zip-fixed.bat">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="scripts\create-simple-zip.bat">
+      <Filter>Source Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\Shader.h">
@@ -347,5 +364,8 @@
     <ClInclude Include="include\GameExporter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="version.txt" />
   </ItemGroup>
 </Project>

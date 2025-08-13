@@ -196,6 +196,7 @@
     <None Include="scripts\create-github-release.ps1" />
     <None Include="scripts\create-github-release.sh" />
     <None Include="scripts\create-prealpha-package.bat" />
+    <None Include="scripts\create-simple-zip.bat" />
     <None Include="scripts\diagnose-assets.bat" />
     <None Include="scripts\make-zip-fixed.bat" />
     <None Include="scripts\make-zip.bat" />
@@ -265,6 +266,9 @@
     <ClInclude Include="include\UIManager.h" />
     <ClInclude Include="include\Version.h" />
     <ClInclude Include="modules\ExampleModule\include\ExampleModule.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="version.txt" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
