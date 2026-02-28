@@ -1,5 +1,6 @@
 #include "ECS/Systems/WeaponSystem.h"
 #include "ECS/Systems/PlayerSystem.h"
+#include "Camera.h"
 #include "ECS/Coordinator.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/WeaponComponent.h"
@@ -11,14 +12,16 @@
 
 extern Coordinator gCoordinator;
 
-WeaponSystem::WeaponSystem() 
+WeaponSystem::WeaponSystem()
     : m_playerSystem(nullptr)
+    , m_camera(nullptr)
     , m_gameTime(0.0f)
 {
 }
 
-void WeaponSystem::Init(PlayerSystem* playerSystem) {
+void WeaponSystem::Init(PlayerSystem* playerSystem, Camera* camera) {
     m_playerSystem = playerSystem;
+    m_camera = camera;
 }
 
 void WeaponSystem::Update(float deltaTime) {
@@ -45,12 +48,13 @@ void WeaponSystem::Update(float deltaTime) {
                 Entity currentWeapon = playerComp.weapons[playerComp.currentWeapon];
                 
                 if (CanShoot(currentWeapon)) {
-                    // Calculate shoot direction from camera/player facing direction
-                    // For now, shoot straight forward (we'll improve this later)
                     glm::vec3 shootOrigin = playerTransform.position;
                     shootOrigin.y += 1.5f; // Shoulder height
-                    
-                    glm::vec3 shootDirection(0.0f, 0.0f, -1.0f); // Forward
+
+                    glm::vec3 shootDirection(0.0f, 0.0f, -1.0f); // Fallback
+                    if (m_camera) {
+                        shootDirection = m_camera->Front;
+                    }
                     
                     Shoot(currentWeapon, shootOrigin, shootDirection);
                 }

@@ -11,6 +11,20 @@
 // GLFW
 #include <GLFW/glfw3.h>
 
+// Fallback defines for GLFW 3.3 (these cursors were added in GLFW 3.4)
+#ifndef GLFW_RESIZE_ALL_CURSOR
+#define GLFW_RESIZE_ALL_CURSOR   GLFW_ARROW_CURSOR
+#endif
+#ifndef GLFW_RESIZE_NESW_CURSOR
+#define GLFW_RESIZE_NESW_CURSOR  GLFW_ARROW_CURSOR
+#endif
+#ifndef GLFW_RESIZE_NWSE_CURSOR
+#define GLFW_RESIZE_NWSE_CURSOR  GLFW_ARROW_CURSOR
+#endif
+#ifndef GLFW_NOT_ALLOWED_CURSOR
+#define GLFW_NOT_ALLOWED_CURSOR  GLFW_ARROW_CURSOR
+#endif
+
 // Include OpenGL headers after GLFW
 #include <glad/glad.h>
 

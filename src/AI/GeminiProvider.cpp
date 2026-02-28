@@ -244,55 +244,30 @@ AIResponse GeminiProvider::ParseResponse(const HttpResponse& httpResponse) {
         return response;
     }
     
-    // Parse Gemini response format
+    // Parse Gemini response using SimpleJson
+    // Expected: {"candidates":[{"content":{"parts":[{"text":"response"}]}}]}
     try {
-        // Look for the text content in Gemini's response structure
-        // Gemini response: {"candidates":[{"content":{"parts":[{"text":"response"}]}}]}
-        
-        size_t textPos = httpResponse.body.find("\"text\":");
-        if (textPos != std::string::npos) {
-            size_t startQuote = httpResponse.body.find("\"", textPos + 7);
-            if (startQuote != std::string::npos) {
-                size_t endQuote = startQuote + 1;
-                int escapeCount = 0;
-                
-                // Find the actual end quote, handling escaped quotes
-                while (endQuote < httpResponse.body.length()) {
-                    if (httpResponse.body[endQuote] == '\\') {
-                        escapeCount++;
-                    } else if (httpResponse.body[endQuote] == '"' && escapeCount % 2 == 0) {
-                        break;
-                    } else {
-                        escapeCount = 0;
+        SimpleJson json = SimpleJson::Parse(httpResponse.body);
+
+        if (json.Contains("candidates") && json["candidates"].Size() > 0) {
+            const auto& candidate = json["candidates"][0];
+            if (candidate.Contains("content")) {
+                const auto& content = candidate["content"];
+                if (content.Contains("parts") && content["parts"].Size() > 0) {
+                    const auto& textNode = content["parts"][0]["text"];
+                    if (textNode.IsString()) {
+                        response.content = textNode.AsString();
+                        response.success = true;
+                        response.errorMessage = "";
+                        return response;
                     }
-                    endQuote++;
-                }
-                
-                if (endQuote < httpResponse.body.length()) {
-                    response.content = httpResponse.body.substr(startQuote + 1, endQuote - startQuote - 1);
-                    
-                    // Basic unescape for common characters
-                    size_t pos = 0;
-                    while ((pos = response.content.find("\\n", pos)) != std::string::npos) {
-                        response.content.replace(pos, 2, "\n");
-                        pos += 1;
-                    }
-                    pos = 0;
-                    while ((pos = response.content.find("\\\"", pos)) != std::string::npos) {
-                        response.content.replace(pos, 2, "\"");
-                        pos += 1;
-                    }
-                    
-                    response.success = true;
-                    response.errorMessage = "";
-                    return response;
                 }
             }
         }
-        
+
         response.success = false;
         response.errorMessage = "Could not parse response content from: " + httpResponse.body.substr(0, 200);
-        
+
     } catch (const std::exception& e) {
         response.success = false;
         response.errorMessage = "Failed to parse JSON response: " + std::string(e.what());

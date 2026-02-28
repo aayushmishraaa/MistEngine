@@ -5,10 +5,14 @@
 #include <glm/glm.hpp>
 #include <vector>
 
+class EnemyAISystem;
+class PlayerSystem;
+
 class ProjectileSystem : public System {
 public:
     ProjectileSystem();
-    
+
+    void Init(EnemyAISystem* enemySystem, PlayerSystem* playerSystem);
     void Update(float deltaTime) override;
     
     // Projectile management
@@ -22,6 +26,9 @@ public:
     void DealDamage(Entity projectileEntity, Entity targetEntity, glm::vec3 hitPoint);
     
 private:
+    EnemyAISystem* m_enemySystem;
+    PlayerSystem* m_playerSystem;
+
     // Physics updates
     void UpdateProjectilePhysics(Entity projectile, float deltaTime);
     void UpdateProjectileLifetime(Entity projectile, float deltaTime);

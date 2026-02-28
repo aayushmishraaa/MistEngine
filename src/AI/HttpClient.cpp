@@ -1,210 +1,130 @@
 #include "AI/HttpClient.h"
-#include <windows.h>
-#include <wininet.h>
+#include <curl/curl.h>
 #include <iostream>
 #include <sstream>
 
-#pragma comment(lib, "wininet.lib")
-
-// Simple implementation using Windows WinINet API
-// For now, this is a basic stub that you can replace with actual HTTP implementation
+// libcurl write callback
+static size_t WriteCallback(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    std::string* response = static_cast<std::string*>(userdata);
+    size_t totalSize = size * nmemb;
+    response->append(ptr, totalSize);
+    return totalSize;
+}
 
 class HttpClient::Impl {
 public:
     int timeout = 30;
     std::string userAgent = "MistEngine/1.0";
-    
-    HttpResponse SendRequest(const std::string& method, const std::string& url, 
-                           const std::string& body, const std::map<std::string, std::string>& headers) {
+
+    HttpResponse SendRequest(const std::string& method, const std::string& url,
+                             const std::string& body, const std::map<std::string, std::string>& headers) {
         HttpResponse response;
-        
-        // Parse URL
-        std::string hostname, path;
-        int port = 443; // Default to HTTPS
-        bool isHttps = true;
-        
-        if (!ParseUrl(url, hostname, path, port, isHttps)) {
+
+        CURL* curl = curl_easy_init();
+        if (!curl) {
             response.success = false;
-            response.errorMessage = "Invalid URL format: " + url;
+            response.errorMessage = "Failed to initialize libcurl";
             return response;
         }
-        
-        // Initialize WinINet
-        HINTERNET hInternet = InternetOpenA(userAgent.c_str(), INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
-        if (!hInternet) {
-            DWORD error = GetLastError();
-            response.success = false;
-            response.errorMessage = "Failed to initialize WinINet. Error code: " + std::to_string(error);
-            return response;
+
+        std::string responseBody;
+
+        // Set URL
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+        // Set method
+        if (method == "POST") {
+            curl_easy_setopt(curl, CURLOPT_POST, 1L);
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+        } else if (method == "PUT") {
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
+        } else if (method == "DELETE") {
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
         }
-        
+        // GET is the default
+
+        // Set headers
+        struct curl_slist* headerList = nullptr;
+        for (const auto& header : headers) {
+            std::string headerStr = header.first + ": " + header.second;
+            headerList = curl_slist_append(headerList, headerStr.c_str());
+        }
+        if (headerList) {
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headerList);
+        }
+
+        // Set user agent
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, userAgent.c_str());
+
         // Set timeout
-        DWORD timeoutMs = timeout * 1000;
-        InternetSetOptionA(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
-        InternetSetOptionA(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
-        InternetSetOptionA(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &timeoutMs, sizeof(timeoutMs));
-        
-        // Connect to server
-        HINTERNET hConnect = InternetConnectA(hInternet, hostname.c_str(), port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
-        if (!hConnect) {
-            DWORD error = GetLastError();
-            InternetCloseHandle(hInternet);
-            response.success = false;
-            response.errorMessage = "Failed to connect to server: " + hostname + ":" + std::to_string(port) + ". Error code: " + std::to_string(error);
-            return response;
-        }
-        
-        // Create request
-        DWORD requestFlags = INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_PRAGMA_NOCACHE;
-        if (isHttps) {
-            requestFlags |= INTERNET_FLAG_SECURE | INTERNET_FLAG_IGNORE_CERT_CN_INVALID | INTERNET_FLAG_IGNORE_CERT_DATE_INVALID;
-        }
-        
-        HINTERNET hRequest = HttpOpenRequestA(hConnect, method.c_str(), path.c_str(), NULL, NULL, NULL, requestFlags, 0);
-        if (!hRequest) {
-            DWORD error = GetLastError();
-            InternetCloseHandle(hConnect);
-            InternetCloseHandle(hInternet);
-            response.success = false;
-            response.errorMessage = "Failed to create HTTP request. Error code: " + std::to_string(error);
-            return response;
-        }
-        
-        // Build headers string
-        std::string headersStr;
-        for (std::map<std::string, std::string>::const_iterator it = headers.begin(); it != headers.end(); ++it) {
-            headersStr += it->first + ": " + it->second + "\r\n";
-        }
-        
-        // Log the request for debugging
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(timeout));
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(timeout));
+
+        // Set write callback
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBody);
+
+        // Follow redirects
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+        // Log request
         std::cout << "HTTP Request: " << method << " " << url << std::endl;
-        std::cout << "Headers: " << headersStr << std::endl;
         if (!body.empty()) {
             std::cout << "Body length: " << body.length() << " characters" << std::endl;
         }
-        
-        // Send request
-        BOOL result = HttpSendRequestA(hRequest, 
-                                      headersStr.empty() ? NULL : headersStr.c_str(), 
-                                      static_cast<DWORD>(headersStr.length()),
-                                      body.empty() ? NULL : (LPVOID)body.c_str(),
-                                      static_cast<DWORD>(body.length()));
-        
-        if (!result) {
-            DWORD error = GetLastError();
-            InternetCloseHandle(hRequest);
-            InternetCloseHandle(hConnect);
-            InternetCloseHandle(hInternet);
+
+        // Perform request
+        CURLcode res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK) {
             response.success = false;
-            response.errorMessage = "Failed to send HTTP request. Error code: " + std::to_string(error);
-            
-            // Provide more specific error messages
-            switch (error) {
-                case ERROR_INTERNET_TIMEOUT:
+            response.errorMessage = "HTTP request failed: " + std::string(curl_easy_strerror(res));
+
+            switch (res) {
+                case CURLE_OPERATION_TIMEDOUT:
                     response.errorMessage += " (Timeout - check internet connection)";
                     break;
-                case ERROR_INTERNET_NAME_NOT_RESOLVED:
+                case CURLE_COULDNT_RESOLVE_HOST:
                     response.errorMessage += " (DNS resolution failed)";
                     break;
-                case ERROR_INTERNET_CANNOT_CONNECT:
+                case CURLE_COULDNT_CONNECT:
                     response.errorMessage += " (Cannot connect to server)";
                     break;
-                case ERROR_INTERNET_CONNECTION_ABORTED:
-                    response.errorMessage += " (Connection aborted)";
-                    break;
-                case ERROR_INTERNET_CONNECTION_RESET:
-                    response.errorMessage += " (Connection reset)";
+                case CURLE_SSL_CONNECT_ERROR:
+                    response.errorMessage += " (SSL connection error)";
                     break;
                 default:
-                    response.errorMessage += " (Unknown network error)";
                     break;
             }
-            
+
+            curl_slist_free_all(headerList);
+            curl_easy_cleanup(curl);
             return response;
         }
-        
+
         // Get status code
-        DWORD statusCode;
-        DWORD statusCodeSize = sizeof(statusCode);
-        if (HttpQueryInfoA(hRequest, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &statusCode, &statusCodeSize, NULL)) {
-            response.statusCode = static_cast<int>(statusCode);
-        } else {
-            response.statusCode = 0;
-        }
-        
-        // Get response headers
-        char headerBuffer[8192];
-        DWORD headerSize = sizeof(headerBuffer);
-        if (HttpQueryInfoA(hRequest, HTTP_QUERY_RAW_HEADERS_CRLF, headerBuffer, &headerSize, NULL)) {
-            // Parse headers (simplified)
-            std::string headerStr(headerBuffer, headerSize);
-            // You could parse individual headers here if needed
-        }
-        
-        // Read response
-        std::string responseBody;
-        char buffer[4096];
-        DWORD bytesRead;
-        
-        while (InternetReadFile(hRequest, buffer, sizeof(buffer) - 1, &bytesRead) && bytesRead > 0) {
-            buffer[bytesRead] = '\0';
-            responseBody += buffer;
-        }
-        
+        long statusCode = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &statusCode);
+        response.statusCode = static_cast<int>(statusCode);
         response.body = responseBody;
         response.success = (response.statusCode >= 200 && response.statusCode < 300);
-        
-        // Log response for debugging
+
+        // Log response
         std::cout << "HTTP Response: " << response.statusCode << std::endl;
         std::cout << "Response body length: " << responseBody.length() << " characters" << std::endl;
-        
+
         if (!response.success) {
             std::cout << "Response body: " << responseBody.substr(0, 500) << "..." << std::endl;
         }
-        
+
         // Cleanup
-        InternetCloseHandle(hRequest);
-        InternetCloseHandle(hConnect);
-        InternetCloseHandle(hInternet);
-        
+        curl_slist_free_all(headerList);
+        curl_easy_cleanup(curl);
+
         return response;
-    }
-    
-private:
-    bool ParseUrl(const std::string& url, std::string& hostname, std::string& path, int& port, bool& isHttps) {
-        // Simple URL parsing
-        size_t protocolEnd = url.find("://");
-        if (protocolEnd == std::string::npos) {
-            return false;
-        }
-        
-        std::string protocol = url.substr(0, protocolEnd);
-        isHttps = (protocol == "https");
-        port = isHttps ? 443 : 80;
-        
-        size_t hostStart = protocolEnd + 3;
-        size_t pathStart = url.find('/', hostStart);
-        
-        if (pathStart == std::string::npos) {
-            hostname = url.substr(hostStart);
-            path = "/";
-        } else {
-            hostname = url.substr(hostStart, pathStart - hostStart);
-            path = url.substr(pathStart);
-        }
-        
-        // Check for port in hostname
-        size_t portPos = hostname.find(':');
-        if (portPos != std::string::npos) {
-            try {
-                port = std::stoi(hostname.substr(portPos + 1));
-                hostname = hostname.substr(0, portPos);
-            } catch (...) {
-                // Invalid port, use default
-            }
-        }
-        
-        return !hostname.empty();
     }
 };
 

@@ -142,16 +142,23 @@ private:
     long long GetFileTimestamp(const std::string& filePath);
 };
 
+// Cross-platform export macro
+#ifdef _WIN32
+    #define MIST_EXPORT __declspec(dllexport)
+#else
+    #define MIST_EXPORT __attribute__((visibility("default")))
+#endif
+
 // Helper macros for module creation
 #define DECLARE_MODULE(className) \
     extern "C" { \
-        __declspec(dllexport) IModule* CreateModule() { \
+        MIST_EXPORT IModule* CreateModule() { \
             return new className(); \
         } \
-        __declspec(dllexport) void DestroyModule(IModule* module) { \
+        MIST_EXPORT void DestroyModule(IModule* module) { \
             delete module; \
         } \
-        __declspec(dllexport) int GetInterfaceVersion() { \
+        MIST_EXPORT int GetInterfaceVersion() { \
             return MODULE_INTERFACE_VERSION; \
         } \
     }

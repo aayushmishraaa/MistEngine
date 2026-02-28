@@ -1,4 +1,6 @@
 #include "ECS/Systems/ProjectileSystem.h"
+#include "ECS/Systems/EnemyAISystem.h"
+#include "ECS/Systems/PlayerSystem.h"
 #include "ECS/Coordinator.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/ProjectileComponent.h"
@@ -10,7 +12,15 @@
 
 extern Coordinator gCoordinator;
 
-ProjectileSystem::ProjectileSystem() {
+ProjectileSystem::ProjectileSystem()
+    : m_enemySystem(nullptr)
+    , m_playerSystem(nullptr)
+{
+}
+
+void ProjectileSystem::Init(EnemyAISystem* enemySystem, PlayerSystem* playerSystem) {
+    m_enemySystem = enemySystem;
+    m_playerSystem = playerSystem;
 }
 
 void ProjectileSystem::Update(float deltaTime) {
@@ -126,60 +136,61 @@ void ProjectileSystem::UpdateProjectileLifetime(Entity projectile, float deltaTi
 Entity ProjectileSystem::CheckCollision(Entity projectileEntity, glm::vec3 oldPos, glm::vec3 newPos) {
     try {
         auto& projComp = gCoordinator.GetComponent<ProjectileComponent>(projectileEntity);
-        
-        // Check collision with all entities that have transform components
-        // This is a simple implementation - in a real game you'd use spatial partitioning
-        
-        // Get all entities with transform components (potential collision targets)
-        for (int i = 0; i < 1000; ++i) { // Reasonable entity limit
-            Entity entity = static_cast<Entity>(i);
-            
-            if (entity == projectileEntity) continue; // Don't collide with self
-            
+
+        // Build list of candidate targets from the appropriate system's entity set
+        std::vector<Entity> candidates;
+
+        if (projComp.isPlayerProjectile && m_enemySystem) {
+            // Player projectiles check enemy entities
+            for (auto const& e : m_enemySystem->m_Entities) {
+                candidates.push_back(e);
+            }
+        } else if (!projComp.isPlayerProjectile && m_playerSystem) {
+            // Enemy projectiles check player entities
+            for (auto const& e : m_playerSystem->m_Entities) {
+                candidates.push_back(e);
+            }
+        }
+
+        for (Entity entity : candidates) {
+            if (entity == projectileEntity) continue;
+
             try {
                 auto& targetTransform = gCoordinator.GetComponent<TransformComponent>(entity);
-                
-                // Skip if this entity is not a valid target
+
                 if (!IsValidTarget(projectileEntity, entity)) {
                     continue;
                 }
-                
-                // Simple sphere collision check
-                float collisionRadius = 0.5f; // Default collision radius
-                
-                // Check if projectile path intersects with entity
+
+                float collisionRadius = 0.5f;
+
                 glm::vec3 projDirection = newPos - oldPos;
                 glm::vec3 toTarget = targetTransform.position - oldPos;
-                
-                // Project target position onto projectile path
+
                 float projLength = glm::length(projDirection);
-                if (projLength < 0.001f) continue; // No movement
-                
+                if (projLength < 0.001f) continue;
+
                 glm::vec3 projNormal = projDirection / projLength;
                 float projectedDistance = glm::dot(toTarget, projNormal);
-                
-                // Check if projection is within the projectile's movement this frame
+
                 if (projectedDistance < 0.0f || projectedDistance > projLength) {
                     continue;
                 }
-                
-                // Find closest point on projectile path to target
+
                 glm::vec3 closestPoint = oldPos + projNormal * projectedDistance;
                 float distanceToPath = glm::length(targetTransform.position - closestPoint);
-                
-                // Check if collision occurred
+
                 if (distanceToPath <= collisionRadius) {
                     return entity;
                 }
-                
+
             } catch (...) {
-                // Entity doesn't exist or doesn't have required components
                 continue;
             }
         }
-        
-        return static_cast<Entity>(-1); // No collision
-        
+
+        return static_cast<Entity>(-1);
+
     } catch (const std::exception& e) {
         std::cerr << "Error checking collision: " << e.what() << std::endl;
         return static_cast<Entity>(-1);

@@ -3,7 +3,9 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#ifdef _WIN32
 #include <direct.h>  // For _mkdir on Windows
+#endif
 #include <sys/stat.h>  // For checking if directory exists
 
 GameExporter::GameExporter()
@@ -142,14 +144,23 @@ bool GameExporter::ValidateExportSettings(const ExportSettings& settings) {
 }
 
 std::vector<std::string> GameExporter::GetRequiredFiles() const {
+#ifdef _WIN32
     return {
-        "MistEngine.exe",  // Main executable
-        "glfw3.dll",       // GLFW library
-        "opengl32.dll",    // OpenGL library
-        "shaders/",        // Shader files
-        "textures/",       // Texture files
-        "models/",         // Model files (if any)
+        "MistEngine.exe",
+        "glfw3.dll",
+        "opengl32.dll",
+        "shaders/",
+        "textures/",
+        "models/",
     };
+#else
+    return {
+        "MistEngine",
+        "shaders/",
+        "textures/",
+        "models/",
+    };
+#endif
 }
 
 bool GameExporter::CopyEngineFiles(const std::string& outputPath) {
@@ -289,9 +300,7 @@ bool GameExporter::GenerateLevelData(const ExportSettings& settings, const std::
 }
 
 bool GameExporter::CreateLauncherExecutable(const std::string& outputPath, const ExportSettings& settings) {
-    // In a real implementation, this would create an actual executable
-    // For this demo, create a batch file launcher
-    
+#ifdef _WIN32
     std::ostringstream launcher;
     launcher << "@echo off\n";
     launcher << "echo Starting " << settings.gameName << " v" << settings.version << "\n";
@@ -308,11 +317,36 @@ bool GameExporter::CreateLauncherExecutable(const std::string& outputPath, const
     launcher << "echo Press any key to start the game...\n";
     launcher << "pause >nul\n";
     launcher << "echo Starting game...\n";
-    launcher << "REM In a real export, this would launch MistFPS.exe\n";
-    launcher << "echo Game would start here with MistFPS.exe\n";
+    launcher << "MistFPS.exe\n";
     launcher << "pause\n";
-    
+
     return WriteTextFile(outputPath + "/Launch_" + settings.gameName + ".bat", launcher.str());
+#else
+    std::ostringstream launcher;
+    launcher << "#!/bin/bash\n";
+    launcher << "echo \"Starting " << settings.gameName << " v" << settings.version << "\"\n";
+    launcher << "echo \"Built with MistEngine\"\n";
+    launcher << "echo \"\"\n";
+    launcher << "echo \"Controls:\"\n";
+    launcher << "echo \"  WASD - Move\"\n";
+    launcher << "echo \"  Mouse - Look\"\n";
+    launcher << "echo \"  Left Click - Shoot\"\n";
+    launcher << "echo \"  R - Reload\"\n";
+    launcher << "echo \"  1/2 - Switch Weapons\"\n";
+    launcher << "echo \"  ESC - Pause\"\n";
+    launcher << "echo \"\"\n";
+    launcher << "DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n";
+    launcher << "cd \"$DIR\"\n";
+    launcher << "exec ./MistFPS \"$@\"\n";
+
+    std::string scriptPath = outputPath + "/launch_" + settings.gameName + ".sh";
+    if (!WriteTextFile(scriptPath, launcher.str())) {
+        return false;
+    }
+    // Make the script executable
+    chmod(scriptPath.c_str(), 0755);
+    return true;
+#endif
 }
 
 bool GameExporter::CreateReadme(const std::string& outputPath, const ExportSettings& settings) {
@@ -320,12 +354,21 @@ bool GameExporter::CreateReadme(const std::string& outputPath, const ExportSetti
     readme << "# " << settings.gameName << " v" << settings.version << "\n\n";
     readme << "A first-person shooter game built with " << MIST_ENGINE_NAME << " " << MIST_ENGINE_VERSION_STRING << ".\n\n";
     readme << "## System Requirements\n";
+#ifdef _WIN32
     readme << "- Windows 10 or later\n";
+#else
+    readme << "- Linux (Ubuntu 22.04+ or equivalent)\n";
+    readme << "- libglfw3, libassimp, libbullet, libcurl installed\n";
+#endif
     readme << "- OpenGL 3.3 compatible graphics card\n";
     readme << "- 2GB RAM minimum\n";
     readme << "- 500MB disk space\n\n";
     readme << "## How to Play\n";
+#ifdef _WIN32
     readme << "1. Run Launch_" << settings.gameName << ".bat to start the game\n";
+#else
+    readme << "1. Run ./launch_" << settings.gameName << ".sh to start the game\n";
+#endif
     readme << "2. Use WASD keys to move your character\n";
     readme << "3. Use mouse to look around\n";
     readme << "4. Left-click to shoot enemies\n";

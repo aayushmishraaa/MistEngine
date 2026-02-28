@@ -144,12 +144,13 @@ void FPSGameManager::SetupSystemDependencies() {
     try {
         // Initialize system dependencies
         m_playerSystem->Init(m_camera, m_inputManager);
-        m_weaponSystem->Init(m_playerSystem.get());
+        m_weaponSystem->Init(m_playerSystem.get(), m_camera);
+        m_projectileSystem->Init(m_enemySystem.get(), m_playerSystem.get());
         m_enemySystem->Init(m_playerSystem.get(), m_weaponSystem.get());
         m_gameStateSystem->Init(m_playerSystem.get(), m_enemySystem.get(), m_uiManager);
-        
+
         AddConsoleMessage("System dependencies configured successfully");
-        
+
     } catch (const std::exception& e) {
         std::cerr << "Error setting up system dependencies: " << e.what() << std::endl;
     }
@@ -332,22 +333,51 @@ void FPSGameManager::CreateRoomWalls() {
 }
 
 void FPSGameManager::CreateSimpleEnemies() {
-    if (!m_uiManager) {
-        AddConsoleMessage("No UI Manager for enemy entities");
-        return;
-    }
-    
     try {
-        AddConsoleMessage("Creating enemy cubes using ECS system...");
-        
-        // Create 5 enemy cubes using the proven ECS system
+        AddConsoleMessage("Creating enemy entities...");
+
+        // Positions for enemies spread around the room
+        glm::vec3 enemyPositions[] = {
+            glm::vec3(-5.0f, 1.0f, -10.0f),
+            glm::vec3( 5.0f, 1.0f, -10.0f),
+            glm::vec3( 0.0f, 1.0f, -15.0f),
+            glm::vec3(-8.0f, 1.0f, -20.0f),
+            glm::vec3( 8.0f, 1.0f, -20.0f)
+        };
+
         for (int i = 0; i < 5; i++) {
-            m_uiManager->CreateGameCube(); // This creates a full ECS entity that's guaranteed to be visible
-            AddConsoleMessage("Enemy cube " + std::to_string(i+1) + " created using ECS");
+            // Create a proper ECS entity with both TransformComponent and EnemyComponent
+            // so the EnemyAISystem picks it up and projectiles can target it
+            Entity enemy = gCoordinator.CreateEntity();
+
+            TransformComponent tc;
+            tc.position = enemyPositions[i];
+            tc.scale = glm::vec3(1.0f);
+            gCoordinator.AddComponent(enemy, tc);
+
+            EnemyComponent ec;
+            ec.type = EnemyType::GRUNT;
+            ec.health = 50.0f;
+            ec.maxHealth = 50.0f;
+            ec.scoreValue = 10;
+            ec.state = EnemyState::IDLE;
+            gCoordinator.AddComponent(enemy, ec);
+
+            AddConsoleMessage("Enemy " + std::to_string(i+1) + " created at (" +
+                std::to_string(enemyPositions[i].x) + ", " +
+                std::to_string(enemyPositions[i].y) + ", " +
+                std::to_string(enemyPositions[i].z) + ")");
         }
-        
-        AddConsoleMessage("All enemy cubes created using ECS - they should be visible!");
-        
+
+        // Also create visible cubes via UIManager so there's something to see
+        if (m_uiManager) {
+            for (int i = 0; i < 5; i++) {
+                m_uiManager->CreateGameCube();
+            }
+        }
+
+        AddConsoleMessage("All enemies created and targetable!");
+
     } catch (const std::exception& e) {
         AddConsoleMessage("Error creating enemies: " + std::string(e.what()));
     }
@@ -355,17 +385,28 @@ void FPSGameManager::CreateSimpleEnemies() {
 
 void FPSGameManager::CreateSimplePlayer(const glm::vec3& spawnPosition) {
     try {
-        // Create simple player without complex systems
+        // Create player via PlayerSystem so m_playerId is set
+        if (m_playerSystem) {
+            Entity player = m_playerSystem->CreatePlayer(spawnPosition);
+            AddConsoleMessage("Player entity created: " + std::to_string(player));
+        }
+
+        // Create player physics body
         if (m_physicsSystem) {
-            // Create player physics body
             btRigidBody* playerBody = m_physicsSystem->CreateCube(spawnPosition, 1.0f);
             if (playerBody) {
                 AddConsoleMessage("Player physics body created");
             }
         }
-        
+
+        // Give the player a starting pistol
+        if (m_playerSystem && m_playerSystem->HasPlayer() && m_weaponSystem) {
+            GivePlayerWeapon(0);
+            AddConsoleMessage("Player given starting pistol");
+        }
+
         AddConsoleMessage("Simple player created successfully");
-        
+
     } catch (const std::exception& e) {
         AddConsoleMessage("Error creating player: " + std::string(e.what()));
     }

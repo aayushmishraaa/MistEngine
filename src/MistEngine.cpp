@@ -1,6 +1,7 @@
 #include <iostream>
 #include <vector>
-#include <cstddef> 
+#include <cstddef>
+#include <sys/stat.h>
 
 #include "Renderer.h"
 #include "Scene.h"

@@ -1,7 +1,7 @@
 #ifndef PHYSICSCOMPONENT_H
 #define PHYSICSCOMPONENT_H
 
-#include <bullet/btBulletDynamicsCommon.h>
+#include <btBulletDynamicsCommon.h>
 
 struct PhysicsComponent {
     btRigidBody* rigidBody;

@@ -3,6 +3,7 @@
 
 #include <array>
 #include <unordered_map>
+#include <stdexcept>
 #include "Entity.h"
 
 class IComponentArray {
@@ -23,7 +24,12 @@ public:
     }
 
     void RemoveData(Entity entity) {
-        size_t indexOfRemovedEntity = m_EntityToIndexMap[entity];
+        auto it = m_EntityToIndexMap.find(entity);
+        if (it == m_EntityToIndexMap.end()) {
+            return;
+        }
+
+        size_t indexOfRemovedEntity = it->second;
         size_t indexOfLastElement = m_Size - 1;
         m_ComponentArray[indexOfRemovedEntity] = m_ComponentArray[indexOfLastElement];
 
@@ -38,7 +44,11 @@ public:
     }
 
     T& GetData(Entity entity) {
-        return m_ComponentArray[m_EntityToIndexMap[entity]];
+        auto it = m_EntityToIndexMap.find(entity);
+        if (it == m_EntityToIndexMap.end()) {
+            throw std::runtime_error("Entity does not have component");
+        }
+        return m_ComponentArray[it->second];
     }
 
     void EntityDestroyed(Entity entity) override {

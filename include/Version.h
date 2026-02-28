@@ -21,6 +21,14 @@
     #define MIST_ENGINE_PLATFORM "Windows x64"
 #elif defined(_WIN32)
     #define MIST_ENGINE_PLATFORM "Windows x86"
+#elif defined(__linux__)
+    #ifdef __x86_64__
+        #define MIST_ENGINE_PLATFORM "Linux x86_64"
+    #elif defined(__aarch64__)
+        #define MIST_ENGINE_PLATFORM "Linux aarch64"
+    #else
+        #define MIST_ENGINE_PLATFORM "Linux"
+    #endif
 #else
     #define MIST_ENGINE_PLATFORM "Unknown"
 #endif

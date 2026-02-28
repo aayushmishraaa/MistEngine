@@ -7,12 +7,13 @@
 #include <memory>
 
 class PlayerSystem;
+class Camera;
 
 class WeaponSystem : public System {
 public:
     WeaponSystem();
-    
-    void Init(PlayerSystem* playerSystem);
+
+    void Init(PlayerSystem* playerSystem, Camera* camera = nullptr);
     void Update(float deltaTime) override;
     
     // Weapon creation
@@ -32,6 +33,7 @@ public:
     
 private:
     PlayerSystem* m_playerSystem;
+    Camera* m_camera;
     float m_gameTime; // For timing calculations
     
     // Weapon behavior

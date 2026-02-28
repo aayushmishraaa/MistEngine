@@ -160,7 +160,7 @@ void AIWindow::DrawInputArea() {
             size_t currentLen = strlen(m_inputBuffer);
             size_t clipLen = strlen(clipText);
             if (currentLen + clipLen < sizeof(m_inputBuffer) - 1) {
-                strcat_s(m_inputBuffer, sizeof(m_inputBuffer), clipText);
+                strncat(m_inputBuffer, clipText, sizeof(m_inputBuffer) - currentLen - 1);
                 AddMessage(ChatMessage::SYSTEM, "? Text pasted from clipboard");
             } else {
                 AddMessage(ChatMessage::SYSTEM, "? Text too long to paste");

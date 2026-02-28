@@ -60,8 +60,8 @@ UIManager::UIManager()
     memset(m_OutputPathBuffer, 0, sizeof(m_OutputPathBuffer));
     
     // Initialize export settings with defaults
-    strncpy_s(m_GameNameBuffer, sizeof(m_GameNameBuffer), "MistFPS", _TRUNCATE);
-    strncpy_s(m_OutputPathBuffer, sizeof(m_OutputPathBuffer), "exports", _TRUNCATE);
+    strncpy(m_GameNameBuffer, "MistFPS", sizeof(m_GameNameBuffer) - 1); m_GameNameBuffer[sizeof(m_GameNameBuffer) - 1] = '\0';
+    strncpy(m_OutputPathBuffer, "exports", sizeof(m_OutputPathBuffer) - 1); m_OutputPathBuffer[sizeof(m_OutputPathBuffer) - 1] = '\0';
     m_NumLevels = 5;
     m_EnemiesPerLevel = 10;
     m_IncludeAssets = true;
@@ -386,7 +386,7 @@ void UIManager::DrawAPIKeyDialog() {
         if (ImGui::Button("Paste##API")) {
             const char* clipText = ImGui::GetClipboardText();
             if (clipText) {
-                strncpy_s(m_APIKeyBuffer, sizeof(m_APIKeyBuffer), clipText, _TRUNCATE);
+                strncpy(m_APIKeyBuffer, clipText, sizeof(m_APIKeyBuffer) - 1); m_APIKeyBuffer[sizeof(m_APIKeyBuffer) - 1] = '\0';
                 apiKeyChanged = true;
                 m_ConsoleMessages.push_back("? Pasted API key from clipboard");
             } else {
@@ -444,26 +444,26 @@ void UIManager::DrawAPIKeyDialog() {
             m_ConsoleMessages.push_back("?? GOOGLE GEMINI SETUP GUIDE:");
             m_ConsoleMessages.push_back("");
             m_ConsoleMessages.push_back("1. GET YOUR API KEY:");
-            m_ConsoleMessages.push_back("   • Go to https://aistudio.google.com/app/apikey");
-            m_ConsoleMessages.push_back("   • Sign in with your Google account");
-            m_ConsoleMessages.push_back("   • Click 'Create API Key'");
-            m_ConsoleMessages.push_back("   • Copy the generated key");
+            m_ConsoleMessages.push_back("   ï¿½ Go to https://aistudio.google.com/app/apikey");
+            m_ConsoleMessages.push_back("   ï¿½ Sign in with your Google account");
+            m_ConsoleMessages.push_back("   ï¿½ Click 'Create API Key'");
+            m_ConsoleMessages.push_back("   ï¿½ Copy the generated key");
             m_ConsoleMessages.push_back("");
             m_ConsoleMessages.push_back("2. ENABLE GEMINI API:");
-            m_ConsoleMessages.push_back("   • API is free with rate limits");
-            m_ConsoleMessages.push_back("   • No billing setup required for basic usage");
-            m_ConsoleMessages.push_back("   • Higher limits available with paid plans");
+            m_ConsoleMessages.push_back("   ï¿½ API is free with rate limits");
+            m_ConsoleMessages.push_back("   ï¿½ No billing setup required for basic usage");
+            m_ConsoleMessages.push_back("   ï¿½ Higher limits available with paid plans");
             m_ConsoleMessages.push_back("");
             m_ConsoleMessages.push_back("3. UPDATED MODELS (2024):");
-            m_ConsoleMessages.push_back("   • gemini-1.5-flash: Fast & efficient (default)");
-            m_ConsoleMessages.push_back("   • gemini-1.5-pro: Most capable model");
-            m_ConsoleMessages.push_back("   • gemini-1.0-pro: Stable baseline");
-            m_ConsoleMessages.push_back("   • Note: Old 'gemini-pro' is deprecated");
+            m_ConsoleMessages.push_back("   ï¿½ gemini-1.5-flash: Fast & efficient (default)");
+            m_ConsoleMessages.push_back("   ï¿½ gemini-1.5-pro: Most capable model");
+            m_ConsoleMessages.push_back("   ï¿½ gemini-1.0-pro: Stable baseline");
+            m_ConsoleMessages.push_back("   ï¿½ Note: Old 'gemini-pro' is deprecated");
             m_ConsoleMessages.push_back("");
             m_ConsoleMessages.push_back("4. RATE LIMITS:");
-            m_ConsoleMessages.push_back("   • Free tier: 15 requests/minute");
-            m_ConsoleMessages.push_back("   • No daily token limits on free tier");
-            m_ConsoleMessages.push_back("   • Much more generous than OpenAI free tier");
+            m_ConsoleMessages.push_back("   ï¿½ Free tier: 15 requests/minute");
+            m_ConsoleMessages.push_back("   ï¿½ No daily token limits on free tier");
+            m_ConsoleMessages.push_back("   ï¿½ Much more generous than OpenAI free tier");
         }
         
         ImGui::SameLine();
@@ -541,7 +541,7 @@ void UIManager::ShowAPIKeyDialog() {
     if (AIConfig::Instance().HasAPIKey("Gemini")) {
         // Don't show the actual key for security, just indicate it exists
         std::string maskedKey = "***CONFIGURED***";
-        strncpy_s(m_APIKeyBuffer, sizeof(m_APIKeyBuffer), maskedKey.c_str(), _TRUNCATE);
+        strncpy(m_APIKeyBuffer, maskedKey.c_str(), sizeof(m_APIKeyBuffer) - 1); m_APIKeyBuffer[sizeof(m_APIKeyBuffer) - 1] = '\0';
     }
 }
 
