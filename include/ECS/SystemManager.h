@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <string>
 #include <typeinfo>
 #include "System.h"
 
@@ -10,7 +11,7 @@ class SystemManager {
 public:
     template<typename T>
     std::shared_ptr<T> RegisterSystem() {
-        const char* typeName = typeid(T).name();
+        std::string typeName = typeid(T).name();
         auto system = std::make_shared<T>();
         m_Systems.insert({typeName, system});
         return system;
@@ -18,7 +19,7 @@ public:
 
     template<typename T>
     void SetSignature(Signature signature) {
-        const char* typeName = typeid(T).name();
+        std::string typeName = typeid(T).name();
         m_Signatures.insert({typeName, signature});
     }
 
@@ -44,8 +45,8 @@ public:
     }
 
 private:
-    std::unordered_map<const char*, Signature> m_Signatures{};
-    std::unordered_map<const char*, std::shared_ptr<System>> m_Systems{};
+    std::unordered_map<std::string, Signature> m_Signatures{};
+    std::unordered_map<std::string, std::shared_ptr<System>> m_Systems{};
 };
 
 #endif // SYSTEMMANAGER_H

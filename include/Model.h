@@ -10,17 +10,15 @@
 #include <vector>
 #include <string>
 
-#include "Mesh.h" // Assuming you have a Mesh class
+#include "Mesh.h"
 #include "Shader.h"
-#include "Renderable.h" // Include Renderable
+#include "Renderable.h"
 
-// Inherit from Renderable
 class Model : public Renderable {
 public:
     Model(const std::string& path);
     ~Model();
 
-    // Implement the Draw method from Renderable
     void Draw(Shader& shader) override;
 
 private:
@@ -31,7 +29,7 @@ private:
     void loadModel(const std::string& path);
     void processNode(aiNode* node, const aiScene* scene);
     Mesh processMesh(aiMesh* mesh, const aiScene* scene);
-    std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName);
+    std::vector<Texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, std::string typeName, bool sRGB = false);
 };
 
 #endif // MODEL_H

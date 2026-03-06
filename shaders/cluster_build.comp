@@ -1,0 +1,44 @@
+#version 460 core
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+struct ClusterAABB {
+    vec4 minPoint;
+    vec4 maxPoint;
+};
+
+layout(std430, binding = 5) buffer ClusterAABBBuffer {
+    ClusterAABB clusters[];
+};
+
+uniform float nearPlane;
+uniform float farPlane;
+uniform vec2 screenSize;
+
+const uint CLUSTER_X = 16;
+const uint CLUSTER_Y = 9;
+const uint CLUSTER_Z = 24;
+
+void main() {
+    uint clusterIdx = gl_WorkGroupID.x +
+                      gl_WorkGroupID.y * CLUSTER_X +
+                      gl_WorkGroupID.z * CLUSTER_X * CLUSTER_Y;
+
+    // Tile size in screen space
+    vec2 tileSize = screenSize / vec2(CLUSTER_X, CLUSTER_Y);
+
+    // Screen space bounds for this cluster
+    vec2 minScreen = vec2(gl_WorkGroupID.x, gl_WorkGroupID.y) * tileSize;
+    vec2 maxScreen = minScreen + tileSize;
+
+    // Convert to NDC [-1, 1]
+    vec2 minNDC = (minScreen / screenSize) * 2.0 - 1.0;
+    vec2 maxNDC = (maxScreen / screenSize) * 2.0 - 1.0;
+
+    // Depth slice (logarithmic)
+    float sliceNear = nearPlane * pow(farPlane / nearPlane, float(gl_WorkGroupID.z) / float(CLUSTER_Z));
+    float sliceFar  = nearPlane * pow(farPlane / nearPlane, float(gl_WorkGroupID.z + 1) / float(CLUSTER_Z));
+
+    // Store view-space AABB
+    clusters[clusterIdx].minPoint = vec4(minNDC, -sliceFar, 0.0);
+    clusters[clusterIdx].maxPoint = vec4(maxNDC, -sliceNear, 0.0);
+}

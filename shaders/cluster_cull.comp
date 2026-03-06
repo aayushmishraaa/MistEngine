@@ -1,0 +1,66 @@
+#version 460 core
+layout(local_size_x = 256) in;
+
+struct Light {
+    vec4 position;
+    vec4 direction;
+    vec4 color;
+    vec4 params;
+};
+
+struct ClusterAABB {
+    vec4 minPoint;
+    vec4 maxPoint;
+};
+
+layout(std430, binding = 2) buffer LightBuffer { Light lights[]; };
+layout(std430, binding = 3) buffer LightIndexBuffer { int lightIndices[]; };
+layout(std430, binding = 4) buffer LightGridBuffer { ivec2 lightGrid[]; };
+layout(std430, binding = 5) buffer ClusterAABBBuffer { ClusterAABB clusters[]; };
+
+uniform mat4 viewMatrix;
+uniform mat4 projectionMatrix;
+uniform int lightCount;
+
+const uint CLUSTER_X = 16;
+const uint CLUSTER_Y = 9;
+const uint CLUSTER_Z = 24;
+const uint MAX_LIGHTS_PER_CLUSTER = 128;
+
+bool sphereAABBIntersect(vec3 center, float radius, vec3 aabbMin, vec3 aabbMax) {
+    vec3 closest = clamp(center, aabbMin, aabbMax);
+    float dist = length(closest - center);
+    return dist < radius;
+}
+
+void main() {
+    uint clusterIdx = gl_GlobalInvocationID.x;
+    uint totalClusters = CLUSTER_X * CLUSTER_Y * CLUSTER_Z;
+    if (clusterIdx >= totalClusters) return;
+
+    ClusterAABB cluster = clusters[clusterIdx];
+    uint offset = clusterIdx * MAX_LIGHTS_PER_CLUSTER;
+    uint count = 0;
+
+    for (int i = 0; i < lightCount && count < MAX_LIGHTS_PER_CLUSTER; i++) {
+        Light light = lights[i];
+        int type = int(light.position.w);
+
+        if (type == 0) {
+            // Directional lights always affect all clusters
+            lightIndices[offset + count] = i;
+            count++;
+        } else {
+            // Point or spot light
+            vec3 lightPosView = (viewMatrix * vec4(light.position.xyz, 1.0)).xyz;
+            float range = light.params.x;
+
+            if (sphereAABBIntersect(lightPosView, range, cluster.minPoint.xyz, cluster.maxPoint.xyz)) {
+                lightIndices[offset + count] = i;
+                count++;
+            }
+        }
+    }
+
+    lightGrid[clusterIdx] = ivec2(offset, count);
+}

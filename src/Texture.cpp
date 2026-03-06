@@ -11,7 +11,8 @@ Texture::~Texture() {
     }
 }
 
-bool Texture::LoadFromFile(const std::string& path) {
+bool Texture::LoadFromFile(const std::string& path, bool sRGB) {
+    this->isSRGB = sRGB;
     stbi_set_flip_vertically_on_load(true);
     unsigned char* data = stbi_load(path.c_str(), &m_Width, &m_Height, &m_NrChannels, 0);
 
@@ -29,11 +30,20 @@ bool Texture::LoadFromFile(const std::string& path) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     GLenum format = GL_RGB;
-    if (m_NrChannels == 1) format = GL_RED;
-    else if (m_NrChannels == 3) format = GL_RGB;
-    else if (m_NrChannels == 4) format = GL_RGBA;
+    GLenum internalFormat = GL_RGB8;
 
-    glTexImage2D(GL_TEXTURE_2D, 0, format, m_Width, m_Height, 0, format, GL_UNSIGNED_BYTE, data);
+    if (m_NrChannels == 1) {
+        format = GL_RED;
+        internalFormat = GL_R8;
+    } else if (m_NrChannels == 3) {
+        format = GL_RGB;
+        internalFormat = sRGB ? GL_SRGB8 : GL_RGB8;
+    } else if (m_NrChannels == 4) {
+        format = GL_RGBA;
+        internalFormat = sRGB ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+    }
+
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, m_Width, m_Height, 0, format, GL_UNSIGNED_BYTE, data);
     glGenerateMipmap(GL_TEXTURE_2D);
 
     stbi_image_free(data);

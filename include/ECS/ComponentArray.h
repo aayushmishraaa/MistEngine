@@ -1,9 +1,10 @@
 #ifndef COMPONENTARRAY_H
 #define COMPONENTARRAY_H
 
-#include <array>
+#include <vector>
 #include <unordered_map>
 #include <stdexcept>
+#include <functional>
 #include "Entity.h"
 
 class IComponentArray {
@@ -19,6 +20,9 @@ public:
         size_t newIndex = m_Size;
         m_EntityToIndexMap[entity] = newIndex;
         m_IndexToEntityMap[newIndex] = entity;
+        if (newIndex >= m_ComponentArray.size()) {
+            m_ComponentArray.resize(newIndex + 1);
+        }
         m_ComponentArray[newIndex] = component;
         ++m_Size;
     }
@@ -51,14 +55,28 @@ public:
         return m_ComponentArray[it->second];
     }
 
+    bool HasData(Entity entity) const {
+        return m_EntityToIndexMap.find(entity) != m_EntityToIndexMap.end();
+    }
+
     void EntityDestroyed(Entity entity) override {
         if (m_EntityToIndexMap.find(entity) != m_EntityToIndexMap.end()) {
             RemoveData(entity);
         }
     }
 
+    // Cache-friendly iteration over all active components
+    template<typename Fn>
+    void ForEach(Fn&& fn) {
+        for (size_t i = 0; i < m_Size; i++) {
+            fn(m_IndexToEntityMap[i], m_ComponentArray[i]);
+        }
+    }
+
+    size_t Size() const { return m_Size; }
+
 private:
-    std::array<T, MAX_ENTITIES> m_ComponentArray;
+    std::vector<T> m_ComponentArray;
     std::unordered_map<Entity, size_t> m_EntityToIndexMap;
     std::unordered_map<size_t, Entity> m_IndexToEntityMap;
     size_t m_Size{};

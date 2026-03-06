@@ -1,0 +1,54 @@
+#version 460 core
+layout(local_size_x = 256) in;
+
+struct Particle {
+    vec4 position;
+    vec4 velocity;
+    vec4 color;
+    vec4 params;
+};
+
+layout(std430, binding = 0) buffer ParticleBuffer { Particle particles[]; };
+layout(std430, binding = 1) buffer AliveList { int aliveIndices[]; };
+layout(std430, binding = 2) buffer DeadList { int deadIndices[]; };
+layout(std430, binding = 3) buffer Counters { int aliveCount; int deadCount; int emitCount; int pad; };
+
+uniform float deltaTime;
+uniform vec3 gravity;
+
+void main() {
+    uint id = gl_GlobalInvocationID.x;
+    if (id >= particles.length()) return;
+
+    Particle p = particles[id];
+    float life = p.velocity.w;
+
+    if (life <= 0.0) return;
+
+    // Update life
+    life -= deltaTime;
+
+    if (life <= 0.0) {
+        // Kill particle
+        particles[id].velocity.w = 0.0;
+        int idx = atomicAdd(deadCount, 1);
+        deadIndices[idx] = int(id);
+        atomicAdd(aliveCount, -1);
+        return;
+    }
+
+    // Integrate
+    vec3 vel = p.velocity.xyz + gravity * deltaTime;
+    vec3 pos = p.position.xyz + vel * deltaTime;
+
+    // Life ratio for color/size interpolation
+    float maxLife = p.params.x;
+    float lifeRatio = life / maxLife;
+
+    // Fade out alpha
+    float alpha = smoothstep(0.0, 0.2, lifeRatio);
+
+    particles[id].position = vec4(pos, p.position.w * lifeRatio);
+    particles[id].velocity = vec4(vel, life);
+    particles[id].color.a = alpha;
+}

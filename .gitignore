@@ -7,6 +7,9 @@
 # MistEngine .gitignore
 # =========================
 
+# Build directory
+build/
+
 # AI Configuration Files (contain API keys - NEVER commit these)
 ai_config.json
 ai_config_*.json
@@ -39,7 +42,7 @@ scripts/
 mono_crash.*
 
 # Build results
-[Dd]ebug/
+/[Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
 [Rr]eleases/

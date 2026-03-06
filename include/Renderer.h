@@ -5,17 +5,28 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <vector>
+#include <memory>
 
 #include "Shader.h"
 #include "Camera.h"
 #include "Renderable.h"
-#include "PhysicsSystem.h" // Original physics system
+#include "PhysicsSystem.h"
 #include "ECS/Systems/RenderSystem.h"
-#include "ECS/Systems/ECSPhysicsSystem.h" // ECS physics system
+#include "ECS/Systems/ECSPhysicsSystem.h"
 
-class Scene; // Forward declaration
-struct PhysicsRenderable; // Forward declaration for the struct
-class UIManager; // Forward declaration
+// New subsystems
+#include "PostProcessStack.h"
+#include "ShadowSystem.h"
+#include "LightManager.h"
+#include "IBL.h"
+#include "SkyboxRenderer.h"
+#include "ParticleSystem.h"
+#include "UniformBufferObjects.h"
+#include "Debug/Profiler.h"
+
+class Scene;
+struct PhysicsRenderable;
+class UIManager;
 
 class Renderer {
 public:
@@ -33,16 +44,31 @@ public:
     GLFWwindow* GetWindow() const { return window; }
     float GetDeltaTime() const;
 
+    // New subsystem accessors
+    PostProcessStack& GetPostProcess() { return m_PostProcess; }
+    ShadowSystem& GetShadowSystem() { return m_ShadowSystem; }
+    LightManager& GetLightManager() { return m_LightManager; }
+    IBL& GetIBL() { return m_IBL; }
+    SkyboxRenderer& GetSkybox() { return m_Skybox; }
+    GPUParticleSystem& GetParticles() { return m_Particles; }
+    Profiler& GetProfiler() { return m_Profiler; }
+    UBOManager& GetUBOManager() { return m_UBOManager; }
+
+    float GetExposure() const { return m_Exposure; }
+    void SetExposure(float e) { m_Exposure = e; }
+
 private:
     unsigned int screenWidth;
     unsigned int screenHeight;
     GLFWwindow* window;
 
     // Shaders
-    Shader objectShader;
-    Shader depthShader;
+    Shader objectShader;    // Legacy Phong (kept as fallback)
+    Shader depthShader;     // Legacy depth (kept as fallback)
     Shader glowShader;
-    Shader skyboxShader;
+    Shader skyboxShader;    // Legacy skybox (kept as fallback)
+    Shader pbrShader;       // PBR Cook-Torrance
+    Shader skinnedPBRShader; // Skinned PBR for animated models
 
     // Camera
     Camera camera;
@@ -54,29 +80,40 @@ private:
     float deltaTime;
     float lastFrame;
 
-    // Lighting
+    // Lighting (legacy - kept for backward compat, migrating to LightManager)
     glm::vec3 lightDir;
     glm::vec3 lightColor;
 
-    // Shadow mapping
+    // Shadow mapping (legacy - kept as fallback)
     unsigned int shadowWidth;
     unsigned int shadowHeight;
     unsigned int depthMapFBO;
     unsigned int depthMap;
 
-    // Skybox
+    // Skybox (legacy)
     unsigned int skyboxVAO;
     unsigned int skyboxVBO;
 
-    // Basic shapes (VAOs, VBOs, EBOs are now managed by Mesh objects)
-    unsigned int planeVAO, planeVBO; // Still needed for cleanup in destructor
-    unsigned int cubeVAO, cubeVBO, cubeEBO; // Still needed for cleanup in destructor
+    unsigned int planeVAO, planeVBO;
+    unsigned int cubeVAO, cubeVBO, cubeEBO;
+
+    // New subsystems
+    PostProcessStack m_PostProcess;
+    ShadowSystem m_ShadowSystem;
+    LightManager m_LightManager;
+    IBL m_IBL;
+    SkyboxRenderer m_Skybox;
+    GPUParticleSystem m_Particles;
+    UBOManager m_UBOManager;
+    Profiler m_Profiler;
+    float m_Exposure = 1.0f;
+    bool m_UsePBR = true;
 
     void setupShadowMap();
     void setupSkybox();
     void renderSkybox();
 
-    // Callback functions (will be set as static and call member functions)
+    // Callback functions
     static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
     static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
     static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -85,4 +122,3 @@ private:
 void updateModelMatrixFromPhysics(btRigidBody* body, glm::mat4& modelMatrix);
 
 #endif // RENDERER_H
-
