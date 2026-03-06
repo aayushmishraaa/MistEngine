@@ -2,13 +2,13 @@
 
 // MistEngine Version Information
 #define MIST_ENGINE_VERSION_MAJOR 0
-#define MIST_ENGINE_VERSION_MINOR 3
+#define MIST_ENGINE_VERSION_MINOR 4
 #define MIST_ENGINE_VERSION_PATCH 0
 #define MIST_ENGINE_VERSION_BUILD "pre-alpha"
 
-#define MIST_ENGINE_VERSION_STRING "0.3.0-prealpha"
+#define MIST_ENGINE_VERSION_STRING "0.4.0-prealpha"
 #define MIST_ENGINE_NAME "MistEngine"
-#define MIST_ENGINE_DESCRIPTION "A Modern C++ Game Engine with AI Integration and FPS Game Mode"
+#define MIST_ENGINE_DESCRIPTION "A Modern C++17 OpenGL 4.6 Game Engine with PBR, HDR, Post-Processing, and AI Integration"
 
 // Build information
 #ifdef _DEBUG
@@ -50,6 +50,14 @@
 #define MIST_ENGINE_HAS_OPENGL 1
 #define MIST_ENGINE_HAS_IMGUI 1
 #define MIST_ENGINE_HAS_FPS_GAME 1
+#define MIST_ENGINE_HAS_PBR 1
+#define MIST_ENGINE_HAS_HDR 1
+#define MIST_ENGINE_HAS_POST_PROCESSING 1
+#define MIST_ENGINE_HAS_CSM_SHADOWS 1
+#define MIST_ENGINE_HAS_CLUSTERED_LIGHTING 1
+#define MIST_ENGINE_HAS_IBL 1
+#define MIST_ENGINE_HAS_GPU_PARTICLES 1
+#define MIST_ENGINE_HAS_SKELETAL_ANIMATION 1
 
 // Build date/time (set by build system)
 #ifndef MIST_ENGINE_BUILD_DATE
