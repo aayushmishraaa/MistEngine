@@ -174,23 +174,33 @@ bool GameExporter::CopyEngineFiles(const std::string& outputPath) {
     CreateDirectory(outputPath + "/textures");
     CreateDirectory(outputPath + "/assets");
     
-    // Copy shader files
-    if (!CopyFile("shaders/object.vert", outputPath + "/shaders/object.vert")) {
-        std::cout << "Warning: Could not copy vertex shader" << std::endl;
+    // Copy shader files (shaders are in the build root directory)
+    const char* shaderFiles[] = {
+        "pbr_vertex.glsl", "pbr_fragment.glsl",
+        "vertex.glsl", "fragment.glsl",
+        "depth_vertex.glsl", "depth_fragment.glsl",
+        "skybox_vertex.glsl", "skybox_fragment.glsl",
+        nullptr
+    };
+    for (int i = 0; shaderFiles[i]; ++i) {
+        if (!CopyFile(shaderFiles[i], outputPath + "/shaders/" + shaderFiles[i])) {
+            std::cout << "Warning: Could not copy shader " << shaderFiles[i] << std::endl;
+        }
     }
-    if (!CopyFile("shaders/object.frag", outputPath + "/shaders/object.frag")) {
-        std::cout << "Warning: Could not copy fragment shader" << std::endl;
+
+    // Copy the actual engine executable
+    bool copiedExe = CopyFile("MistEngine", outputPath + "/MistFPS");
+    if (copiedExe) {
+#ifndef _WIN32
+        chmod((outputPath + "/MistFPS").c_str(), 0755);
+#endif
+        std::cout << "Copied engine executable as MistFPS" << std::endl;
+    } else {
+        std::cout << "Warning: Could not copy engine executable, creating placeholder" << std::endl;
+        WriteTextFile(outputPath + "/MistFPS.txt", "# MistFPS Placeholder\n");
     }
-    
-    // Note: In a real implementation, you would copy the compiled executable
-    // For this demo, we create a placeholder
-    std::string placeholderContent = "# MistFPS Game Executable Placeholder\n";
-    placeholderContent += "# In a real export, this would be the compiled game executable\n";
-    placeholderContent += "# Built with " + std::string(MIST_ENGINE_NAME) + " " + std::string(MIST_ENGINE_VERSION_STRING) + "\n";
-    placeholderContent += "# Platform: " + std::string(MIST_ENGINE_PLATFORM) + "\n";
-    placeholderContent += "# Compiler: " + std::string(MIST_ENGINE_COMPILER) + "\n";
-    
-    return WriteTextFile(outputPath + "/MistFPS.exe.txt", placeholderContent);
+
+    return true;
 }
 
 bool GameExporter::CopyGameAssets(const std::string& outputPath) {
@@ -425,23 +435,25 @@ bool GameExporter::CompressAssets(const std::string& inputPath, const std::strin
 
 bool GameExporter::CreateDirectory(const std::string& path) {
     try {
+        // Recursively create parent directories first
+        for (size_t pos = 1; pos < path.size(); ++pos) {
+            if (path[pos] == '/') {
+                std::string parent = path.substr(0, pos);
 #ifdef _WIN32
-        if (_mkdir(path.c_str()) == 0) {
-            return true;
-        }
-        // Directory might already exist
-        struct _stat st;
-        if (_stat(path.c_str(), &st) == 0 && (st.st_mode & _S_IFDIR)) {
-            return true; // Directory already exists
-        }
+                _mkdir(parent.c_str());
 #else
-        if (mkdir(path.c_str(), 0777) == 0) {
-            return true;
+                mkdir(parent.c_str(), 0777);
+#endif
+            }
         }
+#ifdef _WIN32
+        _mkdir(path.c_str());
+        struct _stat st;
+        return (_stat(path.c_str(), &st) == 0 && (st.st_mode & _S_IFDIR));
+#else
+        mkdir(path.c_str(), 0777);
         struct stat st;
-        if (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
-            return true; // Directory already exists
-        }
+        return (stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode));
 #endif
         return false;
     } catch (const std::exception& e) {

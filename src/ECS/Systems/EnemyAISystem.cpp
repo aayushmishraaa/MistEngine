@@ -21,13 +21,7 @@ extern void generateCubeMesh(std::vector<Vertex>& vertices, std::vector<unsigned
 extern Coordinator gCoordinator;
 extern PhysicsSystem* g_physicsSystem;
 
-// We need access to RenderComponent and Mesh, but need to be careful about OpenGL headers
-// Include them at the function level to minimize conflicts
-class Mesh;
-struct RenderComponent {
-    void* renderable;
-    bool visible;
-};
+// RenderComponent is handled separately by RenderSystem; AI only needs Transform+Enemy
 
 EnemyAISystem::EnemyAISystem() 
     : m_playerSystem(nullptr)

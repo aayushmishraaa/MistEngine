@@ -281,8 +281,8 @@ int main() {
         // Update input system
         inputManager.Update(deltaTime);
 
-        // F key — focus camera on selected entity (Godot-like)
-        {
+        // F key — focus camera on selected entity (Godot-like) — disabled during gameplay
+        if (!fpsGameManager.IsGameActive()) {
             static bool fWasPressed = false;
             bool fIsPressed = glfwGetKey(renderer.GetWindow(), GLFW_KEY_F) == GLFW_PRESS;
             if (fIsPressed && !fWasPressed && uiManager.HasSelectedEntity()) {

@@ -3,6 +3,7 @@
 #include "FPSGameManager.h"
 #include "ECS/Systems/EnemyAISystem.h"
 #include "ECS/Coordinator.h"
+#include "Editor/GameHUD.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
@@ -97,6 +98,16 @@ UIManager::UIManager()
 
 UIManager::~UIManager() {
     Shutdown();
+}
+
+void UIManager::SetFPSGameManager(FPSGameManager* fpsManager) {
+    m_FPSGameManager = fpsManager;
+    if (m_EditorState) {
+        m_EditorState->SetSnapshotCallbacks(
+            [this]() { if (m_FPSGameManager) m_FPSGameManager->StartNewGame(); },
+            [this]() { if (m_FPSGameManager) m_FPSGameManager->StopGame(); }
+        );
+    }
 }
 
 bool UIManager::Initialize(GLFWwindow* window) {
@@ -231,8 +242,15 @@ void UIManager::NewFrame() {
     
     if (isFPSGameActive) {
         // In FPS game mode - show FPS HUD and possibly game over screen
-        DrawFPSGameHUD();
-        DrawCrosshair();
+        // Live HUD from FPSGameManager
+        auto hud = m_FPSGameManager->GetHUDData();
+        GameHUD::HUDState hudState;
+        hudState.health = (int)hud.health; hudState.maxHealth = (int)hud.maxHealth;
+        hudState.ammo = hud.ammo; hudState.maxAmmo = hud.maxAmmo; hudState.reserveAmmo = hud.reserveAmmo;
+        hudState.score = hud.score; hudState.weaponName = hud.weaponName;
+        hudState.wave = hud.currentRoom + 1; hudState.isReloading = hud.isReloading;
+        hudState.reloadProgress = hud.reloadProgress;
+        GameHUD::Render(hudState, ImGui::GetIO().DeltaTime);
 
         if (isPlayerDead) {
             DrawGameOverScreen();
@@ -1957,13 +1975,19 @@ void UIManager::DrawToolbar() {
 
     ImGui::PushStyleColor(ImGuiCol_Button, playState == EditorPlayState::Playing
         ? ImVec4(0.2f, 0.6f, 0.2f, 1.0f) : ImVec4(0.24f, 0.26f, 0.30f, 1.0f));
-    if (ImGui::Button("Play", ImVec2(0, 24)) && m_EditorState) m_EditorState->Play();
+    if (ImGui::Button("Play", ImVec2(0, 24)) && m_EditorState) {
+        if (playState == EditorPlayState::Paused && m_FPSGameManager) m_FPSGameManager->ResumeGame();
+        m_EditorState->Play();
+    }
     ImGui::PopStyleColor();
 
     ImGui::SameLine();
     ImGui::PushStyleColor(ImGuiCol_Button, playState == EditorPlayState::Paused
         ? ImVec4(0.6f, 0.6f, 0.2f, 1.0f) : ImVec4(0.24f, 0.26f, 0.30f, 1.0f));
-    if (ImGui::Button("Pause", ImVec2(0, 24)) && m_EditorState) m_EditorState->Pause();
+    if (ImGui::Button("Pause", ImVec2(0, 24)) && m_EditorState) {
+        m_EditorState->Pause();
+        if (m_FPSGameManager) m_FPSGameManager->PauseGame();
+    }
     ImGui::PopStyleColor();
 
     ImGui::SameLine();
@@ -2148,8 +2172,6 @@ void UIManager::DrawEditorLayout() {
         ImGui::End();
     }
 
-    // FPS Game launcher (floating)
-    DrawFPSGameLauncher();
 }
 
 // --- Scene Serialization ---

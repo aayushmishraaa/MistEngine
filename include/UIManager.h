@@ -83,7 +83,7 @@ public:
     void SetRenderer(Renderer* renderer) { m_Renderer = renderer; }
 
     // FPS Game Manager reference
-    void SetFPSGameManager(FPSGameManager* fpsManager) { m_FPSGameManager = fpsManager; }
+    void SetFPSGameManager(FPSGameManager* fpsManager);
 
     // Public methods for FPS game to create objects
     void CreateGameCube() { CreateCube(); }
