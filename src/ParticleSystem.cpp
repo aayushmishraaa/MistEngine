@@ -101,7 +101,7 @@ void GPUParticleSystem::Update(float dt, const glm::vec3& cameraPos) {
 }
 
 void GPUParticleSystem::Render(const glm::mat4& view, const glm::mat4& projection, GLuint depthTexture) {
-    if (!enabled) return;
+    if (!enabled || m_Emitters.empty()) return;
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE); // Additive blending for fire

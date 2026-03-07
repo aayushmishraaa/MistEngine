@@ -57,6 +57,9 @@ public:
     float GetExposure() const { return m_Exposure; }
     void SetExposure(float e) { m_Exposure = e; }
 
+    // Previous frame data for TAA motion vectors
+    glm::mat4 GetPrevViewProjection() const { return m_PrevViewProjection; }
+
 private:
     unsigned int screenWidth;
     unsigned int screenHeight;
@@ -108,6 +111,10 @@ private:
     Profiler m_Profiler;
     float m_Exposure = 1.0f;
     bool m_UsePBR = true;
+    bool m_ShowEditorGrid = true;
+
+    // TAA previous frame state
+    glm::mat4 m_PrevViewProjection = glm::mat4(1.0f);
 
     void setupShadowMap();
     void setupSkybox();

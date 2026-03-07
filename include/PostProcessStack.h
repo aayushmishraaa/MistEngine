@@ -5,6 +5,8 @@
 #include "Framebuffer.h"
 #include "BloomRenderer.h"
 #include "SSAORenderer.h"
+#include "TAARenderer.h"
+#include "SSGIRenderer.h"
 #include "Shader.h"
 #include <glm/glm.hpp>
 
@@ -22,13 +24,18 @@ public:
 
     GLuint GetHDRTexture() const { return m_HDRFramebuffer.GetColorTexture(); }
     GLuint GetDepthTexture() const { return m_HDRFramebuffer.GetDepthTexture(); }
+    GLuint GetFullscreenVAO() const { return m_FullscreenVAO; }
 
     BloomRenderer bloom;
     SSAORenderer ssao;
+    TAARenderer taa;
+    SSGIRenderer ssgi;
 
     bool enableBloom = true;
     bool enableSSAO = true;
     bool enableFXAA = true;
+    bool enableTAA = false;   // Off by default, user enables
+    bool enableSSGI = false;  // Off by default, user enables
 
 private:
     Framebuffer m_HDRFramebuffer;

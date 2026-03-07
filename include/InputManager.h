@@ -81,6 +81,9 @@ private:
     double m_LastMouseX, m_LastMouseY;
     bool m_FirstMouse;
     bool m_RightMousePressed;
+    bool m_MiddleMousePressed = false;
+    double m_MiddleLastX = 0.0, m_MiddleLastY = 0.0;
+    bool m_MiddleFirstMouse = true;
     glm::vec2 m_MouseDelta; // Mouse movement delta for current frame
     
     // Input state tracking

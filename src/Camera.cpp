@@ -17,7 +17,7 @@ glm::mat4 Camera::GetViewMatrix() const {
 
 // Returns the projection matrix
 glm::mat4 Camera::GetProjectionMatrix(float aspectRatio) const {
-    return glm::perspective(glm::radians(Zoom), aspectRatio, 0.1f, 100.0f);
+    return glm::perspective(glm::radians(Zoom), aspectRatio, 0.1f, 500.0f);
 }
 
 // Processes keyboard input
@@ -58,11 +58,59 @@ void Camera::ProcessMouseMovement(float xoffset, float yoffset, bool constrainPi
 
 // Processes mouse scroll
 void Camera::ProcessMouseScroll(float yoffset) {
+    if (OrbitMode) {
+        ZoomTowardFocal(yoffset);
+        return;
+    }
     Zoom -= yoffset;
     if (Zoom < 1.0f)
         Zoom = 1.0f;
     if (Zoom > 45.0f)
         Zoom = 45.0f;
+}
+
+void Camera::SetOrbitMode(bool enabled) {
+    OrbitMode = enabled;
+    if (enabled) {
+        // Calculate focal point from current position + front * distance
+        FocalPoint = Position + Front * OrbitDistance;
+    }
+}
+
+void Camera::OrbitAround(float yawDelta, float pitchDelta) {
+    Yaw += yawDelta;
+    Pitch += pitchDelta;
+
+    if (Pitch > 89.0f) Pitch = 89.0f;
+    if (Pitch < -89.0f) Pitch = -89.0f;
+
+    updateCameraVectors();
+
+    // Reposition camera at OrbitDistance behind the focal point
+    Position = FocalPoint - Front * OrbitDistance;
+}
+
+void Camera::Pan(float rightDelta, float upDelta) {
+    glm::vec3 offset = Right * rightDelta + Up * upDelta;
+    Position += offset;
+    FocalPoint += offset;
+}
+
+void Camera::ZoomTowardFocal(float delta) {
+    OrbitDistance -= delta;
+    if (OrbitDistance < 0.5f) OrbitDistance = 0.5f;
+    if (OrbitDistance > 200.0f) OrbitDistance = 200.0f;
+
+    Position = FocalPoint - Front * OrbitDistance;
+}
+
+void Camera::FocusOn(const glm::vec3& target, float distance) {
+    FocalPoint = target;
+    OrbitDistance = distance;
+    OrbitMode = true;
+
+    // Keep current view direction, just reposition
+    Position = FocalPoint - Front * OrbitDistance;
 }
 
 // Updates camera vectors based on Euler angles

@@ -18,10 +18,17 @@ void PostProcessStack::Init(int width, int height) {
 
     bloom.Init(width, height);
     ssao.Init(width, height);
+    taa.Init(width, height);
+    ssgi.Init(width, height);
+
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        LOG_ERROR("GL error after TAA/SSGI init: 0x", std::hex, err);
+    }
 
     setupFullscreenTriangle();
 
-    LOG_INFO("PostProcessStack initialized: ", width, "x", height);
+    LOG_INFO("PostProcessStack initialized: ", width, "x", height, " (TAA + SSGI ready)");
 }
 
 void PostProcessStack::Resize(int width, int height) {
@@ -32,6 +39,8 @@ void PostProcessStack::Resize(int width, int height) {
     m_IntermediateFBO.Resize(width, height);
     bloom.Resize(width, height);
     ssao.Resize(width, height);
+    taa.Resize(width, height);
+    ssgi.Resize(width, height);
 }
 
 void PostProcessStack::setupFullscreenTriangle() {
@@ -58,7 +67,16 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
         ssao.Render(m_HDRFramebuffer.GetDepthTexture(), projection, view);
     }
 
-    // 2. Bloom
+    // 2. SSGI (screen-space global illumination)
+    if (enableSSGI && ssgi.enabled) {
+        ssgi.Render(m_HDRFramebuffer.GetDepthTexture(), currentTexture,
+                    projection, view, m_FullscreenVAO);
+        // SSGI output is available via ssgi.GetGITexture() for compositing in PBR shader
+        glBindVertexArray(m_FullscreenVAO);
+        glDisable(GL_DEPTH_TEST);
+    }
+
+    // 3. Bloom
     if (enableBloom && bloom.enabled) {
         bloom.RenderBloom(currentTexture, bloom.threshold, bloom.intensity);
 
@@ -82,8 +100,18 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
         currentTexture = m_IntermediateFBO.GetColorTexture();
     }
 
-    // 3. Tone mapping + gamma → screen (or intermediate if FXAA)
-    if (enableFXAA) {
+    // 4. TAA resolve (before tone mapping, in linear HDR space)
+    if (enableTAA && taa.enabled) {
+        taa.Resolve(currentTexture, m_FullscreenVAO);
+        currentTexture = taa.GetResolvedTexture();
+        taa.NextFrame();
+        glBindVertexArray(m_FullscreenVAO);
+        glDisable(GL_DEPTH_TEST);
+    }
+
+    // 5. Tone mapping + gamma -> screen (or intermediate if FXAA)
+    bool applyFXAA = enableFXAA && !enableTAA; // TAA replaces FXAA when active
+    if (applyFXAA) {
         // Tone map to intermediate
         m_IntermediateFBO.Bind();
         glClear(GL_COLOR_BUFFER_BIT);
@@ -100,10 +128,10 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     m_ToneMapShader.setFloat("exposure", exposure);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
-    if (enableFXAA) {
+    if (applyFXAA) {
         m_IntermediateFBO.Unbind();
 
-        // 4. FXAA → screen
+        // 6. FXAA -> screen
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, m_Width, m_Height);
         glClear(GL_COLOR_BUFFER_BIT);

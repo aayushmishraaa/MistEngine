@@ -93,6 +93,7 @@ bool Engine::Initialize(unsigned int width, unsigned int height) {
     m_UIManager->SetScene(m_Scene.get());
     m_UIManager->SetCoordinator(&gCoordinator);
     m_UIManager->SetFPSGameManager(m_FPSGameManager.get());
+    m_UIManager->SetRenderer(m_Renderer.get());
     m_ModuleManager->SetScene(m_Scene.get());
 
     // Register with ServiceLocator

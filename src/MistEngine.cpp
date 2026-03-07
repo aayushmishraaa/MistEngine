@@ -188,8 +188,45 @@ int main() {
     Scene scene;
     uiManager.SetScene(&scene);
     uiManager.SetCoordinator(&gCoordinator);
-    uiManager.SetFPSGameManager(&fpsGameManager);  // NEW: Set FPS Game Manager reference
+    uiManager.SetFPSGameManager(&fpsGameManager);
+    uiManager.SetRenderer(&renderer);
     moduleManager.SetScene(&scene);
+
+    // Default editor scene — ground plane + cube so viewport is never empty
+    {
+        // Ground plane
+        Entity ground = gCoordinator.CreateEntity();
+        TransformComponent gt;
+        gt.position = {0.0f, -0.01f, 0.0f};
+        gt.scale = {20.0f, 1.0f, 20.0f};
+        gCoordinator.AddComponent(ground, gt);
+        std::vector<Vertex> gv; std::vector<unsigned int> gi;
+        generatePlaneMesh(gv, gi);
+        auto* gmesh = new Mesh(gv, gi, {});
+        RenderComponent gr; gr.renderable = gmesh; gr.visible = true;
+        gCoordinator.AddComponent(ground, gr);
+        uiManager.SetEntityName(ground, "Ground");
+
+        // Default cube
+        Entity cube = gCoordinator.CreateEntity();
+        TransformComponent ct;
+        ct.position = {0.0f, 0.5f, 0.0f};
+        ct.scale = {1.0f, 1.0f, 1.0f};
+        gCoordinator.AddComponent(cube, ct);
+        std::vector<Vertex> cv; std::vector<unsigned int> ci;
+        generateCubeMesh(cv, ci);
+        auto* cmesh = new Mesh(cv, ci, {});
+        RenderComponent cr; cr.renderable = cmesh; cr.visible = true;
+        gCoordinator.AddComponent(cube, cr);
+        uiManager.SetEntityName(cube, "Default Cube");
+    }
+
+    // Position camera to see default scene
+    renderer.GetCamera().Position = glm::vec3(5.0f, 3.0f, 5.0f);
+    renderer.GetCamera().Yaw = -135.0f;
+    renderer.GetCamera().Pitch = -20.0f;
+    renderer.GetCamera().updateCameraVectors();
+    renderer.GetCamera().SetOrbitMode(true);
 
     std::cout << "=== Engine Initialization Complete ===" << std::endl;
     std::cout << "Ready! Press SPACE to start FPS game, or use Scene Editor (F3)" << std::endl;
@@ -243,6 +280,20 @@ int main() {
 
         // Update input system
         inputManager.Update(deltaTime);
+
+        // F key — focus camera on selected entity (Godot-like)
+        {
+            static bool fWasPressed = false;
+            bool fIsPressed = glfwGetKey(renderer.GetWindow(), GLFW_KEY_F) == GLFW_PRESS;
+            if (fIsPressed && !fWasPressed && uiManager.HasSelectedEntity()) {
+                ImGuiIO& io = ImGui::GetIO();
+                if (!io.WantCaptureKeyboard) {
+                    auto& t = gCoordinator.GetComponent<TransformComponent>(uiManager.GetSelectedEntity());
+                    renderer.GetCamera().FocusOn(t.position);
+                }
+            }
+            fWasPressed = fIsPressed;
+        }
 
         // Legacy physics input (for backwards compatibility) - only if FPS game is not active
         if (!scene.getPhysicsRenderables().empty() && !fpsGameManager.IsGameActive()) {

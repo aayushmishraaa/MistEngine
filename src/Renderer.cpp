@@ -69,6 +69,22 @@ bool Renderer::Init() {
         return false;
     }
 
+    // Enable OpenGL debug output
+    if (GLAD_GL_VERSION_4_3) {
+        glEnable(GL_DEBUG_OUTPUT);
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+        glDebugMessageCallback([](GLenum source, GLenum type, GLuint id, GLenum severity,
+                                  GLsizei length, const GLchar* message, const void* userParam) {
+            if (severity == GL_DEBUG_SEVERITY_NOTIFICATION) return;
+            const char* sevStr = (severity == GL_DEBUG_SEVERITY_HIGH) ? "HIGH" :
+                                 (severity == GL_DEBUG_SEVERITY_MEDIUM) ? "MEDIUM" : "LOW";
+            LOG_WARN("GL[", sevStr, "] id=", id, ": ", message);
+        }, nullptr);
+        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_NOTIFICATION,
+                              0, nullptr, GL_FALSE);
+        LOG_INFO("OpenGL debug callback enabled");
+    }
+
     LOG_INFO("OpenGL Version: ", (const char*)glGetString(GL_VERSION));
     LOG_INFO("GLSL Version: ", (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
     LOG_INFO("Renderer: ", (const char*)glGetString(GL_RENDERER));
@@ -95,6 +111,12 @@ bool Renderer::Init() {
     pbrShader = Shader("shaders/pbr_vertex.glsl", "shaders/pbr_fragment.glsl");
     skinnedPBRShader = Shader("shaders/skinned_pbr.vert", "shaders/pbr_fragment.glsl");
 
+    // Validate critical shaders
+    if (pbrShader.ID == 0) LOG_ERROR("CRITICAL: PBR shader failed!");
+    if (skyboxShader.ID == 0) LOG_ERROR("CRITICAL: Skybox shader failed!");
+    if (objectShader.ID == 0) LOG_ERROR("CRITICAL: Object shader failed!");
+    if (depthShader.ID == 0) LOG_ERROR("CRITICAL: Depth shader failed!");
+
     // Legacy shadow map setup (fallback)
     setupShadowMap();
     setupSkybox();
@@ -114,6 +136,11 @@ bool Renderer::Init() {
     m_LightManager.AddLight(dirLight);
 
     m_PostProcess.Init(screenWidth, screenHeight);
+
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        LOG_ERROR("GL error after PostProcess init: 0x", std::hex, err);
+    }
 
     m_Skybox.Init();
 
@@ -138,7 +165,16 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
         (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
     glm::mat4 view = camera.GetViewMatrix();
-    glm::mat4 viewProjection = projection * view;
+
+    // TAA: Apply sub-pixel jitter to projection matrix
+    glm::mat4 jitteredProjection = projection;
+    if (m_PostProcess.enableTAA && m_PostProcess.taa.enabled) {
+        glm::vec2 jitter = m_PostProcess.taa.GetJitter();
+        jitteredProjection[2][0] += jitter.x / (float)screenWidth * 2.0f;
+        jitteredProjection[2][1] += jitter.y / (float)screenHeight * 2.0f;
+    }
+
+    glm::mat4 viewProjection = jitteredProjection * view;
 
     // Update UBOs
     PerFrameUBO perFrame;
@@ -280,6 +316,17 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     glDisable(GL_BLEND);
     m_Profiler.EndGPUSection("Particles");
 
+    // === EDITOR GRID ===
+    if (m_ShowEditorGrid) {
+        float gridSize = 20.0f, gridStep = 1.0f;
+        glm::vec3 gridColor(0.3f, 0.3f, 0.3f);
+        glm::vec3 axisX(0.6f, 0.2f, 0.2f), axisZ(0.2f, 0.2f, 0.6f);
+        for (float i = -gridSize; i <= gridSize; i += gridStep) {
+            DebugDraw::Line({i, 0, -gridSize}, {i, 0, gridSize}, i == 0 ? axisZ : gridColor);
+            DebugDraw::Line({-gridSize, 0, i}, {gridSize, 0, i}, i == 0 ? axisX : gridColor);
+        }
+    }
+
     // === DEBUG DRAW ===
     DebugDraw::Flush(viewProjection);
 
@@ -293,9 +340,14 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     // === UI RENDERING (after tone mapping, directly to screen) ===
     if (uiManager) {
+        // Provide the HDR texture to the scene view panel
+        uiManager->SetViewportTexture(m_PostProcess.GetHDRTexture(), screenWidth, screenHeight);
         uiManager->NewFrame();
         uiManager->Render();
     }
+
+    // Store previous frame's view-projection for TAA motion vectors
+    m_PrevViewProjection = viewProjection;
 
     m_Profiler.EndFrame();
 

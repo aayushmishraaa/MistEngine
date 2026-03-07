@@ -380,11 +380,63 @@ void InputManager::UpdateMouseStatesFromPolling() {
     // Get current mouse button states using direct polling
     bool rightMousePressed = (glfwGetMouseButton(m_Window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS);
     bool leftMousePressed = (glfwGetMouseButton(m_Window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
-    
+    bool middleMousePressed = (glfwGetMouseButton(m_Window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS);
+
     // Update mouse button states
     m_MouseStates[GLFW_MOUSE_BUTTON_RIGHT] = rightMousePressed;
     m_MouseStates[GLFW_MOUSE_BUTTON_LEFT] = leftMousePressed;
-    
+    m_MouseStates[GLFW_MOUSE_BUTTON_MIDDLE] = middleMousePressed;
+
+    // Handle middle mouse button for orbit/pan in Scene Editor mode
+    if (m_SceneEditorMode && m_Camera) {
+        // Check if ImGui wants the mouse
+        ImGuiIO& io = ImGui::GetIO();
+        if (!io.WantCaptureMouse) {
+            if (middleMousePressed && !m_MiddleMousePressed) {
+                // Middle mouse just pressed
+                m_MiddleMousePressed = true;
+                m_MiddleFirstMouse = true;
+                double xpos, ypos;
+                glfwGetCursorPos(m_Window, &xpos, &ypos);
+                m_MiddleLastX = xpos;
+                m_MiddleLastY = ypos;
+            } else if (!middleMousePressed && m_MiddleMousePressed) {
+                // Middle mouse released
+                m_MiddleMousePressed = false;
+                m_MiddleFirstMouse = true;
+            }
+
+            if (m_MiddleMousePressed) {
+                double xpos, ypos;
+                glfwGetCursorPos(m_Window, &xpos, &ypos);
+
+                if (m_MiddleFirstMouse) {
+                    m_MiddleLastX = xpos;
+                    m_MiddleLastY = ypos;
+                    m_MiddleFirstMouse = false;
+                } else {
+                    float dx = static_cast<float>(xpos - m_MiddleLastX);
+                    float dy = static_cast<float>(ypos - m_MiddleLastY);
+                    m_MiddleLastX = xpos;
+                    m_MiddleLastY = ypos;
+
+                    bool shiftHeld = (glfwGetKey(m_Window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+                                      glfwGetKey(m_Window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS);
+
+                    if (shiftHeld) {
+                        // Shift + middle mouse = Pan
+                        float panSpeed = 0.01f * m_Camera->OrbitDistance;
+                        m_Camera->Pan(-dx * panSpeed, dy * panSpeed);
+                    } else {
+                        // Middle mouse = Orbit
+                        float sensitivity = 0.3f;
+                        m_Camera->OrbitAround(dx * sensitivity, -dy * sensitivity);
+                    }
+                }
+            }
+        }
+    }
+
     // Handle right mouse button for camera look control in Scene Editor mode
     if (m_SceneEditorMode) {
         if (rightMousePressed && !m_RightMousePressed) {

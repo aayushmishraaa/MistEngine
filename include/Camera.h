@@ -42,8 +42,19 @@ public:
     float MouseSensitivity;
     float Zoom;
 
-private:
+    // Orbit camera state (Godot-like editor navigation)
+    glm::vec3 FocalPoint = glm::vec3(0.0f);
+    float OrbitDistance = 10.0f;
+    bool OrbitMode = false;
+
     void updateCameraVectors();
+    void OrbitAround(float yawDelta, float pitchDelta);
+    void Pan(float rightDelta, float upDelta);
+    void ZoomTowardFocal(float delta);
+    void FocusOn(const glm::vec3& target, float distance = 5.0f);
+    void SetOrbitMode(bool enabled);
+
+private:
 };
 
 #endif
