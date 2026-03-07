@@ -241,8 +241,9 @@ void UIManager::NewFrame() {
     }
     
     if (isFPSGameActive) {
-        // In FPS game mode - show FPS HUD and possibly game over screen
-        // Live HUD from FPSGameManager
+        // In FPS game mode - show toolbar (for Stop button) + HUD
+        DrawToolbar();
+
         auto hud = m_FPSGameManager->GetHUDData();
         GameHUD::HUDState hudState;
         hudState.health = (int)hud.health; hudState.maxHealth = (int)hud.maxHealth;

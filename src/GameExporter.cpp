@@ -1,12 +1,16 @@
 #include "GameExporter.h"
-#include "Version.h"  // Add Version.h include
+#include "Version.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <cmath>
+#include <cstring>
+#include <vector>
+#include <cstdint>
 #ifdef _WIN32
-#include <direct.h>  // For _mkdir on Windows
+#include <direct.h>
 #endif
-#include <sys/stat.h>  // For checking if directory exists
+#include <sys/stat.h>
 
 GameExporter::GameExporter()
     : m_isExporting(false)
@@ -203,29 +207,178 @@ bool GameExporter::CopyEngineFiles(const std::string& outputPath) {
     return true;
 }
 
+// --- Procedural asset generation helpers ---
+
+static void WriteBMP(const std::string& path, int w, int h, const std::vector<uint8_t>& pixels) {
+    int rowSize = (w * 3 + 3) & ~3; // rows padded to 4-byte boundary
+    int dataSize = rowSize * h;
+    int fileSize = 54 + dataSize;
+
+    uint8_t header[54] = {};
+    header[0] = 'B'; header[1] = 'M';
+    std::memcpy(&header[2], &fileSize, 4);
+    int offset = 54; std::memcpy(&header[10], &offset, 4);
+    int infoSize = 40; std::memcpy(&header[14], &infoSize, 4);
+    std::memcpy(&header[18], &w, 4);
+    std::memcpy(&header[22], &h, 4);
+    int16_t planes = 1; std::memcpy(&header[26], &planes, 2);
+    int16_t bpp = 24; std::memcpy(&header[28], &bpp, 2);
+    std::memcpy(&header[34], &dataSize, 4);
+
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<char*>(header), 54);
+    std::vector<uint8_t> row(rowSize, 0);
+    for (int y = h - 1; y >= 0; --y) { // BMP is bottom-up
+        for (int x = 0; x < w; ++x) {
+            int si = (y * w + x) * 3;
+            row[x * 3 + 0] = pixels[si + 2]; // B
+            row[x * 3 + 1] = pixels[si + 1]; // G
+            row[x * 3 + 2] = pixels[si + 0]; // R
+        }
+        f.write(reinterpret_cast<char*>(row.data()), rowSize);
+    }
+}
+
+static void GenerateTextureBMP(const std::string& path, int w, int h,
+                                uint8_t r, uint8_t g, uint8_t b, bool checkerboard) {
+    std::vector<uint8_t> pixels(w * h * 3);
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            int i = (y * w + x) * 3;
+            if (checkerboard && ((x / 8 + y / 8) % 2 == 0)) {
+                pixels[i]     = std::min(255, r + 40);
+                pixels[i + 1] = std::min(255, g + 40);
+                pixels[i + 2] = std::min(255, b + 40);
+            } else {
+                pixels[i] = r; pixels[i + 1] = g; pixels[i + 2] = b;
+            }
+        }
+    }
+    WriteBMP(path, w, h, pixels);
+}
+
+static void WriteWAV(const std::string& path, const std::vector<int16_t>& samples, int sampleRate) {
+    int dataSize = (int)samples.size() * 2;
+    int fileSize = 36 + dataSize;
+    int16_t channels = 1, bitsPerSample = 16;
+    int byteRate = sampleRate * channels * bitsPerSample / 8;
+    int16_t blockAlign = channels * bitsPerSample / 8;
+
+    std::ofstream f(path, std::ios::binary);
+    f.write("RIFF", 4);
+    f.write(reinterpret_cast<char*>(&fileSize), 4);
+    f.write("WAVE", 4);
+    f.write("fmt ", 4);
+    int fmtSize = 16; f.write(reinterpret_cast<char*>(&fmtSize), 4);
+    int16_t audioFmt = 1; f.write(reinterpret_cast<char*>(&audioFmt), 2);
+    f.write(reinterpret_cast<char*>(&channels), 2);
+    f.write(reinterpret_cast<char*>(&sampleRate), 4);
+    f.write(reinterpret_cast<char*>(&byteRate), 4);
+    f.write(reinterpret_cast<char*>(&blockAlign), 2);
+    f.write(reinterpret_cast<char*>(&bitsPerSample), 2);
+    f.write("data", 4);
+    f.write(reinterpret_cast<char*>(&dataSize), 4);
+    f.write(reinterpret_cast<const char*>(samples.data()), dataSize);
+}
+
+static void GenerateGunshot(const std::string& path) {
+    const int rate = 22050;
+    const int len = rate / 5; // 0.2 seconds
+    std::vector<int16_t> samples(len);
+    for (int i = 0; i < len; ++i) {
+        float t = (float)i / rate;
+        float env = std::exp(-t * 30.0f); // fast decay
+        float noise = ((float)(rand() % 32768) / 16384.0f - 1.0f);
+        float low = std::sin(2.0f * 3.14159f * 80.0f * t); // bass thump
+        samples[i] = (int16_t)((noise * 0.7f + low * 0.3f) * env * 28000);
+    }
+    WriteWAV(path, samples, rate);
+}
+
+static void GenerateReload(const std::string& path) {
+    const int rate = 22050;
+    const int len = rate / 3; // 0.33 seconds
+    std::vector<int16_t> samples(len);
+    for (int i = 0; i < len; ++i) {
+        float t = (float)i / rate;
+        float click1 = (t < 0.02f) ? std::sin(2.0f * 3.14159f * 2000.0f * t) * (1.0f - t / 0.02f) : 0.0f;
+        float click2 = (t > 0.15f && t < 0.18f) ? std::sin(2.0f * 3.14159f * 1500.0f * t) * (1.0f - (t - 0.15f) / 0.03f) : 0.0f;
+        float slide = (t > 0.05f && t < 0.13f) ? ((float)(rand() % 32768) / 16384.0f - 1.0f) * 0.2f * (1.0f - (t - 0.05f) / 0.08f) : 0.0f;
+        samples[i] = (int16_t)((click1 + click2 + slide) * 20000);
+    }
+    WriteWAV(path, samples, rate);
+}
+
+static void GenerateEnemyDeath(const std::string& path) {
+    const int rate = 22050;
+    const int len = rate / 2; // 0.5 seconds
+    std::vector<int16_t> samples(len);
+    for (int i = 0; i < len; ++i) {
+        float t = (float)i / rate;
+        float env = std::exp(-t * 6.0f);
+        float freq = 400.0f - 300.0f * t; // descending tone
+        float tone = std::sin(2.0f * 3.14159f * freq * t);
+        float noise = ((float)(rand() % 32768) / 16384.0f - 1.0f) * 0.3f;
+        samples[i] = (int16_t)((tone * 0.6f + noise * 0.4f) * env * 22000);
+    }
+    WriteWAV(path, samples, rate);
+}
+
+static void GenerateOBJ(const std::string& path, const std::string& name, float sx, float sy, float sz) {
+    std::ostringstream obj;
+    obj << "# " << name << " - Generated by MistEngine Exporter\n";
+    obj << "o " << name << "\n";
+    // Simple box mesh
+    float hx = sx * 0.5f, hy = sy * 0.5f, hz = sz * 0.5f;
+    obj << "v " << -hx << " " << -hy << " " <<  hz << "\n";
+    obj << "v " <<  hx << " " << -hy << " " <<  hz << "\n";
+    obj << "v " <<  hx << " " <<  hy << " " <<  hz << "\n";
+    obj << "v " << -hx << " " <<  hy << " " <<  hz << "\n";
+    obj << "v " << -hx << " " << -hy << " " << -hz << "\n";
+    obj << "v " <<  hx << " " << -hy << " " << -hz << "\n";
+    obj << "v " <<  hx << " " <<  hy << " " << -hz << "\n";
+    obj << "v " << -hx << " " <<  hy << " " << -hz << "\n";
+    obj << "vn 0 0 1\nvn 0 0 -1\nvn -1 0 0\nvn 1 0 0\nvn 0 1 0\nvn 0 -1 0\n";
+    obj << "vt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\n";
+    obj << "f 1/1/1 2/2/1 3/3/1 4/4/1\n";
+    obj << "f 6/1/2 5/2/2 8/3/2 7/4/2\n";
+    obj << "f 5/1/3 1/2/3 4/3/3 8/4/3\n";
+    obj << "f 2/1/4 6/2/4 7/3/4 3/4/4\n";
+    obj << "f 4/1/5 3/2/5 7/3/5 8/4/5\n";
+    obj << "f 5/1/6 6/2/6 2/3/6 1/4/6\n";
+
+    std::ofstream f(path);
+    f << obj.str();
+}
+
+// --- End procedural asset helpers ---
+
 bool GameExporter::CopyGameAssets(const std::string& outputPath) {
-    std::cout << "Copying game assets to: " << outputPath << "/assets" << std::endl;
-    
-    // Create assets directory
+    std::cout << "Generating game assets to: " << outputPath << "/assets" << std::endl;
+
     CreateDirectory(outputPath + "/assets");
     CreateDirectory(outputPath + "/assets/models");
     CreateDirectory(outputPath + "/assets/textures");
     CreateDirectory(outputPath + "/assets/sounds");
-    
-    // In a real implementation, you would copy actual asset files
-    // For this demo, create placeholder files
-    WriteTextFile(outputPath + "/assets/models/player.obj", "# Player model placeholder");
-    WriteTextFile(outputPath + "/assets/models/enemy.obj", "# Enemy model placeholder");
-    WriteTextFile(outputPath + "/assets/models/weapons.obj", "# Weapons model placeholder");
-    
-    WriteTextFile(outputPath + "/assets/textures/player.png", "# Player texture placeholder");
-    WriteTextFile(outputPath + "/assets/textures/enemy.png", "# Enemy texture placeholder");
-    WriteTextFile(outputPath + "/assets/textures/weapons.png", "# Weapons texture placeholder");
-    
-    WriteTextFile(outputPath + "/assets/sounds/gunshot.wav", "# Gunshot sound placeholder");
-    WriteTextFile(outputPath + "/assets/sounds/reload.wav", "# Reload sound placeholder");
-    WriteTextFile(outputPath + "/assets/sounds/enemy_death.wav", "# Enemy death sound placeholder");
-    
+
+    // Generate real OBJ model files
+    GenerateOBJ(outputPath + "/assets/models/player.obj", "Player", 0.8f, 1.8f, 0.6f);
+    GenerateOBJ(outputPath + "/assets/models/enemy.obj", "Enemy", 1.0f, 1.8f, 0.8f);
+    GenerateOBJ(outputPath + "/assets/models/weapons.obj", "Weapon", 0.15f, 0.15f, 0.8f);
+
+    // Generate real BMP texture files (64x64 checkerboard patterns)
+    GenerateTextureBMP(outputPath + "/assets/textures/player.bmp", 64, 64, 180, 140, 100, true);
+    GenerateTextureBMP(outputPath + "/assets/textures/enemy.bmp", 64, 64, 200, 50, 40, true);
+    GenerateTextureBMP(outputPath + "/assets/textures/weapons.bmp", 64, 64, 120, 120, 130, true);
+    GenerateTextureBMP(outputPath + "/assets/textures/floor.bmp", 64, 64, 100, 95, 85, true);
+    GenerateTextureBMP(outputPath + "/assets/textures/wall.bmp", 64, 64, 140, 115, 100, true);
+
+    // Generate real WAV sound files (procedurally synthesized)
+    GenerateGunshot(outputPath + "/assets/sounds/gunshot.wav");
+    GenerateReload(outputPath + "/assets/sounds/reload.wav");
+    GenerateEnemyDeath(outputPath + "/assets/sounds/enemy_death.wav");
+
+    std::cout << "Generated 3 OBJ models, 5 BMP textures, 3 WAV sounds" << std::endl;
     return true;
 }
 

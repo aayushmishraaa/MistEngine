@@ -124,6 +124,7 @@ Entity FPSGameManager::CreateVisibleCube(const glm::vec3& pos, const glm::vec3& 
     mesh->pbrMaterial = std::make_shared<PBRMaterial>();
     mesh->pbrMaterial->albedo = color;
     mesh->pbrMaterial->roughness = 0.8f;
+    mesh->pbrMaterial->emissive = color * 0.15f; // subtle self-illumination
 
     RenderComponent rc; rc.renderable = mesh; rc.visible = true;
     gCoordinator.AddComponent(entity, rc);
@@ -221,10 +222,10 @@ void FPSGameManager::GenerateDoomLevel() {
 void FPSGameManager::BuildRoom(Room& room, int roomIndex) {
     float hw = room.width*0.5f, hd = room.depth*0.5f;
     float cx = room.center.x, cz = room.center.z, h = room.height;
-    glm::vec3 floorC(0.15f,0.15f,0.18f), ceilC(0.1f,0.1f,0.12f), wallC(0.25f,0.22f,0.2f);
+    glm::vec3 floorC(0.4f,0.38f,0.35f), wallC(0.55f,0.45f,0.4f);
 
+    // Floor only — no ceiling so directional light reaches interior
     CreateVisibleCube(glm::vec3(cx,-0.1f,cz), glm::vec3(room.width,0.2f,room.depth), floorC);
-    CreateVisibleCube(glm::vec3(cx,h,cz), glm::vec3(room.width,0.2f,room.depth), ceilC);
 
     auto buildWall = [&](float fixedCoord, float start, float end, bool isXWall, bool checkX) {
         bool hasDoor = false; float doorPos = 0;
@@ -254,17 +255,17 @@ void FPSGameManager::BuildRoom(Room& room, int roomIndex) {
         float pOff = std::min(hw,hd)*0.4f;
         for (auto& pp : {glm::vec3(cx-pOff,h*0.5f,cz-pOff), glm::vec3(cx+pOff,h*0.5f,cz-pOff),
                          glm::vec3(cx-pOff,h*0.5f,cz+pOff), glm::vec3(cx+pOff,h*0.5f,cz+pOff)})
-            CreateVisibleCube(pp, glm::vec3(0.6f,h,0.6f), glm::vec3(0.3f,0.28f,0.25f));
+            CreateVisibleCube(pp, glm::vec3(0.6f,h,0.6f), glm::vec3(0.5f,0.45f,0.4f));
     }
 
     std::mt19937 rng(roomIndex*42+7);
     std::uniform_real_distribution<float> dX(cx-hw*0.6f, cx+hw*0.6f), dZ(cz-hd*0.6f, cz+hd*0.6f);
     for (int i = 0; i < 2+(roomIndex%3); i++)
-        CreateVisibleCube(glm::vec3(dX(rng),0.4f,dZ(rng)), glm::vec3(1.0f,0.8f,1.0f), glm::vec3(0.35f,0.25f,0.15f));
+        CreateVisibleCube(glm::vec3(dX(rng),0.4f,dZ(rng)), glm::vec3(1.0f,0.8f,1.0f), glm::vec3(0.6f,0.45f,0.3f));
 
     if (roomIndex == 4) {
-        CreateVisibleCube(glm::vec3(cx-3,0.75f,cz-3), glm::vec3(3,1.5f,3), glm::vec3(0.2f,0.18f,0.16f));
-        CreateVisibleCube(glm::vec3(cx+3,0.75f,cz+3), glm::vec3(3,1.5f,3), glm::vec3(0.2f,0.18f,0.16f));
+        CreateVisibleCube(glm::vec3(cx-3,0.75f,cz-3), glm::vec3(3,1.5f,3), glm::vec3(0.45f,0.4f,0.35f));
+        CreateVisibleCube(glm::vec3(cx+3,0.75f,cz+3), glm::vec3(3,1.5f,3), glm::vec3(0.45f,0.4f,0.35f));
     }
 }
 
@@ -293,7 +294,7 @@ void FPSGameManager::BuildSolidWall(const glm::vec3& start, const glm::vec3& end
 }
 
 void FPSGameManager::BuildCorridor(const Room& from, const Room& to, float width, float height) {
-    glm::vec3 corC(0.18f,0.16f,0.15f), flC(0.12f,0.12f,0.14f);
+    glm::vec3 corC(0.45f,0.4f,0.35f), flC(0.35f,0.33f,0.3f);
     glm::vec3 dF = from.center, dT = to.center;
     for (auto& [dp,_] : from.doors) if (glm::length(dp-to.center) < glm::length(dF-to.center)) dF = dp;
     for (auto& [dp,_] : to.doors)   if (glm::length(dp-from.center) < glm::length(dT-from.center)) dT = dp;
@@ -303,14 +304,12 @@ void FPSGameManager::BuildCorridor(const Room& from, const Room& to, float width
         float z1=std::min(dF.z,dT.z), z2=std::max(dF.z,dT.z), len=z2-z1;
         float mZ=(z1+z2)*0.5f, mX=(dF.x+dT.x)*0.5f;
         CreateVisibleCube(glm::vec3(mX,-0.1f,mZ), glm::vec3(width,0.2f,len), flC);
-        CreateVisibleCube(glm::vec3(mX,height,mZ), glm::vec3(width,0.2f,len), glm::vec3(0.08f,0.08f,0.1f));
         CreateVisibleCube(glm::vec3(mX-halfW,halfH,mZ), glm::vec3(0.3f,height,len), corC);
         CreateVisibleCube(glm::vec3(mX+halfW,halfH,mZ), glm::vec3(0.3f,height,len), corC);
     } else {
         float x1=std::min(dF.x,dT.x), x2=std::max(dF.x,dT.x), len=x2-x1;
         float mX=(x1+x2)*0.5f, mZ=(dF.z+dT.z)*0.5f;
         CreateVisibleCube(glm::vec3(mX,-0.1f,mZ), glm::vec3(len,0.2f,width), flC);
-        CreateVisibleCube(glm::vec3(mX,height,mZ), glm::vec3(len,0.2f,width), glm::vec3(0.08f,0.08f,0.1f));
         CreateVisibleCube(glm::vec3(mX,halfH,mZ-halfW), glm::vec3(len,height,0.3f), corC);
         CreateVisibleCube(glm::vec3(mX,halfH,mZ+halfW), glm::vec3(len,height,0.3f), corC);
     }
