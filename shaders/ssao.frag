@@ -4,7 +4,11 @@ in vec2 TexCoords;
 
 uniform sampler2D depthTexture;
 uniform sampler2D noiseTexture;
-uniform vec3 samples[64];
+// std140 pads vec3 to vec4 alignment, so we upload vec4 on the C++ side and
+// unpack .xyz here. Binding 6 matches SSAORenderer::m_SamplesUBO.
+layout(std140, binding = 6) uniform SSAOSamples {
+    vec4 samples[64];
+};
 uniform mat4 projection;
 uniform mat4 view;
 uniform float radius;
@@ -42,7 +46,7 @@ void main() {
     int kernelSize = 64;
 
     for (int i = 0; i < kernelSize; ++i) {
-        vec3 samplePos = TBN * samples[i];
+        vec3 samplePos = TBN * samples[i].xyz;
         samplePos = fragPos + samplePos * radius;
 
         // Project sample to screen space

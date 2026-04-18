@@ -2,7 +2,9 @@
 #ifndef MIST_RESOURCE_HANDLE_H
 #define MIST_RESOURCE_HANDLE_H
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 
 template<typename T>
 struct ResourceHandle {

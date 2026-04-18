@@ -6,6 +6,7 @@
 #include <iostream>
 #include <sstream>
 #include <mutex>
+#include <functional>
 
 enum class LogLevel {
     TRACE,
@@ -26,6 +27,13 @@ public:
     void SetLevel(LogLevel level) { m_Level = level; }
     LogLevel GetLevel() const { return m_Level; }
 
+    // Secondary sink — called after the default stdout write. The
+    // editor installs one here to route WARN/ERROR into the toast
+    // notifier. Message is pre-formatted (no trailing newline) and
+    // already level-prefixed with file:line on WARN+.
+    using Sink = std::function<void(LogLevel, const std::string&)>;
+    void SetSink(Sink sink) { m_Sink = std::move(sink); }
+
     template<typename... Args>
     void Log(LogLevel level, const char* file, int line, Args&&... args) {
         if (level < m_Level) return;
@@ -36,14 +44,16 @@ public:
             oss << "(" << file << ":" << line << ") ";
         }
         (oss << ... << std::forward<Args>(args));
-        oss << "\n";
-        std::cout << oss.str();
+        std::string formatted = oss.str();
+        std::cout << formatted << "\n";
+        if (m_Sink) m_Sink(level, formatted);
     }
 
 private:
     Logger() : m_Level(LogLevel::INFO) {}
     LogLevel m_Level;
     std::mutex m_Mutex;
+    Sink m_Sink;
 
     static const char* LevelStr(LogLevel level) {
         switch (level) {

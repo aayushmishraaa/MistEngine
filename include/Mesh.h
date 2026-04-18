@@ -10,6 +10,7 @@
 #include "Shader.h"
 #include "Texture.h"
 #include "Renderable.h"
+#include "Renderer/RID.h"
 
 struct Vertex {
     glm::vec3 Position;
@@ -35,7 +36,13 @@ public:
     void Draw(Shader& shader) override;
 
 private:
-    unsigned int VAO, VBO, EBO;
+    // VAO stays raw — vertex layout is a GL concept. Future Vulkan/D3D12
+    // backends express this via pipeline-state objects instead. VBO + EBO
+    // lifetimes are owned by the device; the GLuint fields are cached for
+    // the per-draw bind path.
+    unsigned int VAO = 0, VBO = 0, EBO = 0;
+    RID          m_VboRid{};
+    RID          m_EboRid{};
 
     void setupMesh();
 };

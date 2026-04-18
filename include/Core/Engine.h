@@ -9,7 +9,6 @@ class Renderer;
 class UIManager;
 class InputManager;
 class PhysicsSystem;
-class FPSGameManager;
 class ModuleManager;
 class Scene;
 class RenderSystem;
@@ -36,7 +35,6 @@ private:
     std::unique_ptr<UIManager>      m_UIManager;
     std::unique_ptr<InputManager>   m_InputManager;
     std::unique_ptr<PhysicsSystem>  m_PhysicsSystem;
-    std::unique_ptr<FPSGameManager> m_FPSGameManager;
     std::unique_ptr<ModuleManager>  m_ModuleManager;
     std::unique_ptr<Scene>          m_Scene;
 

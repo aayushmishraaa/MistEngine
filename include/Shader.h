@@ -6,13 +6,26 @@
 #include <string>
 #include <unordered_map>
 
+#include "Renderer/RID.h"
+
 class Shader {
 public:
+   // Cached raw GL program handle, resolved from `m_ProgramRID` once at
+   // link time. Uniform setters run in the per-frame hot path and use
+   // this handle directly — the RID owns lifetime, `ID` is the fast read.
    unsigned int ID;
    Shader() : ID(0) {}
    Shader(const char* vertexPath, const char* fragmentPath);
    Shader(const char* computePath);
    ~Shader();
+
+   // A Shader owns a single GL program handle. Copying would duplicate that
+   // handle; the first destructor call would glDeleteProgram it and the second
+   // would double-free. Non-copyable, movable.
+   Shader(const Shader&) = delete;
+   Shader& operator=(const Shader&) = delete;
+   Shader(Shader&& other) noexcept;
+   Shader& operator=(Shader&& other) noexcept;
 
    void use() const;
 
@@ -38,12 +51,14 @@ private:
    std::string m_FragmentPath;
    std::string m_ComputePath;
 
+   // Owns the program lifetime via the process-wide RenderingDevice.
+   RID m_ProgramRID{};
+
    mutable std::unordered_map<std::string, GLint> m_UniformLocationCache;
 
    GLint getUniformLocation(const std::string& name) const;
    bool checkCompileErrors(unsigned int shader, const std::string& type);
    static std::string readFile(const char* path);
-   unsigned int compileShader(GLenum type, const char* source);
 };
 
 #endif

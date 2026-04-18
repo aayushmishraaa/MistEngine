@@ -2,10 +2,12 @@
 #ifndef MIST_ASSET_BROWSER_H
 #define MIST_ASSET_BROWSER_H
 
+#include "Core/PathGuard.h"
 #include <string>
 #include <vector>
 #include <filesystem>
 #include <functional>
+#include <algorithm>
 
 struct AssetEntry {
     std::string name;
@@ -47,16 +49,25 @@ public:
     }
 
     void NavigateTo(const std::string& dir) {
-        m_CurrentDir = dir;
+        // Resolve under m_RootDir before accepting. Previously the browser
+        // trusted the caller and could end up displaying (and exposing as
+        // draggable paths) arbitrary locations on the host's filesystem.
+        std::filesystem::path resolved;
+        if (!Mist::PathGuard::is_under(m_RootDir, dir, &resolved)) {
+            return;
+        }
+        m_CurrentDir = resolved.generic_string();
         Refresh();
     }
 
     void NavigateUp() {
-        auto parent = std::filesystem::path(m_CurrentDir).parent_path().string();
-        if (parent.find(m_RootDir) == 0 || parent == m_RootDir) {
-            m_CurrentDir = parent;
-            Refresh();
+        auto parent = std::filesystem::path(m_CurrentDir).parent_path();
+        std::filesystem::path resolved;
+        if (!Mist::PathGuard::is_under(m_RootDir, parent, &resolved)) {
+            return;
         }
+        m_CurrentDir = resolved.generic_string();
+        Refresh();
     }
 
     bool CanNavigateUp() const {

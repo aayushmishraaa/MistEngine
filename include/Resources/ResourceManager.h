@@ -4,12 +4,14 @@
 
 #include "ResourceHandle.h"
 #include "Core/Logger.h"
-#include <unordered_map>
-#include <string>
+#include <atomic>
+#include <future>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <unordered_map>
 #include <vector>
-#include <functional>
 
 template<typename T>
 class ResourceManager {
@@ -21,32 +23,44 @@ public:
     void SetLoader(LoadFn loader) { m_Loader = std::move(loader); }
 
     ResourceHandle<T> Load(const std::string& path) {
-        std::lock_guard<std::mutex> lock(m_Mutex);
-
-        // Check cache
-        auto it = m_PathToHandle.find(path);
-        if (it != m_PathToHandle.end()) {
-            return it->second;
+        // Fast path: cache hit. Lock briefly, check, return.
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            auto it = m_PathToHandle.find(path);
+            if (it != m_PathToHandle.end()) {
+                return it->second;
+            }
+            if (!m_Loader) {
+                LOG_ERROR("ResourceManager: No loader set for type");
+                return {};
+            }
         }
 
-        if (!m_Loader) {
-            LOG_ERROR("ResourceManager: No loader set for type");
-            return {};
-        }
-
+        // Slow path: run the loader *without* holding the mutex. Otherwise
+        // N concurrent LoadAsync calls would serialise on this mutex and
+        // the "async" would be async-in-name-only. Two threads racing the
+        // same path will both build a shared_ptr; the second to insert
+        // simply returns the first's cached handle.
         auto resource = m_Loader(path);
         if (!resource) {
             LOG_ERROR("ResourceManager: Failed to load: ", path);
             return {};
         }
 
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        auto it = m_PathToHandle.find(path);
+        if (it != m_PathToHandle.end()) {
+            // Another thread beat us to insertion; drop ours.
+            return it->second;
+        }
+
         ResourceHandle<T> handle;
-        handle.id = m_NextId++;
+        handle.id         = m_NextId++;
         handle.generation = m_CurrentGeneration;
 
-        m_Resources[handle.id] = resource;
+        m_Resources[handle.id]    = resource;
         m_HandleToPath[handle.id] = path;
-        m_PathToHandle[path] = handle;
+        m_PathToHandle[path]      = handle;
 
         LOG_DEBUG("ResourceManager: Loaded '", path, "' as handle ", handle.id);
         return handle;
@@ -85,15 +99,61 @@ public:
 
     size_t Count() const { return m_Resources.size(); }
 
-private:
-    LoadFn m_Loader;
-    uint32_t m_NextId;
-    uint32_t m_CurrentGeneration;
-    std::mutex m_Mutex;
+    // ------------------------------------------------------------------
+    // G14 — async loading.
+    //
+    // LoadAsync returns a future that resolves to the same handle Load
+    // would return. Under the hood we use std::async with deferred status
+    // tracked via a shared_ptr<atomic<LoadStatus>> keyed by path so
+    // multiple callers against the same in-flight load see consistent
+    // status. A proper thread pool lands with G6/G9.
+    // ------------------------------------------------------------------
+    enum class LoadStatus {
+        NotLoaded,
+        InProgress,
+        Ready,
+        Failed,
+    };
 
-    std::unordered_map<uint32_t, std::shared_ptr<T>> m_Resources;
-    std::unordered_map<uint32_t, std::string> m_HandleToPath;
+    std::future<ResourceHandle<T>> LoadAsync(const std::string& path) {
+        {
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            auto cached = m_PathToHandle.find(path);
+            if (cached != m_PathToHandle.end()) {
+                // Already loaded synchronously; return a ready future.
+                std::promise<ResourceHandle<T>> p;
+                p.set_value(cached->second);
+                m_Status[path] = LoadStatus::Ready;
+                return p.get_future();
+            }
+            m_Status[path] = LoadStatus::InProgress;
+        }
+
+        return std::async(std::launch::async, [this, path]() {
+            auto handle = Load(path); // Load is already thread-safe.
+            std::lock_guard<std::mutex> lock(m_Mutex);
+            m_Status[path] = handle.IsValid() ? LoadStatus::Ready : LoadStatus::Failed;
+            return handle;
+        });
+    }
+
+    LoadStatus GetStatus(const std::string& path) const {
+        std::lock_guard<std::mutex> lock(m_Mutex);
+        auto it = m_Status.find(path);
+        if (it == m_Status.end()) return LoadStatus::NotLoaded;
+        return it->second;
+    }
+
+private:
+    LoadFn             m_Loader;
+    uint32_t           m_NextId;
+    uint32_t           m_CurrentGeneration;
+    mutable std::mutex m_Mutex;
+
+    std::unordered_map<uint32_t,   std::shared_ptr<T>> m_Resources;
+    std::unordered_map<uint32_t,   std::string>        m_HandleToPath;
     std::unordered_map<std::string, ResourceHandle<T>> m_PathToHandle;
+    std::unordered_map<std::string, LoadStatus>        m_Status;
 };
 
 #endif // MIST_RESOURCE_MANAGER_H

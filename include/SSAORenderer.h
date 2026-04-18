@@ -29,11 +29,15 @@ private:
     Shader m_BlurShader;
 
     GLuint m_NoiseTexture = 0;
+    // UBO containing the 64-sample kernel. Populated once in Init(); bound
+    // to binding 6 each Render() instead of re-uploading 64 uniforms.
+    GLuint m_SamplesUBO = 0;
     std::vector<glm::vec3> m_Kernel;
     int m_Width = 0, m_Height = 0;
 
     void generateKernel();
     void generateNoiseTexture();
+    void uploadKernelUBO();
 };
 
 #endif

@@ -32,14 +32,23 @@ public:
         if (it == m_EntityToIndexMap.end()) {
             return;
         }
+        // m_Size == 0 should be impossible when the map lookup above succeeded,
+        // but guarding anyway means a double-remove (e.g. during a crash
+        // cascade) doesn't turn indexOfLastElement into size_t(~0).
+        if (m_Size == 0) {
+            m_EntityToIndexMap.erase(entity);
+            return;
+        }
 
         size_t indexOfRemovedEntity = it->second;
         size_t indexOfLastElement = m_Size - 1;
-        m_ComponentArray[indexOfRemovedEntity] = m_ComponentArray[indexOfLastElement];
+        if (indexOfRemovedEntity != indexOfLastElement) {
+            m_ComponentArray[indexOfRemovedEntity] = m_ComponentArray[indexOfLastElement];
 
-        Entity entityOfLastElement = m_IndexToEntityMap[indexOfLastElement];
-        m_EntityToIndexMap[entityOfLastElement] = indexOfRemovedEntity;
-        m_IndexToEntityMap[indexOfRemovedEntity] = entityOfLastElement;
+            Entity entityOfLastElement = m_IndexToEntityMap[indexOfLastElement];
+            m_EntityToIndexMap[entityOfLastElement] = indexOfRemovedEntity;
+            m_IndexToEntityMap[indexOfRemovedEntity] = entityOfLastElement;
+        }
 
         m_EntityToIndexMap.erase(entity);
         m_IndexToEntityMap.erase(indexOfLastElement);

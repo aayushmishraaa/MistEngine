@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <array>
 #include "Shader.h"
+#include "Renderer/RID.h"
 
 class Camera;
 
@@ -39,7 +40,11 @@ public:
     Shader pointDepthShader;
 
 private:
+    // CSM cascade texture array — lifetime via RenderingDevice, cached
+    // GLuint for sampler bind path. FBO stays raw (no interface for FBOs
+    // yet).
     GLuint m_CSMArrayTexture = 0;
+    RID    m_CSMArrayRID{};
     GLuint m_CSMFBO = 0;
     std::array<glm::mat4, NUM_CASCADES> m_LightSpaceMatrices;
     std::array<float, NUM_CASCADES> m_CascadeSplits;

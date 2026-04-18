@@ -1,12 +1,16 @@
 #include "ShadowSystem.h"
 #include "Camera.h"
 #include "Core/Logger.h"
+#include "Renderer/RenderingDevice.h"
+#include "Renderer/GLRenderingDevice.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cmath>
 
 ShadowSystem::~ShadowSystem() {
-    if (m_CSMArrayTexture) glDeleteTextures(1, &m_CSMArrayTexture);
+    if (m_CSMArrayRID.IsValid()) {
+        if (auto* dev = Mist::GPU::Device()) dev->Destroy(m_CSMArrayRID);
+    }
     if (m_CSMFBO) glDeleteFramebuffers(1, &m_CSMFBO);
     if (m_PointShadowCubemap) glDeleteTextures(1, &m_PointShadowCubemap);
     if (m_PointShadowFBO) glDeleteFramebuffers(1, &m_PointShadowFBO);
@@ -15,9 +19,19 @@ ShadowSystem::~ShadowSystem() {
 void ShadowSystem::Init() {
     csmDepthShader = Shader("shaders/csm_depth.vert", "shaders/csm_depth.frag");
 
-    // Create texture array for cascades
-    glCreateTextures(GL_TEXTURE_2D_ARRAY, 1, &m_CSMArrayTexture);
-    glTextureStorage3D(m_CSMArrayTexture, 1, GL_DEPTH_COMPONENT32F, SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, NUM_CASCADES);
+    // Create texture array for cascades via the RenderingDevice so the
+    // lifetime is backend-agnostic. FBO stays raw below — FBO/attachments
+    // aren't in the interface yet.
+    auto* dev = static_cast<Mist::GPU::GLRenderingDevice*>(Mist::GPU::Device());
+    if (!dev) { LOG_ERROR("ShadowSystem: no RenderingDevice active"); return; }
+
+    Mist::GPU::TextureArrayDesc desc{};
+    desc.width  = SHADOW_MAP_SIZE;
+    desc.height = SHADOW_MAP_SIZE;
+    desc.layers = NUM_CASCADES;
+    desc.format = Mist::GPU::TextureFormat::DEPTH32F;
+    m_CSMArrayRID     = dev->CreateTextureArray(desc);
+    m_CSMArrayTexture = dev->GetGLHandle(m_CSMArrayRID);
     glTextureParameteri(m_CSMArrayTexture, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTextureParameteri(m_CSMArrayTexture, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTextureParameteri(m_CSMArrayTexture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);

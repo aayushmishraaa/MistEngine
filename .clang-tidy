@@ -1,0 +1,23 @@
+# Scoped enough to be tractable on first run. We explicitly disable the check
+# families that would flood the report with noise from vendored imgui/glad/stb.
+Checks: >
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-unchecked-optional-access,
+  performance-*,
+  -performance-no-int-to-ptr,
+  modernize-use-override,
+  modernize-use-nullptr,
+  modernize-use-default-member-init,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  modernize-loop-convert,
+  modernize-use-auto,
+  readability-const-return-type,
+  readability-qualified-auto,
+  cppcoreguidelines-avoid-non-const-global-variables,
+  cppcoreguidelines-pro-type-cstyle-cast
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '^.*/(include|src)/(?!(imgui|glad|stb|KHR|imstb)).*$'
+FormatStyle: file

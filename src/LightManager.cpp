@@ -39,18 +39,22 @@ int LightManager::AddLight(const Light& light) {
         return -1;
     }
     m_Lights.push_back(light);
+    m_LightsDirty = true;
     return (int)m_Lights.size() - 1;
 }
 
 void LightManager::RemoveLight(int index) {
     if (index >= 0 && index < (int)m_Lights.size()) {
         m_Lights.erase(m_Lights.begin() + index);
+        m_LightsDirty = true;
     }
 }
 
 void LightManager::UploadToGPU() {
     if (!m_Initialized || m_Lights.empty()) return;
+    if (!m_LightsDirty) return; // Skip upload when light set is unchanged.
     glNamedBufferSubData(m_LightSSBO, 0, m_Lights.size() * sizeof(Light), m_Lights.data());
+    m_LightsDirty = false;
 }
 
 void LightManager::BuildClusters(float nearPlane, float farPlane, int screenW, int screenH) {

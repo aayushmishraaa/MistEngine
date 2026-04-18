@@ -56,13 +56,26 @@ void Profiler::BeginFrame() {
 
     m_FrameStart = std::chrono::high_resolution_clock::now();
 
-    // Collect previous frame's GPU results
+    // Read only queries that have actually finished. The previous version
+    // called glGetQueryObjectui64v(..., GL_QUERY_RESULT) which *blocks* the
+    // CPU on the GPU draining the pipeline — a textbook cause of Profiler
+    // itself destroying the frame times it was trying to measure.
+    //
+    // With GL_QUERY_RESULT_AVAILABLE we skip unfinished queries this frame
+    // and pick them up once the GPU flushes them (typically 1–2 frames
+    // later for a mid-pipeline query). Readers of GetSections() see a
+    // slightly stale value for the last couple of frames, which is fine
+    // for a HUD.
     for (int i = 0; i < m_NextQueryIndex; i++) {
         auto& q = m_GPUQueries[i];
         if (!q.active) continue;
 
+        GLuint available = 0;
+        glGetQueryObjectuiv(q.queryID, GL_QUERY_RESULT_AVAILABLE, &available);
+        if (!available) continue;
+
         GLuint64 gpuTime = 0;
-        glGetQueryObjectui64v(q.queryID, GL_QUERY_RESULT, &gpuTime);
+        glGetQueryObjectui64v(q.queryID, GL_QUERY_RESULT_NO_WAIT, &gpuTime);
 
         auto& section = getOrCreateSection(q.name);
         section.gpuTimeMs = static_cast<float>(gpuTime) / 1e6f; // ns to ms

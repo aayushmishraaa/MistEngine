@@ -1,0 +1,87 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "linux-debug",
+            "displayName": "Linux — Debug + ASan",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-linux-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "MIST_ASAN": "ON",
+                "MIST_ENABLE_TESTS": "ON"
+            }
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Linux — Release",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-linux-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "MIST_ENABLE_TESTS": "ON"
+            }
+        },
+        {
+            "name": "linux-ci",
+            "inherits": "linux-debug",
+            "displayName": "Linux — CI",
+            "cacheVariables": {
+                "MIST_ASAN": "OFF"
+            }
+        },
+        {
+            "name": "linux-runtime",
+            "displayName": "Linux — Runtime (no editor)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-linux-runtime",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "MIST_ENABLE_TESTS": "ON",
+                "MIST_BUILD_EDITOR": "OFF"
+            }
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Windows — Release (vcpkg)",
+            "generator": "Visual Studio 17 2022",
+            "architecture": "x64",
+            "binaryDir": "${sourceDir}/build-windows-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "MIST_ENABLE_TESTS": "ON",
+                "CMAKE_TOOLCHAIN_FILE": {
+                    "type": "FILEPATH",
+                    "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+                }
+            }
+        }
+    ],
+    "buildPresets": [
+        {"name": "linux-debug",   "configurePreset": "linux-debug"},
+        {"name": "linux-release", "configurePreset": "linux-release"},
+        {"name": "linux-ci",      "configurePreset": "linux-ci"},
+        {"name": "linux-runtime", "configurePreset": "linux-runtime"},
+        {"name": "windows-release", "configurePreset": "windows-release"}
+    ],
+    "testPresets": [
+        {
+            "name": "linux-ci",
+            "configurePreset": "linux-ci",
+            "output": {"outputOnFailure": true},
+            "execution": {"stopOnFailure": false},
+            "filter": {"exclude": {"name": "lua-testsuite"}}
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release",
+            "output": {"outputOnFailure": true},
+            "filter": {"exclude": {"name": "lua-testsuite"}}
+        }
+    ]
+}

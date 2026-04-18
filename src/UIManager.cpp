@@ -1,26 +1,31 @@
 #include "UIManager.h"
+#include "Core/Reflection.h"
 #include "GameExporter.h"
-#include "FPSGameManager.h"
-#include "ECS/Systems/EnemyAISystem.h"
 #include "ECS/Coordinator.h"
-#include "Editor/GameHUD.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
+#include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Systems/HierarchySystem.h"
 #include "Scene.h"
 #include "PhysicsSystem.h"
 #include "Mesh.h"
 #include "Texture.h"
 #include "ShapeGenerator.h"
-#include "AI/AIManager.h"
-#include "AI/AIWindow.h"
-#include "AI/AIConfig.h"
 #include "Version.h"
 #include "Renderer.h"
-#include "Editor/UndoRedo.h"
+#include "Editor/UndoStack.h"
 #include "Editor/AssetBrowser.h"
 #include "Editor/GizmoSystem.h"
+#include "ImGuizmo.h"
 #include "Editor/EditorState.h"
+#include "Editor/MistTheme.h"
+#include "Editor/ShortcutRegistry.h"
+#include "Editor/Toaster.h"
+#include "Core/Logger.h"
+#include "Resources/AssetRegistry.h"
+#include "Resources/Ref.h"
+#include "imgui_internal.h"  // DockBuilder* APIs
 #include "Debug/ConsoleSystem.h"
 #include "Debug/Profiler.h"
 #include "PostProcessStack.h"
@@ -46,8 +51,6 @@ UIManager::UIManager()
     , m_ShowSceneView(true)
     , m_ShowAssetBrowser(true)
     , m_ShowConsole(true)
-    , m_ShowAI(false)
-    , m_ShowAPIKeyDialog(false)
     , m_ShowExportDialog(false)
     , m_ShowProfiler(false)
     , m_ShowPostProcess(false)
@@ -60,17 +63,10 @@ UIManager::UIManager()
     , m_Scene(nullptr)
     , m_PhysicsSystem(nullptr)
     , m_Renderer(nullptr)
-    , m_FPSGameManager(nullptr)
-    , m_SelectedProvider(0)
     , m_EntityCounter(0)
 {
-    // Initialize AI components
-    m_AIManager = std::make_unique<AIManager>();
-    m_AIWindow = std::make_unique<AIWindow>();
-    m_AIWindow->SetAIManager(m_AIManager.get());
-
-    // Initialize editor subsystems
-    m_UndoRedo = std::make_unique<UndoRedoManager>();
+    // Initialize editor subsystems — m_UndoStack is a plain member,
+    // default-constructed in the initializer list; no heap alloc needed.
     m_AssetBrowser = std::make_unique<AssetBrowser>();
     m_GizmoSystem = std::make_unique<GizmoSystem>();
     m_EditorState = std::make_unique<EditorState>();
@@ -80,8 +76,6 @@ UIManager::UIManager()
     m_GameExporter = std::make_unique<GameExporter>();
 
     // Initialize dialog buffers
-    memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
-    memset(m_EndpointBuffer, 0, sizeof(m_EndpointBuffer));
     memset(m_GameNameBuffer, 0, sizeof(m_GameNameBuffer));
     memset(m_OutputPathBuffer, 0, sizeof(m_OutputPathBuffer));
     memset(m_ScenePathBuffer, 0, sizeof(m_ScenePathBuffer));
@@ -100,17 +94,9 @@ UIManager::~UIManager() {
     Shutdown();
 }
 
-void UIManager::SetFPSGameManager(FPSGameManager* fpsManager) {
-    m_FPSGameManager = fpsManager;
-    if (m_EditorState) {
-        m_EditorState->SetSnapshotCallbacks(
-            [this]() { if (m_FPSGameManager) m_FPSGameManager->StartNewGame(); },
-            [this]() { if (m_FPSGameManager) m_FPSGameManager->StopGame(); }
-        );
-    }
-}
-
 bool UIManager::Initialize(GLFWwindow* window) {
+    m_Window = window;  // cache for title updates + future GLFW calls
+
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -119,6 +105,11 @@ bool UIManager::Initialize(GLFWwindow* window) {
     // Enable keyboard controls and clipboard
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
+    // Docking turns every panel into a draggable/rearrangeable dock;
+    // layout persists via io.IniFilename below. The viewport flag
+    // would enable undocking into OS-native windows, but that adds
+    // multi-context complexity — revisit in a later cycle.
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     // Enable layout persistence (saves panel positions/sizes across sessions)
     io.IniFilename = "imgui_layout.ini";
@@ -132,34 +123,46 @@ bool UIManager::Initialize(GLFWwindow* window) {
     };
     io.ClipboardUserData = window;
 
-    // Setup Dear ImGui style — Godot-inspired dark theme
-    ImGui::StyleColorsDark();
-    {
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.WindowRounding = 0.0f;
-        style.FrameRounding = 2.0f;
-        style.ScrollbarRounding = 2.0f;
-        style.TabRounding = 2.0f;
-        style.WindowBorderSize = 1.0f;
-        style.WindowPadding = ImVec2(8, 8);
-        style.FramePadding = ImVec2(5, 3);
-        style.ItemSpacing = ImVec2(6, 4);
+    // Theme derived from base+accent+contrast — see Editor/MistTheme.h.
+    // Swap presets at runtime via the View → Theme menu.
+    Mist::Editor::MistTheme::Apply(Mist::Editor::MistTheme::MistDark());
 
-        ImVec4* c = style.Colors;
-        c[ImGuiCol_WindowBg]        = ImVec4(0.15f, 0.16f, 0.19f, 1.0f);
-        c[ImGuiCol_TitleBg]         = ImVec4(0.12f, 0.13f, 0.15f, 1.0f);
-        c[ImGuiCol_TitleBgActive]   = ImVec4(0.12f, 0.13f, 0.15f, 1.0f);
-        c[ImGuiCol_MenuBarBg]       = ImVec4(0.14f, 0.15f, 0.17f, 1.0f);
-        c[ImGuiCol_Tab]             = ImVec4(0.18f, 0.19f, 0.22f, 1.0f);
-        c[ImGuiCol_TabSelected]     = ImVec4(0.24f, 0.26f, 0.30f, 1.0f);
-        c[ImGuiCol_Header]          = ImVec4(0.22f, 0.35f, 0.55f, 0.5f);
-        c[ImGuiCol_HeaderHovered]   = ImVec4(0.26f, 0.45f, 0.65f, 0.7f);
-        c[ImGuiCol_Button]          = ImVec4(0.24f, 0.26f, 0.30f, 1.0f);
-        c[ImGuiCol_ButtonHovered]   = ImVec4(0.30f, 0.33f, 0.38f, 1.0f);
-        c[ImGuiCol_FrameBg]         = ImVec4(0.20f, 0.21f, 0.24f, 1.0f);
-        c[ImGuiCol_Separator]       = ImVec4(0.22f, 0.23f, 0.26f, 1.0f);
-        c[ImGuiCol_PopupBg]         = ImVec4(0.17f, 0.18f, 0.21f, 0.95f);
-        c[ImGuiCol_Border]          = ImVec4(0.22f, 0.23f, 0.26f, 1.0f);
+    // Wire the engine logger to auto-toast WARN and ERROR messages.
+    // Info stays in the console to avoid notification fatigue — if the
+    // user cares, they'll look. The editor only surfaces things that
+    // need attention.
+    Logger::Instance().SetSink([](LogLevel lv, const std::string& msg) {
+        using Mist::Editor::Toaster;
+        using Mist::Editor::ToastLevel;
+        if (lv == LogLevel::WARN)  Toaster::Instance().Push(ToastLevel::Warn,  msg);
+        if (lv == LogLevel::ERR)   Toaster::Instance().Push(ToastLevel::Error, msg);
+        if (lv == LogLevel::FATAL) Toaster::Instance().Push(ToastLevel::Error, msg, 10.0f);
+    });
+
+    // Register keyboard shortcuts. Menu items below pull their chord
+    // labels from this registry so rebinding flows through one place.
+    {
+        using Mist::Editor::ShortcutRegistry;
+        using Mist::Editor::Shortcut;
+        auto& reg = ShortcutRegistry::Instance();
+        reg.Register({"editor/new_scene",    "New Scene",   GLFW_KEY_N,      GLFW_MOD_CONTROL});
+        reg.Register({"editor/open_scene",   "Open Scene",  GLFW_KEY_O,      GLFW_MOD_CONTROL});
+        reg.Register({"editor/save_scene",   "Save Scene",  GLFW_KEY_S,      GLFW_MOD_CONTROL});
+        reg.Register({"editor/save_as",      "Save As",     GLFW_KEY_S,      GLFW_MOD_CONTROL | GLFW_MOD_SHIFT});
+        reg.Register({"editor/undo",         "Undo",        GLFW_KEY_Z,      GLFW_MOD_CONTROL});
+        reg.Register({"editor/redo",         "Redo",        GLFW_KEY_Y,      GLFW_MOD_CONTROL});
+        reg.Register({"editor/duplicate",    "Duplicate",   GLFW_KEY_D,      GLFW_MOD_CONTROL});
+        reg.Register({"editor/delete",       "Delete",      GLFW_KEY_DELETE, 0});
+        reg.Register({"editor/play",         "Play",        GLFW_KEY_F5,     0});
+        reg.Register({"editor/stop",         "Stop",        GLFW_KEY_F8,     0});
+        // Gizmo mode shortcuts — input dispatch lands in Phase 3 when
+        // ImGuizmo is wired up. Registering here so menu labels are
+        // correct from day one.
+        reg.Register({"editor/gizmo_select",    "Select",    GLFW_KEY_Q, 0});
+        reg.Register({"editor/gizmo_translate", "Translate", GLFW_KEY_W, 0});
+        reg.Register({"editor/gizmo_rotate",    "Rotate",    GLFW_KEY_E, 0});
+        reg.Register({"editor/gizmo_scale",     "Scale",     GLFW_KEY_R, 0});
+        reg.Register({"editor/gizmo_toggle_space", "Toggle Local/World", GLFW_KEY_X, 0});
     }
 
     // Setup Platform/Renderer backends
@@ -171,15 +174,6 @@ bool UIManager::Initialize(GLFWwindow* window) {
         m_ConsoleMessages.push_back("Clipboard functions initialized successfully");
     } else {
         m_ConsoleMessages.push_back("Warning: Clipboard functions not properly initialized");
-    }
-
-    // Load AI configuration
-    AIConfig::Instance().LoadFromFile();
-    
-    // Try to auto-initialize AI if API key is available
-    if (AIConfig::Instance().HasAPIKey("Gemini")) {
-        std::string apiKey = AIConfig::Instance().GetAPIKey("Gemini");
-        InitializeAI(apiKey, "Gemini", "");
     }
 
     // Set up asset browser root directory
@@ -201,7 +195,6 @@ bool UIManager::Initialize(GLFWwindow* window) {
     // Add some initial console messages
     m_ConsoleMessages.push_back("MistEngine UI initialized successfully");
     m_ConsoleMessages.push_back("Press F1 to toggle ImGui demo window");
-    m_ConsoleMessages.push_back("Press F2 to open AI assistant");
     m_ConsoleMessages.push_back("Ctrl+Z/Y for Undo/Redo");
     m_ConsoleMessages.push_back("Layout persists across sessions (imgui_layout.ini)");
 
@@ -210,12 +203,6 @@ bool UIManager::Initialize(GLFWwindow* window) {
 
 void UIManager::Shutdown() {
     if (!ImGui::GetCurrentContext()) return; // Already shut down
-
-    // Save AI configuration
-    AIConfig::Instance().SaveToFile();
-
-    m_AIWindow.reset();
-    m_AIManager.reset();
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
@@ -227,45 +214,38 @@ void UIManager::NewFrame() {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    // ImGuizmo tracks per-frame state separately from ImGui — this
+    // resets hit-test caches so gizmo interactions don't bleed across
+    // frames (mis-detecting a hover from last frame, etc.).
+    ImGuizmo::BeginFrame();
 
-    // Check if we're in FPS game mode
-    bool isFPSGameActive = (m_FPSGameManager && m_FPSGameManager->IsGameActive());
-    bool isPlayerDead = false; // TODO: Check if player is dead
-    
-    // DEBUG: Log the FPS game state transitions only
-    static bool lastGameState = false;
-    if (isFPSGameActive != lastGameState) {
-        std::string stateText = isFPSGameActive ? "?? UI SWITCHED TO FPS MODE!" : "??? UI SWITCHED TO EDITOR MODE";
-        m_ConsoleMessages.push_back(stateText);
-        lastGameState = isFPSGameActive;
-    }
-    
-    if (isFPSGameActive) {
-        // In FPS game mode - show toolbar (for Stop button) + HUD
-        DrawToolbar();
+    {
+        // Editor-only frame now — the FPS game mode was removed, so there's
+        // no runtime "game active" branch anymore. Kept the outer brace so the
+        // diff vs the old `else` block is trivial.
 
-        auto hud = m_FPSGameManager->GetHUDData();
-        GameHUD::HUDState hudState;
-        hudState.health = (int)hud.health; hudState.maxHealth = (int)hud.maxHealth;
-        hudState.ammo = hud.ammo; hudState.maxAmmo = hud.maxAmmo; hudState.reserveAmmo = hud.reserveAmmo;
-        hudState.score = hud.score; hudState.weaponName = hud.weaponName;
-        hudState.wave = hud.currentRoom + 1; hudState.isReloading = hud.isReloading;
-        hudState.reloadProgress = hud.reloadProgress;
-        GameHUD::Render(hudState, ImGui::GetIO().DeltaTime);
-
-        if (isPlayerDead) {
-            DrawGameOverScreen();
-        }
-    } else {
         // Process Ctrl+Z / Ctrl+Y for undo/redo
         ImGuiIO& undoIO = ImGui::GetIO();
-        if (undoIO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z) && m_UndoRedo->CanUndo()) {
-            m_UndoRedo->Undo();
-            m_ConsoleMessages.push_back("Undo: " + m_UndoRedo->GetRedoDescription());
+        if (undoIO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z) && m_UndoStack.CanUndo()) {
+            std::string label = m_UndoStack.TopUndoLabel();
+            m_UndoStack.Undo();
+            m_ConsoleMessages.push_back("Undo: " + label);
         }
-        if (undoIO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y) && m_UndoRedo->CanRedo()) {
-            m_UndoRedo->Redo();
-            m_ConsoleMessages.push_back("Redo: " + m_UndoRedo->GetUndoDescription());
+        if (undoIO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y) && m_UndoStack.CanRedo()) {
+            std::string label = m_UndoStack.TopRedoLabel();
+            m_UndoStack.Redo();
+            m_ConsoleMessages.push_back("Redo: " + label);
+        }
+
+        // Gizmo mode shortcuts. Gate on `!WantCaptureKeyboard` so they
+        // don't hijack single-letter typing in an InputText (e.g.
+        // renaming an entity with "e" in the name). ImGuizmo itself
+        // also respects its own input-capture logic.
+        if (m_GizmoSystem && !undoIO.WantCaptureKeyboard) {
+            if (ImGui::IsKeyPressed(ImGuiKey_W, false)) m_GizmoSystem->SetMode(GizmoMode::Translate);
+            if (ImGui::IsKeyPressed(ImGuiKey_E, false)) m_GizmoSystem->SetMode(GizmoMode::Rotate);
+            if (ImGui::IsKeyPressed(ImGuiKey_R, false)) m_GizmoSystem->SetMode(GizmoMode::Scale);
+            if (ImGui::IsKeyPressed(ImGuiKey_X, false)) m_GizmoSystem->ToggleSpace();
         }
 
         // Godot-like fixed layout
@@ -281,21 +261,26 @@ void UIManager::NewFrame() {
         if (m_ShowSkyboxControls) DrawSkyboxControls();
         if (m_ShowDemo) ImGui::ShowDemoWindow(&m_ShowDemo);
 
-        // Draw AI window
-        if (m_ShowAI && m_AIWindow) {
-            m_AIWindow->SetVisible(true);
-            m_AIWindow->Draw();
-            m_ShowAI = m_AIWindow->IsVisible();
-        }
-
-        // Draw API Key dialog
-        if (m_ShowAPIKeyDialog) {
-            DrawAPIKeyDialog();
-        }
-
         // Draw Export Game dialog
         if (m_ShowExportDialog) {
             DrawExportDialog();
+        }
+
+        // Toast notifications render last (top-most) so they overlay
+        // any floating panels. DeltaTime comes from ImGui's io since
+        // UIManager doesn't track its own frame time.
+        Mist::Editor::Toaster::Instance().Draw(ImGui::GetIO().DeltaTime);
+
+        // Update window title when dirty state flips. Don't call
+        // glfwSetWindowTitle every frame — it's a syscall on most
+        // platforms and will thrash the compositor on Wayland/X11.
+        bool dirty = m_UndoStack.IsDirty();
+        if (m_Window && dirty != m_PrevDirty) {
+            std::string title = std::string("MistEngine - ")
+                              + (m_ScenePathBuffer[0] ? m_ScenePathBuffer : "untitled");
+            if (dirty) title += " *";
+            glfwSetWindowTitle(m_Window, title.c_str());
+            m_PrevDirty = dirty;
         }
     }
 }
@@ -311,54 +296,34 @@ void UIManager::Render() {
     glfwMakeContextCurrent(backup_current_context);
 }
 
-void UIManager::InitializeAI(const std::string& apiKey, const std::string& provider, const std::string& endpoint) {
-    if (m_AIManager) {
-        bool success = m_AIManager->InitializeProvider(provider, apiKey, endpoint);
-        if (success) {
-            m_ConsoleMessages.push_back("AI provider initialized: " + provider);
-            
-            // Save the configuration immediately
-            AIConfig::Instance().SetAPIKey(provider, apiKey);
-            if (!endpoint.empty()) {
-                AIConfig::Instance().SetEndpoint(provider, endpoint);
-            }
-            
-            // Force save to ensure persistence
-            bool saved = AIConfig::Instance().SaveToFile();
-            if (saved) {
-                m_ConsoleMessages.push_back("Configuration saved successfully");
-            } else {
-                m_ConsoleMessages.push_back("Warning: Failed to save configuration");
-            }
-            
-            if (m_AIWindow) {
-                m_AIWindow->SetAIManager(m_AIManager.get());
-            }
-        } else {
-            m_ConsoleMessages.push_back("Failed to initialize AI provider: " + provider);
-        }
-    }
-}
-
 void UIManager::DrawMainMenuBar() {
+    // Pull chord display text straight from the registry so menu labels
+    // stay in sync with any future rebinding without touching this code.
+    auto chord = [](const char* id) -> std::string {
+        if (auto* s = Mist::Editor::ShortcutRegistry::Instance().Find(id)) {
+            return s->DisplayText();
+        }
+        return "";
+    };
+
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
+            if (ImGui::MenuItem("New Scene", chord("editor/new_scene").c_str())) {
                 m_ConsoleMessages.push_back("New scene created");
                 m_EntityList.clear();
                 m_HasSelectedEntity = false;
             }
-            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
+            if (ImGui::MenuItem("Save Scene", chord("editor/save_scene").c_str())) {
                 SaveScene(m_ScenePathBuffer);
             }
-            if (ImGui::MenuItem("Save Scene As...")) {
+            if (ImGui::MenuItem("Save Scene As...", chord("editor/save_as").c_str())) {
                 ImGui::OpenPopup("SaveSceneAs");
             }
-            if (ImGui::MenuItem("Load Scene", "Ctrl+O")) {
+            if (ImGui::MenuItem("Load Scene", chord("editor/open_scene").c_str())) {
                 LoadScene(m_ScenePathBuffer);
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Export FPS Game...", "Ctrl+E")) {
+            if (ImGui::MenuItem("Export Game...")) {
                 m_ShowExportDialog = true;
             }
             ImGui::Separator();
@@ -368,19 +333,19 @@ void UIManager::DrawMainMenuBar() {
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Edit")) {
-            bool canUndo = m_UndoRedo && m_UndoRedo->CanUndo();
-            bool canRedo = m_UndoRedo && m_UndoRedo->CanRedo();
-            std::string undoLabel = canUndo ? ("Undo " + m_UndoRedo->GetUndoDescription()) : "Undo";
-            std::string redoLabel = canRedo ? ("Redo " + m_UndoRedo->GetRedoDescription()) : "Redo";
-            if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, canUndo)) {
-                m_UndoRedo->Undo();
+            bool canUndo = m_UndoStack.CanUndo();
+            bool canRedo = m_UndoStack.CanRedo();
+            std::string undoLabel = canUndo ? ("Undo " + m_UndoStack.TopUndoLabel()) : "Undo";
+            std::string redoLabel = canRedo ? ("Redo " + m_UndoStack.TopRedoLabel()) : "Redo";
+            if (ImGui::MenuItem(undoLabel.c_str(), chord("editor/undo").c_str(), false, canUndo)) {
+                m_UndoStack.Undo();
             }
-            if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, canRedo)) {
-                m_UndoRedo->Redo();
+            if (ImGui::MenuItem(redoLabel.c_str(), chord("editor/redo").c_str(), false, canRedo)) {
+                m_UndoStack.Redo();
             }
             ImGui::Separator();
             ImGui::Text("History: %zu undo, %zu redo",
-                m_UndoRedo->GetUndoCount(), m_UndoRedo->GetRedoCount());
+                m_UndoStack.UndoCount(), m_UndoStack.RedoCount());
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("GameObject")) {
@@ -413,7 +378,18 @@ void UIManager::DrawMainMenuBar() {
             ImGui::MenuItem("Light Editor", nullptr, &m_ShowLightEditor);
             ImGui::MenuItem("Skybox Controls", nullptr, &m_ShowSkyboxControls);
             ImGui::Separator();
-            ImGui::MenuItem("Ask AI", "F2", &m_ShowAI);
+            if (ImGui::BeginMenu("Theme")) {
+                if (ImGui::MenuItem("Mist Dark")) {
+                    Mist::Editor::MistTheme::Apply(Mist::Editor::MistTheme::MistDark());
+                }
+                if (ImGui::MenuItem("Godot Blue")) {
+                    Mist::Editor::MistTheme::Apply(Mist::Editor::MistTheme::GodotBlue());
+                }
+                if (ImGui::MenuItem("Monochrome")) {
+                    Mist::Editor::MistTheme::Apply(Mist::Editor::MistTheme::Monochrome());
+                }
+                ImGui::EndMenu();
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Reset Layout")) {
                 m_Layout = EditorLayout();
@@ -427,252 +403,294 @@ void UIManager::DrawMainMenuBar() {
             }
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("AI")) {
-            if (ImGui::MenuItem("Open AI Assistant", "F2")) {
-                m_ShowAI = true;
-            }
-            ImGui::Separator();
-
-            std::string statusText = "Configure API Key";
-            if (m_AIManager && m_AIManager->HasActiveProvider()) {
-                statusText = "Reconfigure API Key (" + m_AIManager->GetActiveProviderName() + " Connected)";
-            }
-
-            if (ImGui::MenuItem(statusText.c_str())) {
-                ShowAPIKeyDialog();
-            }
-
-            if (ImGui::BeginMenu("Quick Actions")) {
-                bool hasAI = m_AIManager && m_AIManager->HasActiveProvider();
-
-                if (!hasAI) {
-                    ImGui::BeginDisabled();
-                }
-
-                if (ImGui::MenuItem("Suggest New Feature")) {
-                    m_ShowAI = true;
-                    if (m_AIWindow) {
-                        m_AIWindow->AddMessage(ChatMessage::USER, "I'm working on a game engine and need suggestions for new features. What are some innovative features I could add to enhance the development experience?");
-                    }
-                }
-                if (ImGui::MenuItem("Code Review Help")) {
-                    m_ShowAI = true;
-                    if (m_AIWindow) {
-                        m_AIWindow->AddMessage(ChatMessage::USER, "I need help reviewing my game engine code. What are the best practices for C++ game engine architecture?");
-                    }
-                }
-                if (ImGui::MenuItem("Game Logic Advice")) {
-                    m_ShowAI = true;
-                    if (m_AIWindow) {
-                        m_AIWindow->AddMessage(ChatMessage::USER, "I need advice on implementing efficient game logic systems. What patterns should I consider for my ECS-based game engine?");
-                    }
-                }
-
-                if (!hasAI) {
-                    ImGui::EndDisabled();
-                    ImGui::Separator();
-                    ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "Configure API key to enable");
-                }
-
-                ImGui::EndMenu();
-            }
-            ImGui::EndMenu();
-        }
         ImGui::EndMainMenuBar();
     }
 }
 
-void UIManager::DrawAPIKeyDialog() {
-    if (m_ShowAPIKeyDialog) {
-        ImGui::OpenPopup("Configure AI API");
+namespace {
+// Lowercase ASCII — good enough for file-extension matching. UTF-8
+// extensions don't exist in practice for assets we care about.
+std::string ascii_lower(const std::string& s) {
+    std::string out = s;
+    std::transform(out.begin(), out.end(), out.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return out;
+}
+} // namespace
+
+Entity UIManager::SpawnMeshEntity(const std::string& path) {
+    if (!m_Coordinator) return static_cast<Entity>(-1);
+
+    auto& registry = Mist::Assets::AssetRegistry::Instance();
+    auto ref = LoadRef(registry.meshes(), path);
+    if (!ref) {
+        LOG_ERROR("SpawnMeshEntity: failed to load mesh: ", path);
+        return static_cast<Entity>(-1);
     }
-    
-    // Always draw the popup modal
-    if (ImGui::BeginPopupModal("Configure AI API", &m_ShowAPIKeyDialog, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Configure AI Provider Settings");
-        ImGui::Separator();
-        
-        // Provider selection
-        const char* providers[] = {"Google Gemini"};
-        ImGui::Combo("Provider", &m_SelectedProvider, providers, IM_ARRAYSIZE(providers));
-        
-        // API Key input
-        ImGui::Text("API Key:");
-        ImGui::SetNextItemWidth(400);
-        
-        bool apiKeyChanged = ImGui::InputText("##APIKey", m_APIKeyBuffer, sizeof(m_APIKeyBuffer));
-        
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Enter your Gemini API key here");
-        }
-        
-        if (ImGui::IsItemActive()) {
-            ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0, 1, 0, 1), "(ACTIVE)");
-        }
-        
-        // Paste and Clear buttons (keeping these since they work well)
-        ImGui::SameLine();
-        if (ImGui::Button("Paste##API")) {
-            const char* clipText = ImGui::GetClipboardText();
-            if (clipText) {
-                strncpy(m_APIKeyBuffer, clipText, sizeof(m_APIKeyBuffer) - 1); m_APIKeyBuffer[sizeof(m_APIKeyBuffer) - 1] = '\0';
-                apiKeyChanged = true;
-                m_ConsoleMessages.push_back("? Pasted API key from clipboard");
-            } else {
-                m_ConsoleMessages.push_back("? Nothing in clipboard to paste");
+
+    Entity e = m_Coordinator->CreateEntity();
+    TransformComponent t;
+    m_Coordinator->AddComponent(e, t);
+
+    RenderComponent r;
+    r.renderable = ref.get();   // non-owning; registry keeps it alive
+    r.visible    = true;
+    m_Coordinator->AddComponent(e, r);
+
+    m_Coordinator->AddComponent(e, HierarchyComponent{});
+
+    // Name = basename, without extension. Hierarchy + Inspector show
+    // that instead of "Entity N".
+    auto slash = path.find_last_of("/\\");
+    auto dot   = path.find_last_of('.');
+    std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
+    if (dot != std::string::npos && dot > slash) {
+        base = (slash == std::string::npos) ? path.substr(0, dot)
+                                            : path.substr(slash + 1, dot - slash - 1);
+    }
+    m_EntityNames[e] = base;
+    SelectEntity(e);
+
+    // Push undo. Undo = destroy; redo = re-spawn via snapshot.
+    EntitySnapshot snap = SnapshotEntity(e);
+    auto idRef = std::make_shared<Entity>(e);
+    Mist::Editor::Command c;
+    c.label = "Drop asset " + base;
+    c.merge_key = 0;
+    c.redo = [this, snap, idRef]() { *idRef = RespawnFromSnapshot(snap); };
+    c.undo = [this, idRef]() {
+        if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*idRef)) {
+            m_Coordinator->DestroyEntity(*idRef);
+            m_EntityNames.erase(*idRef);
+            if (m_HasSelectedEntity && m_SelectedEntity == *idRef) {
+                m_HasSelectedEntity = false;
             }
         }
-        
-        ImGui::SameLine();
-        if (ImGui::Button("Clear##API")) {
-            memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
-            apiKeyChanged = true;
-            m_ConsoleMessages.push_back("API key field cleared");
-        }
-        
-        ImGui::Separator();
-        
-        // Test connection button
-        if (ImGui::Button("Test Connection")) {
-            std::string provider = providers[m_SelectedProvider];
-            std::string apiKey = m_APIKeyBuffer;
-            
-            if (!apiKey.empty()) {
-                m_ConsoleMessages.push_back("?? Testing connection to " + provider + "...");
-                m_ConsoleMessages.push_back("?? Using minimal request to test connection");
-                
-                // Temporarily initialize AI for testing
-                AIManager testManager;
-                if (testManager.InitializeProvider(provider, apiKey, "")) {
-                    AIResponse testResponse = testManager.TestConnection();
-                    if (testResponse.success) {
-                        m_ConsoleMessages.push_back("? Connection test successful!");
-                        m_ConsoleMessages.push_back("Response: " + testResponse.content);
-                    } else {
-                        m_ConsoleMessages.push_back("? Connection test failed:");
-                        // Split multi-line error messages
-                        std::istringstream iss(testResponse.errorMessage);
-                        std::string line;
-                        while (std::getline(iss, line)) {
-                            if (!line.empty()) {
-                                m_ConsoleMessages.push_back(line);
-                            }
-                        }
-                    }
-                } else {
-                    m_ConsoleMessages.push_back("? Failed to initialize provider for testing");
-                }
-            } else {
-                m_ConsoleMessages.push_back("?? Please enter an API key to test");
-            }
-        }
-        
-        // Add diagnostic info button for Gemini
-        ImGui::SameLine();
-        if (ImGui::Button("Diagnostic Info")) {
-            m_ConsoleMessages.push_back("?? GOOGLE GEMINI SETUP GUIDE:");
-            m_ConsoleMessages.push_back("");
-            m_ConsoleMessages.push_back("1. GET YOUR API KEY:");
-            m_ConsoleMessages.push_back("   � Go to https://aistudio.google.com/app/apikey");
-            m_ConsoleMessages.push_back("   � Sign in with your Google account");
-            m_ConsoleMessages.push_back("   � Click 'Create API Key'");
-            m_ConsoleMessages.push_back("   � Copy the generated key");
-            m_ConsoleMessages.push_back("");
-            m_ConsoleMessages.push_back("2. ENABLE GEMINI API:");
-            m_ConsoleMessages.push_back("   � API is free with rate limits");
-            m_ConsoleMessages.push_back("   � No billing setup required for basic usage");
-            m_ConsoleMessages.push_back("   � Higher limits available with paid plans");
-            m_ConsoleMessages.push_back("");
-            m_ConsoleMessages.push_back("3. UPDATED MODELS (2024):");
-            m_ConsoleMessages.push_back("   � gemini-1.5-flash: Fast & efficient (default)");
-            m_ConsoleMessages.push_back("   � gemini-1.5-pro: Most capable model");
-            m_ConsoleMessages.push_back("   � gemini-1.0-pro: Stable baseline");
-            m_ConsoleMessages.push_back("   � Note: Old 'gemini-pro' is deprecated");
-            m_ConsoleMessages.push_back("");
-            m_ConsoleMessages.push_back("4. RATE LIMITS:");
-            m_ConsoleMessages.push_back("   � Free tier: 15 requests/minute");
-            m_ConsoleMessages.push_back("   � No daily token limits on free tier");
-            m_ConsoleMessages.push_back("   � Much more generous than OpenAI free tier");
-        }
-        
-        ImGui::SameLine();
-        
-        // Buttons
-        bool saveClicked = ImGui::Button("Save & Connect");
-        ImGui::SameLine();
-        bool cancelClicked = ImGui::Button("Cancel");
-        
-        if (saveClicked) {
-            std::string provider = providers[m_SelectedProvider];
-            std::string apiKey = m_APIKeyBuffer;
-            std::string endpoint = m_EndpointBuffer;
-            
-            if (!apiKey.empty()) {
-                InitializeAI(apiKey, provider, endpoint);
-                m_ShowAPIKeyDialog = false;
-                
-                // Clear buffers for security
-                memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
-                memset(m_EndpointBuffer, 0, sizeof(m_EndpointBuffer));
-                
-                m_ConsoleMessages.push_back("API key configured for: " + provider);
-            } else {
-                m_ConsoleMessages.push_back("Please enter an API key");
-            }
-        }
-        
-        if (cancelClicked) {
-            m_ShowAPIKeyDialog = false;
-            // Clear buffers for security
-            memset(m_APIKeyBuffer, 0, sizeof(m_APIKeyBuffer));
-            memset(m_EndpointBuffer, 0, sizeof(m_EndpointBuffer));
-        }
-        
-        ImGui::Spacing();
-        ImGui::TextWrapped("Note: Your API key will be saved locally in ai_config.json. Keep this file secure and do not commit it to version control.");
-        
-        // Keyboard shortcuts help
-        ImGui::Spacing();
-        if (ImGui::CollapsingHeader("Keyboard Shortcuts")) {
-            ImGui::BulletText("Ctrl+V: Paste");
-            ImGui::BulletText("Ctrl+C: Copy");
-            ImGui::BulletText("Ctrl+A: Select All");
-            ImGui::BulletText("Ctrl+Z: Undo");
-            ImGui::BulletText("Tab: Move between fields");
-        }
-        
-        // Help text
-        ImGui::Spacing();
-        if (ImGui::CollapsingHeader("Help: Getting a Gemini API Key")) {
-            ImGui::TextWrapped("Getting Started with Google Gemini:");
-            ImGui::BulletText("Go to https://aistudio.google.com/app/apikey");
-            ImGui::BulletText("Sign in with your Google account");
-            ImGui::BulletText("Click 'Create API Key' button");
-            ImGui::BulletText("Copy the generated API key");
-            ImGui::BulletText("Paste it in the field above");
-            
-            ImGui::Spacing();
-            ImGui::TextWrapped("Advantages of Gemini:");
-            ImGui::BulletText("Free tier with generous limits");
-            ImGui::BulletText("No billing setup required initially");
-            ImGui::BulletText("15 requests/minute on free tier");
-            ImGui::BulletText("High-quality responses comparable to GPT-4");
-            ImGui::BulletText("Supports both text and vision models");
-        }
-        
-        ImGui::EndPopup();
+    };
+    m_UndoStack.Push(std::move(c));
+    return e;
+}
+
+void UIManager::HandleAssetDrop(const std::string& path) {
+    auto dot = path.find_last_of('.');
+    if (dot == std::string::npos) {
+        Mist::Editor::Toaster::Instance().Push(
+            Mist::Editor::ToastLevel::Warn,
+            "Asset has no extension: " + path);
+        return;
+    }
+    std::string ext = ascii_lower(path.substr(dot));
+
+    if (ext == ".obj" || ext == ".fbx" || ext == ".gltf" || ext == ".glb") {
+        SpawnMeshEntity(path);
+    } else if (ext == ".scene" || ext == ".json" || ext == ".mscene") {
+        LoadScene(path);
+    } else {
+        Mist::Editor::Toaster::Instance().Push(
+            Mist::Editor::ToastLevel::Warn,
+            "Unsupported asset type: " + ext);
     }
 }
 
-void UIManager::ShowAPIKeyDialog() { 
-    m_ShowAPIKeyDialog = true; 
-    // Pre-fill with existing key if available (masked)
-    if (AIConfig::Instance().HasAPIKey("Gemini")) {
-        // Don't show the actual key for security, just indicate it exists
-        std::string maskedKey = "***CONFIGURED***";
-        strncpy(m_APIKeyBuffer, maskedKey.c_str(), sizeof(m_APIKeyBuffer) - 1); m_APIKeyBuffer[sizeof(m_APIKeyBuffer) - 1] = '\0';
+UIManager::EntitySnapshot UIManager::SnapshotEntity(Entity e) const {
+    EntitySnapshot s;
+    if (!m_Coordinator) return s;
+    if (m_Coordinator->HasComponent<TransformComponent>(e)) {
+        const auto& t = m_Coordinator->GetComponent<TransformComponent>(e);
+        s.hasTransform = true;
+        s.position = t.position; s.rotation = t.rotation; s.scale = t.scale;
     }
+    if (m_Coordinator->HasComponent<RenderComponent>(e)) {
+        const auto& r = m_Coordinator->GetComponent<RenderComponent>(e);
+        s.hasRender = true;
+        s.renderable = r.renderable;
+        s.visible    = r.visible;
+    }
+    if (m_Coordinator->HasComponent<HierarchyComponent>(e)) {
+        const auto& h = m_Coordinator->GetComponent<HierarchyComponent>(e);
+        s.hasHierarchy = true;
+        s.parent = h.parent;
+    }
+    auto it = m_EntityNames.find(e);
+    if (it != m_EntityNames.end()) s.name = it->second;
+    return s;
+}
+
+Entity UIManager::RespawnFromSnapshot(const EntitySnapshot& snap) {
+    if (!m_Coordinator) return static_cast<Entity>(-1);
+    Entity e = m_Coordinator->CreateEntity();
+    if (snap.hasTransform) {
+        TransformComponent t;
+        t.position = snap.position; t.rotation = snap.rotation; t.scale = snap.scale;
+        m_Coordinator->AddComponent(e, t);
+    }
+    if (snap.hasRender) {
+        RenderComponent r;
+        r.renderable = static_cast<Renderable*>(snap.renderable);
+        r.visible    = snap.visible;
+        m_Coordinator->AddComponent(e, r);
+    }
+    if (snap.hasHierarchy) {
+        m_Coordinator->AddComponent(e, HierarchyComponent{});
+        if (snap.parent != HierarchyComponent::kNoParent
+            && m_Coordinator->HasComponent<HierarchyComponent>(snap.parent)) {
+            HierarchySystem::Attach(*m_Coordinator, snap.parent, e);
+        }
+    }
+    if (!snap.name.empty()) m_EntityNames[e] = snap.name;
+    return e;
+}
+
+bool UIManager::IsDescendantOf(Entity candidate, Entity entity) const {
+    if (!m_Coordinator) return false;
+    if (candidate == entity) return true;
+    if (!m_Coordinator->HasComponent<HierarchyComponent>(entity)) return false;
+    const auto& h = m_Coordinator->GetComponent<HierarchyComponent>(entity);
+    for (Entity child : h.children) {
+        if (IsDescendantOf(candidate, child)) return true;
+    }
+    return false;
+}
+
+// Recursive hierarchy row renderer. Walks HierarchyComponent::children
+// post-parent so the tree mirrors the scene graph exactly. Used only by
+// DrawHierarchy below; kept at translation-unit scope to keep the
+// member function flat.
+namespace {
+std::string HierarchyEntityName(const std::unordered_map<Entity, std::string>& names,
+                                Entity e) {
+    auto it = names.find(e);
+    if (it != names.end()) return it->second;
+    return "Entity " + std::to_string(e);
+}
+
+bool HierarchyPassesFilter(const std::string& name, const std::string& filterLower) {
+    if (filterLower.empty()) return true;
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    return lower.find(filterLower) != std::string::npos;
+}
+} // namespace
+
+void UIManager::DrawHierarchyNode(Entity entity, const std::string& filterLower) {
+    if (!m_Coordinator) return;
+
+    std::string name = HierarchyEntityName(m_EntityNames, entity);
+
+    // Collect children before building flags — a leaf vs. open-on-arrow
+    // node needs different flag combinations.
+    const std::vector<Entity>* children = nullptr;
+    if (m_Coordinator->HasComponent<HierarchyComponent>(entity)) {
+        children = &m_Coordinator->GetComponent<HierarchyComponent>(entity).children;
+    }
+
+    // Apply filter: if this entity doesn't match BUT a descendant does,
+    // we still want to render it as a passthrough so the user sees the
+    // path. For now: drop the whole subtree if this row fails. Can
+    // revisit once we have fuzzy/path search.
+    if (!HierarchyPassesFilter(name, filterLower)) return;
+
+    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow
+                             | ImGuiTreeNodeFlags_OpenOnDoubleClick
+                             | ImGuiTreeNodeFlags_SpanAvailWidth;
+    if (!children || children->empty()) {
+        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    }
+    if (m_HasSelectedEntity && m_SelectedEntity == entity) {
+        flags |= ImGuiTreeNodeFlags_Selected;
+    }
+
+    ImGui::PushID((int)entity);
+    bool opened = ImGui::TreeNodeEx("##node", flags, "%s", name.c_str());
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        SelectEntity(entity);
+    }
+
+    // Drag source — carries the entity id in a typed payload. Matches
+    // Godot's "unified drag dictionary" pattern at the C++/ImGui level:
+    // every drop site checks for payload type MIST_ENTITY (singular for
+    // now; the plan upgrades this to a vector once multi-select lands).
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+        ImGui::SetDragDropPayload("MIST_ENTITY", &entity, sizeof(Entity));
+        ImGui::Text("Reparent %s", name.c_str());
+        ImGui::EndDragDropSource();
+    }
+
+    // Drop target — if we accept an entity here, wire it as a child via
+    // HierarchySystem::Attach. Cycle detection inside the helper:
+    // reject if `newParent` is a descendant of the dragged child.
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("MIST_ENTITY")) {
+            Entity child = *static_cast<const Entity*>(p->Data);
+            if (child != entity && !IsDescendantOf(entity, child)
+                && m_Coordinator->HasComponent<HierarchyComponent>(child)) {
+                Entity oldParent = m_Coordinator->GetComponent<HierarchyComponent>(child).parent;
+                Entity newParent = entity;
+
+                // Apply the move.
+                HierarchySystem::Detach(*m_Coordinator, child);
+                HierarchySystem::Attach(*m_Coordinator, newParent, child);
+
+                // Record undo.
+                Coordinator* coord = m_Coordinator;
+                Mist::Editor::Command c;
+                c.label = "Reparent";
+                c.merge_key = 0;
+                c.redo = [coord, child, newParent]() {
+                    HierarchySystem::Detach(*coord, child);
+                    HierarchySystem::Attach(*coord, newParent, child);
+                };
+                c.undo = [coord, child, oldParent]() {
+                    HierarchySystem::Detach(*coord, child);
+                    if (oldParent != HierarchyComponent::kNoParent
+                        && coord->HasComponent<HierarchyComponent>(oldParent)) {
+                        HierarchySystem::Attach(*coord, oldParent, child);
+                    }
+                };
+                m_UndoStack.Push(std::move(c));
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    if (ImGui::BeginPopupContextItem("EntityContext")) {
+        if (ImGui::MenuItem("Rename")) { SelectEntity(entity); }
+        if (ImGui::MenuItem("Duplicate")) {
+            Entity newEntity = m_Coordinator->CreateEntity();
+            if (m_Coordinator->HasComponent<TransformComponent>(entity)) {
+                TransformComponent t = m_Coordinator->GetComponent<TransformComponent>(entity);
+                t.position.x += 1.0f;
+                m_Coordinator->AddComponent(newEntity, t);
+            }
+            if (m_Coordinator->HasComponent<RenderComponent>(entity)) {
+                RenderComponent r = m_Coordinator->GetComponent<RenderComponent>(entity);
+                m_Coordinator->AddComponent(newEntity, r);
+            }
+            // Always add HierarchyComponent so the duplicate is first-class
+            // in the scene graph (parent defaults to kNoParent = root).
+            m_Coordinator->AddComponent(newEntity, HierarchyComponent{});
+            m_EntityNames[newEntity] = name + " (copy)";
+            m_ConsoleMessages.push_back("Duplicated: " + m_EntityNames[newEntity]);
+            SelectEntity(newEntity);
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Delete")) {
+            DeleteEntity(entity);
+            m_EntityNames.erase(entity);
+        }
+        ImGui::EndPopup();
+    }
+
+    if (opened && children && !children->empty()) {
+        // Copy the child list before recursing — context-menu Duplicate
+        // and similar can mutate the children vector mid-iteration.
+        std::vector<Entity> snapshot = *children;
+        for (Entity child : snapshot) {
+            DrawHierarchyNode(child, filterLower);
+        }
+        ImGui::TreePop();
+    }
+    ImGui::PopID();
 }
 
 void UIManager::DrawHierarchy() {
@@ -692,99 +710,72 @@ void UIManager::DrawHierarchy() {
     ImGui::InputTextWithHint("##HierFilter", "Search...", m_HierarchyFilter, sizeof(m_HierarchyFilter));
     ImGui::Separator();
 
-    // Build entity list
-    if (m_Coordinator) {
-        m_EntityList.clear();
-        std::set<Entity> validEntities;
-        for (int i = 0; i <= m_EntityCounter && i < MAX_ENTITIES; ++i) {
-            Entity entity = static_cast<Entity>(i);
-            bool hasComponents = false;
-            try { m_Coordinator->GetComponent<TransformComponent>(entity); hasComponents = true; } catch (...) {}
-            if (!hasComponents) { try { m_Coordinator->GetComponent<RenderComponent>(entity); hasComponents = true; } catch (...) {} }
-            if (!hasComponents) { try { m_Coordinator->GetComponent<PhysicsComponent>(entity); hasComponents = true; } catch (...) {} }
-            if (hasComponents) validEntities.insert(entity);
-        }
+    if (!m_Coordinator) return;
 
-        std::string filterStr(m_HierarchyFilter);
-        std::transform(filterStr.begin(), filterStr.end(), filterStr.begin(), ::tolower);
+    std::string filterLower(m_HierarchyFilter);
+    std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(), ::tolower);
 
-        for (Entity entity : validEntities) {
-            // Get name from map, or generate default
-            std::string name;
-            auto it = m_EntityNames.find(entity);
-            if (it != m_EntityNames.end()) {
-                name = it->second;
-            } else {
-                name = "Entity " + std::to_string(entity);
-            }
+    // Iterate the authoritative living-entity set from EntityManager —
+    // every entity shows up regardless of which path created it (UI, Lua
+    // spawn_cube, scene load). Roots are entities with no HierarchyComponent
+    // *or* with parent == kNoParent. Everything else is reached by
+    // recursing into HierarchyComponent::children below.
+    std::vector<Entity> roots;
+    const auto& living = m_Coordinator->GetLivingEntities();
+    roots.reserve(living.size());
+    for (Entity e : living) {
+        // Skip entities with no UI-relevant components (matches the prior
+        // "did this entity get any ECS plumbing" check).
+        bool hasAny = m_Coordinator->HasComponent<TransformComponent>(e)
+                   || m_Coordinator->HasComponent<RenderComponent>(e)
+                   || m_Coordinator->HasComponent<PhysicsComponent>(e);
+        if (!hasAny) continue;
 
-            // Apply filter
-            if (!filterStr.empty()) {
-                std::string lowerName = name;
-                std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::tolower);
-                if (lowerName.find(filterStr) == std::string::npos) continue;
-            }
-
-            m_EntityList.push_back(std::make_pair(entity, name));
+        if (m_Coordinator->HasComponent<HierarchyComponent>(e)) {
+            const auto& h = m_Coordinator->GetComponent<HierarchyComponent>(e);
+            if (h.parent == HierarchyComponent::kNoParent) roots.push_back(e);
+        } else {
+            // Entity without HierarchyComponent is treated as a root leaf.
+            roots.push_back(e);
         }
     }
 
-    // Display entity tree
-    for (size_t i = 0; i < m_EntityList.size(); ++i) {
-        Entity entity = m_EntityList[i].first;
-        const std::string& name = m_EntityList[i].second;
+    // Stable order by entity id so scene layout doesn't shuffle every
+    // frame when an unordered_set iteration changes order.
+    std::sort(roots.begin(), roots.end());
 
-        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth;
-        if (m_HasSelectedEntity && m_SelectedEntity == entity) {
-            flags |= ImGuiTreeNodeFlags_Selected;
-        }
+    // Invisible "unparent to root" drop band. Dropping an entity here
+    // detaches it from its current parent so it becomes a root.
+    ImGui::InvisibleButton("##root_drop", ImVec2(-1, 4));
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("MIST_ENTITY")) {
+            Entity child = *static_cast<const Entity*>(p->Data);
+            if (m_Coordinator->HasComponent<HierarchyComponent>(child)) {
+                Entity oldParent = m_Coordinator->GetComponent<HierarchyComponent>(child).parent;
+                HierarchySystem::Detach(*m_Coordinator, child);
 
-        ImGui::PushID((int)entity);
-        ImGui::TreeNodeEx("##node", flags, "%s", name.c_str());
-
-        if (ImGui::IsItemClicked()) {
-            SelectEntity(entity);
-        }
-
-        // Right-click context menu
-        if (ImGui::BeginPopupContextItem("EntityContext")) {
-            if (ImGui::MenuItem("Rename")) {
-                // Start inline rename — set as selected entity name
-                SelectEntity(entity);
+                Coordinator* coord = m_Coordinator;
+                Mist::Editor::Command c;
+                c.label = "Unparent";
+                c.merge_key = 0;
+                c.redo = [coord, child]() { HierarchySystem::Detach(*coord, child); };
+                c.undo = [coord, child, oldParent]() {
+                    if (oldParent != HierarchyComponent::kNoParent
+                        && coord->HasComponent<HierarchyComponent>(oldParent)) {
+                        HierarchySystem::Attach(*coord, oldParent, child);
+                    }
+                };
+                m_UndoStack.Push(std::move(c));
             }
-            if (ImGui::MenuItem("Duplicate")) {
-                // Simple duplicate: create entity with same components
-                if (m_Coordinator) {
-                    Entity newEntity = m_Coordinator->CreateEntity();
-                    m_EntityCounter = std::max(m_EntityCounter, (int)newEntity + 1);
-                    try {
-                        auto& srcT = m_Coordinator->GetComponent<TransformComponent>(entity);
-                        TransformComponent t = srcT;
-                        t.position.x += 1.0f; // offset
-                        m_Coordinator->AddComponent(newEntity, t);
-                    } catch (...) {}
-                    try {
-                        auto& srcR = m_Coordinator->GetComponent<RenderComponent>(entity);
-                        RenderComponent r = srcR;
-                        m_Coordinator->AddComponent(newEntity, r);
-                    } catch (...) {}
-                    std::string newName = name + " (copy)";
-                    m_EntityNames[newEntity] = newName;
-                    m_ConsoleMessages.push_back("Duplicated: " + newName);
-                    SelectEntity(newEntity);
-                }
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Delete")) {
-                DeleteEntity(entity);
-                m_EntityNames.erase(entity);
-            }
-            ImGui::EndPopup();
         }
-        ImGui::PopID();
+        ImGui::EndDragDropTarget();
     }
 
-    if (m_EntityList.empty()) {
+    for (Entity e : roots) {
+        DrawHierarchyNode(e, filterLower);
+    }
+
+    if (roots.empty()) {
         ImGui::TextDisabled("No entities in scene");
         ImGui::TextDisabled("Use + or GameObject menu");
     }
@@ -804,72 +795,108 @@ void UIManager::DrawInspector() {
         ImGui::TextDisabled("ID: %d", m_SelectedEntity);
         ImGui::Separator();
         
-        // Transform Component
-        try {
-            auto& transform = m_Coordinator->GetComponent<TransformComponent>(m_SelectedEntity);
-            if (ImGui::CollapsingHeader("Transform", ImGuiTreeNodeFlags_DefaultOpen)) {
-                DrawTransformComponent(transform);
+        // Per-component header with inline Remove button. The closure
+        // renders `[X]` right-aligned next to the header label; click
+        // removes the component + pushes an undo command that re-adds
+        // the snapshotted state. `bodyFn` draws the component's
+        // property widgets inside the collapsing header body.
+        auto drawComponent = [&](const char* label, auto hasFn,
+                                 auto removeFn, auto addBackFn,
+                                 auto bodyFn) {
+            if (!hasFn()) return;
+            // Row layout: header label + right-aligned X button.
+            bool open = ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_DefaultOpen);
+            ImGui::SameLine(ImGui::GetWindowWidth() - 30.0f);
+            ImGui::PushID(label);
+            if (ImGui::SmallButton("X")) {
+                Mist::Editor::Command c;
+                c.label = std::string("Remove ") + label;
+                c.merge_key = 0;
+                // addBackFn captures the current component value so
+                // undo restores the same state (not a default).
+                c.redo = removeFn;
+                c.undo = addBackFn;
+                removeFn();  // apply now
+                m_UndoStack.Push(std::move(c));
+                ImGui::PopID();
+                return;  // don't draw body — component is gone
             }
-        } catch (...) {
-            // Component doesn't exist
-        }
-        
-        // Render Component
-        try {
-            auto& render = m_Coordinator->GetComponent<RenderComponent>(m_SelectedEntity);
-            if (ImGui::CollapsingHeader("Render", ImGuiTreeNodeFlags_DefaultOpen)) {
-                DrawRenderComponent(render);
-            }
-        } catch (...) {
-            // Component doesn't exist
-        }
-        
-        // Physics Component
-        try {
-            auto& physics = m_Coordinator->GetComponent<PhysicsComponent>(m_SelectedEntity);
-            if (ImGui::CollapsingHeader("Physics", ImGuiTreeNodeFlags_DefaultOpen)) {
-                DrawPhysicsComponent(physics);
-            }
-        } catch (...) {
-            // Component doesn't exist
-        }
-        
+            ImGui::PopID();
+            if (open) bodyFn();
+        };
+
+        Entity sel = m_SelectedEntity;
+        Coordinator* coord = m_Coordinator;
+
+        drawComponent("Transform",
+            [&] { return coord->HasComponent<TransformComponent>(sel); },
+            [=] { coord->RemoveComponent<TransformComponent>(sel); },
+            [=, snap = SnapshotEntity(sel)] {
+                TransformComponent t;
+                if (snap.hasTransform) {
+                    t.position = snap.position; t.rotation = snap.rotation; t.scale = snap.scale;
+                }
+                coord->AddComponent(sel, t);
+            },
+            [&] { DrawTransformComponent(coord->GetComponent<TransformComponent>(sel)); });
+
+        drawComponent("Render",
+            [&] { return coord->HasComponent<RenderComponent>(sel); },
+            [=] { coord->RemoveComponent<RenderComponent>(sel); },
+            [=, snap = SnapshotEntity(sel)] {
+                RenderComponent r;
+                r.renderable = static_cast<Renderable*>(snap.renderable);
+                r.visible    = snap.visible;
+                coord->AddComponent(sel, r);
+            },
+            [&] { DrawRenderComponent(coord->GetComponent<RenderComponent>(sel)); });
+
+        drawComponent("Physics",
+            [&] { return coord->HasComponent<PhysicsComponent>(sel); },
+            [=] { coord->RemoveComponent<PhysicsComponent>(sel); },
+            // Physics undo: we don't recreate the Bullet rigid body
+            // (see EntitySnapshot comment). Restores an empty Physics
+            // component slot; user re-adds body through gameplay code.
+            [=] { PhysicsComponent p; coord->AddComponent(sel, p); },
+            [&] { DrawPhysicsComponent(coord->GetComponent<PhysicsComponent>(sel)); });
+
         ImGui::Separator();
-        
-        // Add Component button
+
+        // Add Component button — HasComponent replaces the old
+        // try/catch dance; duplicate-add warns via toast instead of
+        // silently no-op'ing.
         if (ImGui::Button("Add Component")) {
             ImGui::OpenPopup("AddComponentPopup");
         }
-        
+
+        auto tryAdd = [&](const char* name, auto hasFn, auto addFn) {
+            if (ImGui::MenuItem(name)) {
+                if (hasFn()) {
+                    Mist::Editor::Toaster::Instance().Push(
+                        Mist::Editor::ToastLevel::Info,
+                        std::string(name) + " already present on this entity");
+                } else {
+                    addFn();
+                }
+            }
+        };
+
         if (ImGui::BeginPopup("AddComponentPopup")) {
-            if (ImGui::MenuItem("Transform")) {
-                try {
-                    m_Coordinator->GetComponent<TransformComponent>(m_SelectedEntity);
-                } catch (...) {
-                    TransformComponent transform;
-                    m_Coordinator->AddComponent(m_SelectedEntity, transform);
-                }
-            }
-            if (ImGui::MenuItem("Render")) {
-                try {
-                    m_Coordinator->GetComponent<RenderComponent>(m_SelectedEntity);
-                } catch (...) {
-                    RenderComponent render;
-                    render.renderable = nullptr;
-                    render.visible = true;
-                    m_Coordinator->AddComponent(m_SelectedEntity, render);
-                }
-            }
-            if (ImGui::MenuItem("Physics")) {
-                try {
-                    m_Coordinator->GetComponent<PhysicsComponent>(m_SelectedEntity);
-                } catch (...) {
-                    PhysicsComponent physics;
-                    physics.rigidBody = nullptr;
-                    physics.syncTransform = true;
-                    m_Coordinator->AddComponent(m_SelectedEntity, physics);
-                }
-            }
+            tryAdd("Transform",
+                   [&] { return coord->HasComponent<TransformComponent>(sel); },
+                   [&] { coord->AddComponent(sel, TransformComponent{}); });
+            tryAdd("Render",
+                   [&] { return coord->HasComponent<RenderComponent>(sel); },
+                   [&] {
+                       RenderComponent r; r.renderable = nullptr; r.visible = true;
+                       coord->AddComponent(sel, r);
+                   });
+            tryAdd("Physics",
+                   [&] { return coord->HasComponent<PhysicsComponent>(sel); },
+                   [&] {
+                       PhysicsComponent p; p.rigidBody = nullptr; p.syncTransform = true;
+                       coord->AddComponent(sel, p);
+                   });
             ImGui::EndPopup();
         }
     } else {
@@ -879,6 +906,19 @@ void UIManager::DrawInspector() {
 }
 
 void UIManager::DrawSceneView() {
+    // Keep the Renderer informed about whether this panel is currently
+    // visible. When closed, Renderer falls back to blitting the viewport's
+    // output directly to the default framebuffer instead of handing it to
+    // this panel — without that fallback, closing the panel would leave the
+    // user staring at ImGui's background ("blue screen" bug).
+    if (m_Renderer) {
+        m_Renderer->SetFullscreenPresent(!m_ShowSceneView);
+    }
+
+    if (!m_ShowSceneView) {
+        return;
+    }
+
     ImGui::Begin("Scene View", &m_ShowSceneView);
 
     if (m_ViewportTexture != 0) {
@@ -1015,32 +1055,85 @@ void UIManager::DrawConsole() {
 }
 
 void UIManager::CreateEntity(const std::string& name) {
-    if (m_Coordinator) {
-        Entity entity = m_Coordinator->CreateEntity();
-        m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
+    if (!m_Coordinator) return;
 
-        // Add default transform component
-        TransformComponent transform;
-        m_Coordinator->AddComponent(entity, transform);
+    Entity entity = m_Coordinator->CreateEntity();
+    m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
 
-        m_EntityNames[entity] = name;
-        m_ConsoleMessages.push_back("Created entity: " + name);
+    TransformComponent transform;
+    m_Coordinator->AddComponent(entity, transform);
 
-        SelectEntity(entity);
-    }
+    // Hierarchy participation — matches the Lua spawn_cube path so
+    // the scene tree shows UI-created entities identically to
+    // script-created ones.
+    m_Coordinator->AddComponent(entity, HierarchyComponent{});
+
+    m_EntityNames[entity] = name;
+    m_ConsoleMessages.push_back("Created entity: " + name);
+
+    SelectEntity(entity);
+
+    // Undo for create = destroy; redo respawns via snapshot of what
+    // we just built. Captured snapshot covers name + root-level empty
+    // entity shape.
+    EntitySnapshot snap = SnapshotEntity(entity);
+    auto idRef = std::make_shared<Entity>(entity);
+    Mist::Editor::Command c;
+    c.label = "Create " + name;
+    c.merge_key = 0;
+    c.redo = [this, snap, idRef]() {
+        *idRef = RespawnFromSnapshot(snap);
+    };
+    c.undo = [this, idRef]() {
+        if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*idRef)) {
+            m_Coordinator->DestroyEntity(*idRef);
+            m_EntityNames.erase(*idRef);
+            if (m_HasSelectedEntity && m_SelectedEntity == *idRef) {
+                m_HasSelectedEntity = false;
+            }
+        }
+    };
+    m_UndoStack.Push(std::move(c));
 }
 
 void UIManager::DeleteEntity(Entity entity) {
-    if (m_Coordinator) {
-        m_Coordinator->DestroyEntity(entity);
-        
-        if (m_HasSelectedEntity && m_SelectedEntity == entity) {
-            m_HasSelectedEntity = false;
-            m_SelectedEntity = 0;
-        }
-        
-        m_ConsoleMessages.push_back("Deleted entity: " + std::to_string(entity));
+    if (!m_Coordinator) return;
+
+    // Snapshot before destroy so undo can respawn the same components.
+    // Physics bodies are not captured (Bullet-owned pointers don't
+    // survive DestroyEntity); the undo comment in UIManager.h
+    // documents this trade-off.
+    EntitySnapshot snap = SnapshotEntity(entity);
+
+    m_Coordinator->DestroyEntity(entity);
+    m_EntityNames.erase(entity);
+    if (m_HasSelectedEntity && m_SelectedEntity == entity) {
+        m_HasSelectedEntity = false;
+        m_SelectedEntity = 0;
     }
+    m_ConsoleMessages.push_back("Deleted entity: " + std::to_string(entity));
+
+    // Record undo. Redo re-destroys the entity-id-of-the-moment; undo
+    // respawns from the snapshot. Entity ids *may* change across the
+    // cycle — undo_id below is mutable state the lambda captures by
+    // shared_ptr so redo/undo can rebind after a respawn.
+    auto respawnedId = std::make_shared<Entity>(entity);
+    Mist::Editor::Command c;
+    c.label = "Delete entity";
+    c.merge_key = 0;  // never merge deletes
+    c.undo = [this, snap, respawnedId]() {
+        *respawnedId = RespawnFromSnapshot(snap);
+    };
+    c.redo = [this, respawnedId]() {
+        if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*respawnedId)) {
+            m_Coordinator->DestroyEntity(*respawnedId);
+            m_EntityNames.erase(*respawnedId);
+            if (m_HasSelectedEntity && m_SelectedEntity == *respawnedId) {
+                m_HasSelectedEntity = false;
+            }
+        }
+    };
+    m_UndoStack.Push(std::move(c));
 }
 
 void UIManager::SelectEntity(Entity entity) {
@@ -1084,6 +1177,8 @@ void UIManager::CreateCube() {
         m_Coordinator->AddComponent(entity, physics);
         m_ConsoleMessages.push_back("Added physics component");
         
+        m_Coordinator->AddComponent(entity, HierarchyComponent{});
+
         m_EntityNames[entity] = "Cube";
         m_ConsoleMessages.push_back("Cube entity created successfully with " + std::to_string(vertices.size()) + " vertices");
         SelectEntity(entity);
@@ -1128,6 +1223,8 @@ void UIManager::CreateSphere() {
         m_Coordinator->AddComponent(entity, physics);
         m_ConsoleMessages.push_back("Added physics component");
         
+        m_Coordinator->AddComponent(entity, HierarchyComponent{});
+
         m_EntityNames[entity] = "Sphere";
         m_ConsoleMessages.push_back("Sphere entity created successfully with " + std::to_string(vertices.size()) + " vertices");
         SelectEntity(entity);
@@ -1172,6 +1269,8 @@ void UIManager::CreatePlane() {
         m_Coordinator->AddComponent(entity, physics);
         m_ConsoleMessages.push_back("Added physics component");
         
+        m_Coordinator->AddComponent(entity, HierarchyComponent{});
+
         m_EntityNames[entity] = "Plane";
         m_ConsoleMessages.push_back("Plane entity created successfully with " + std::to_string(vertices.size()) + " vertices");
         SelectEntity(entity);
@@ -1196,33 +1295,35 @@ void UIManager::DrawTransformComponent(TransformComponent& transform) {
                                 transform.rotation != originalRot ||
                                 transform.scale != originalScale);
 
-        if (transformChanged && m_UndoRedo) {
-            // Capture for undo
+        if (transformChanged) {
+            // Capture for undo via the merge-aware stack. Using one key
+            // per entity transform ("entity/transform") means successive
+            // drags within 500ms collapse into a single undo step —
+            // matches Godot's slider-drag behaviour.
             Entity entity = m_SelectedEntity;
             glm::vec3 newPos = transform.position;
             glm::vec3 newRot = transform.rotation;
             glm::vec3 newScale = transform.scale;
             Coordinator* coord = m_Coordinator;
 
-            m_UndoRedo->ExecuteCommand(std::make_unique<LambdaCommand>(
-                "Transform",
-                [coord, entity, newPos, newRot, newScale]() {
-                    try {
-                        auto& t = coord->GetComponent<TransformComponent>(entity);
-                        t.position = newPos;
-                        t.rotation = newRot;
-                        t.scale = newScale;
-                    } catch (...) {}
-                },
-                [coord, entity, originalPos, originalRot, originalScale]() {
-                    try {
-                        auto& t = coord->GetComponent<TransformComponent>(entity);
-                        t.position = originalPos;
-                        t.rotation = originalRot;
-                        t.scale = originalScale;
-                    } catch (...) {}
+            Mist::Editor::Command c;
+            c.label = "Transform";
+            c.merge_key = (static_cast<std::uint64_t>(entity) << 8) | 0x01; // 0x01 = transform
+            c.redo = [coord, entity, newPos, newRot, newScale]() {
+                if (coord->HasComponent<TransformComponent>(entity)) {
+                    auto& t = coord->GetComponent<TransformComponent>(entity);
+                    t.position = newPos; t.rotation = newRot; t.scale = newScale;
+                    t.dirty = true;
                 }
-            ));
+            };
+            c.undo = [coord, entity, originalPos, originalRot, originalScale]() {
+                if (coord->HasComponent<TransformComponent>(entity)) {
+                    auto& t = coord->GetComponent<TransformComponent>(entity);
+                    t.position = originalPos; t.rotation = originalRot; t.scale = originalScale;
+                    t.dirty = true;
+                }
+            };
+            m_UndoStack.Push(std::move(c));
         }
 
         if (transformChanged) {
@@ -1252,11 +1353,15 @@ void UIManager::DrawTransformComponent(TransformComponent& transform) {
 }
 
 void UIManager::DrawRenderComponent(RenderComponent& render) {
-    ImGui::Checkbox("Visible", &render.visible);
+    // Reflection-driven block for reflected fields (currently: `visible`).
+    // Add MIST_FIELD lines in RenderComponent.h and they appear here for free.
+    if (const auto* props = Mist::TypeRegistry::Instance().Get("RenderComponent")) {
+        DrawReflectedProperties(&render, props);
+    }
 
+    // Post-hook: surface non-reflected runtime info (the concrete Mesh pointer).
     if (render.renderable) {
         ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Renderable: Active");
-        // Try to show mesh info if it's a Mesh*
         Mesh* mesh = dynamic_cast<Mesh*>(render.renderable);
         if (mesh) {
             ImGui::Text("Vertices: %zu", mesh->vertices.size());
@@ -1268,7 +1373,10 @@ void UIManager::DrawRenderComponent(RenderComponent& render) {
 }
 
 void UIManager::DrawPhysicsComponent(PhysicsComponent& physics) {
-    ImGui::Checkbox("Sync Transform", &physics.syncTransform);
+    // Reflection-driven block for reflected fields (currently: `syncTransform`).
+    if (const auto* props = Mist::TypeRegistry::Instance().Get("PhysicsComponent")) {
+        DrawReflectedProperties(&physics, props);
+    }
     
     if (physics.rigidBody) {
         ImGui::Text("Rigid Body: Valid");
@@ -1281,6 +1389,85 @@ void UIManager::DrawPhysicsComponent(PhysicsComponent& physics) {
         ImGui::Text("Mass: %.2f", mass);
     } else {
         ImGui::Text("Rigid Body: None");
+    }
+}
+
+void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr) {
+    // Dispatches on (PropertyType, PropertyHint) to the right ImGui widget.
+    // This is the generic spine the component inspectors delegate to —
+    // adding a new field in a MIST_REFLECT block is enough to see it here
+    // without touching UIManager. Anything unknown falls through to a
+    // greyed-out label so a registration mistake is visible rather than
+    // silent.
+    auto* props = static_cast<const Mist::PropertyList*>(propertyListPtr);
+    if (!obj || !props) return;
+
+    auto* base = static_cast<char*>(obj);
+
+    for (const auto& p : *props) {
+        void* field = base + p.offset;
+
+        switch (p.type) {
+            case Mist::PropertyType::Bool:
+                ImGui::Checkbox(p.name, reinterpret_cast<bool*>(field));
+                break;
+
+            case Mist::PropertyType::Int:
+                ImGui::DragInt(p.name, reinterpret_cast<int*>(field));
+                break;
+
+            case Mist::PropertyType::Float: {
+                float* f = reinterpret_cast<float*>(field);
+                if (p.hint == Mist::PropertyHint::Range) {
+                    float lo = 0, hi = 1, step = 0.01f;
+                    if (Mist::parse_range_hint(p.hintString, lo, hi, step)) {
+                        ImGui::SliderFloat(p.name, f, lo, hi);
+                        break;
+                    }
+                }
+                ImGui::DragFloat(p.name, f, 0.01f);
+                break;
+            }
+
+            case Mist::PropertyType::Vec2:
+                ImGui::DragFloat2(p.name, reinterpret_cast<float*>(field), 0.01f);
+                break;
+
+            case Mist::PropertyType::Vec3:
+                if (p.hint == Mist::PropertyHint::Color) {
+                    ImGui::ColorEdit3(p.name, reinterpret_cast<float*>(field));
+                } else {
+                    ImGui::DragFloat3(p.name, reinterpret_cast<float*>(field), 0.01f);
+                }
+                break;
+
+            case Mist::PropertyType::Vec4:
+                if (p.hint == Mist::PropertyHint::Color) {
+                    ImGui::ColorEdit4(p.name, reinterpret_cast<float*>(field));
+                } else {
+                    ImGui::DragFloat4(p.name, reinterpret_cast<float*>(field), 0.01f);
+                }
+                break;
+
+            case Mist::PropertyType::String: {
+                auto* s = reinterpret_cast<std::string*>(field);
+                char buf[256];
+                std::strncpy(buf, s->c_str(), sizeof(buf) - 1);
+                buf[sizeof(buf) - 1] = '\0';
+                const ImGuiInputTextFlags flags =
+                    (p.hint == Mist::PropertyHint::Multiline) ? ImGuiInputTextFlags_AllowTabInput
+                                                               : 0;
+                if (ImGui::InputText(p.name, buf, sizeof(buf), flags)) {
+                    *s = buf;
+                }
+                break;
+            }
+
+            case Mist::PropertyType::Unknown:
+            default:
+                ImGui::TextDisabled("%s (unreflected type)", p.name);
+                break;
+        }
     }
 }
 
@@ -1477,6 +1664,10 @@ void UIManager::DrawExportDialog() {
     }
 }
 
+// FPS-specific UI methods deleted. The blocks below are stubbed out so that
+// any stale include-chain still compiles; real removal of their declarations
+// happens in UIManager.h in the same commit.
+#if 0
 void UIManager::DrawFPSGameLauncher() {
     // Create a prominent window for FPS game controls
     ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
@@ -1674,6 +1865,7 @@ void UIManager::DrawFPSGameHUD() {
     
     ImGui::End();
 }
+#endif // FPS-specific UI methods
 
 void UIManager::DrawCrosshair() {
     ImGuiIO& io = ImGui::GetIO();
@@ -1713,6 +1905,7 @@ void UIManager::DrawCrosshair() {
     );
 }
 
+#if 0
 void UIManager::DrawGameOverScreen() {
     if (!m_FPSGameManager) return;
 
@@ -1745,11 +1938,11 @@ void UIManager::DrawGameOverScreen() {
     // Restart button
     ImGui::SetCursorPos(ImVec2(screenWidth * 0.5f - 75, screenHeight * 0.6f));
     if (ImGui::Button("RESTART", ImVec2(150, 50))) {
-        m_FPSGameManager->RestartGame();
     }
 
     ImGui::End();
 }
+#endif // DrawGameOverScreen
 
 // --- Wired Editor Panels (from EditorUI.cpp functionality) ---
 
@@ -1977,7 +2170,6 @@ void UIManager::DrawToolbar() {
     ImGui::PushStyleColor(ImGuiCol_Button, playState == EditorPlayState::Playing
         ? ImVec4(0.2f, 0.6f, 0.2f, 1.0f) : ImVec4(0.24f, 0.26f, 0.30f, 1.0f));
     if (ImGui::Button("Play", ImVec2(0, 24)) && m_EditorState) {
-        if (playState == EditorPlayState::Paused && m_FPSGameManager) m_FPSGameManager->ResumeGame();
         m_EditorState->Play();
     }
     ImGui::PopStyleColor();
@@ -1987,7 +2179,6 @@ void UIManager::DrawToolbar() {
         ? ImVec4(0.6f, 0.6f, 0.2f, 1.0f) : ImVec4(0.24f, 0.26f, 0.30f, 1.0f));
     if (ImGui::Button("Pause", ImVec2(0, 24)) && m_EditorState) {
         m_EditorState->Pause();
-        if (m_FPSGameManager) m_FPSGameManager->PauseGame();
     }
     ImGui::PopStyleColor();
 
@@ -2004,39 +2195,57 @@ void UIManager::DrawToolbar() {
     ImGui::PopStyleVar();
 }
 
-// --- Godot-like Fixed Layout ---
+// --- Dockable Layout ---
+//
+// All panels below are plain ImGui windows. ImGui's dock system
+// (enabled via `ImGuiConfigFlags_DockingEnable` in Initialize)
+// manages their positions based on the DockSpaceOverViewport set up
+// by BuildDockspace below. The first-run layout is programmatic; on
+// subsequent launches ImGui restores from `imgui_layout.ini`.
 
 void UIManager::DrawEditorLayout() {
-    ImGuiIO& io = ImGui::GetIO();
-    float displayW = io.DisplaySize.x;
-    float displayH = io.DisplaySize.y;
-    float topOffset = m_Layout.menuBarHeight + m_Layout.toolbarHeight;
+    // Host dockspace occupies the entire main viewport's work area
+    // (below the menu bar). Each panel below calls Begin/End with a
+    // stable name — the dock system binds them by name to the slots
+    // we built in BuildDockspace() on first run.
+    ImGuiID dockspaceId = ImGui::DockSpaceOverViewport(
+        0, ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
 
-    float leftW = m_Layout.leftPanelVisible ? m_Layout.leftPanelWidth : 0.0f;
-    float rightW = m_Layout.rightPanelVisible ? m_Layout.rightPanelWidth : 0.0f;
-    float bottomH = m_Layout.bottomPanelVisible ? m_Layout.bottomPanelHeight : 0.0f;
+    static bool builtOnce = false;
+    if (!builtOnce) {
+        builtOnce = true;
+        // Only build the default layout if no prior layout exists —
+        // otherwise we'd stomp the user's saved arrangement every
+        // restart.
+        if (ImGui::DockBuilderGetNode(dockspaceId) == nullptr
+            || ImGui::DockBuilderGetNode(dockspaceId)->ChildNodes[0] == nullptr) {
+            ImGui::DockBuilderRemoveNode(dockspaceId);
+            ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+            ImGui::DockBuilderSetNodeSize(dockspaceId, ImGui::GetMainViewport()->WorkSize);
 
-    float centerW = displayW - leftW - rightW;
-    float centerH = displayH - topOffset - bottomH;
+            ImGuiID left    = ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left,  0.18f, nullptr, &dockspaceId);
+            ImGuiID right   = ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Right, 0.22f / (1.0f - 0.18f), nullptr, &dockspaceId);
+            ImGuiID bottom  = ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Down,  0.28f, nullptr, &dockspaceId);
 
-    ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus;
+            ImGui::DockBuilderDockWindow("Hierarchy",      left);
+            ImGui::DockBuilderDockWindow("Inspector",      right);
+            ImGui::DockBuilderDockWindow("##BottomPanel",  bottom);
+            ImGui::DockBuilderDockWindow("Viewport",       dockspaceId);
+            ImGui::DockBuilderFinish(dockspaceId);
+        }
+    }
 
-    // === LEFT PANEL (Hierarchy) ===
+    // === LEFT PANEL (Hierarchy) — docks to the left slot ===
     if (m_Layout.leftPanelVisible) {
-        ImGui::SetNextWindowPos(ImVec2(0, topOffset));
-        ImGui::SetNextWindowSize(ImVec2(leftW, centerH));
-        ImGui::Begin("Hierarchy", &m_Layout.leftPanelVisible, panelFlags);
+        ImGui::Begin("Hierarchy", &m_Layout.leftPanelVisible);
         DrawHierarchy();
         ImGui::End();
     }
 
     // === CENTER PANEL (Viewport) ===
     {
-        ImGui::SetNextWindowPos(ImVec2(leftW, topOffset));
-        ImGui::SetNextWindowSize(ImVec2(centerW, centerH));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::Begin("Viewport", nullptr, panelFlags | ImGuiWindowFlags_NoTitleBar);
+        ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoCollapse);
 
         if (m_ViewportTexture != 0) {
             ImVec2 available = ImGui::GetContentRegionAvail();
@@ -2050,10 +2259,110 @@ void UIManager::DrawEditorLayout() {
             // Center the image
             float offsetX = (available.x - displayW2) * 0.5f;
             float offsetY = (available.y - displayH2) * 0.5f;
-            ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPosX() + offsetX, ImGui::GetCursorPosY() + offsetY));
+            ImVec2 imgCursor(ImGui::GetCursorPosX() + offsetX, ImGui::GetCursorPosY() + offsetY);
+            ImGui::SetCursorPos(imgCursor);
+            // Screen-space rectangle of the image, used by ImGuizmo
+            // to hit-test and draw into the viewport overlay.
+            ImVec2 imgScreenPos = ImGui::GetCursorScreenPos();
             ImGui::Image((ImTextureID)(intptr_t)m_ViewportTexture,
                 ImVec2(displayW2, displayH2),
                 ImVec2(0, 1), ImVec2(1, 0));
+
+            // Asset → viewport drop target. Accepts the same
+            // `ASSET_PATH` payload that the asset browser panels
+            // emit, routes by extension inside HandleAssetDrop.
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* p =
+                        ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                    std::string dropped(
+                        static_cast<const char*>(p->Data),
+                        p->DataSize ? static_cast<size_t>(p->DataSize) - 1 : 0);
+                    HandleAssetDrop(dropped);
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            // Gizmo overlay — renders the translate/rotate/scale
+            // handles on top of the viewport image. No-ops when no
+            // entity is selected or the entity has no transform.
+            if (m_HasSelectedEntity && m_Coordinator && m_Renderer
+                && m_Coordinator->HasComponent<TransformComponent>(m_SelectedEntity)
+                && m_GizmoSystem) {
+                GizmoSystem::BeginFrame(imgScreenPos.x, imgScreenPos.y, displayW2, displayH2);
+
+                auto& cam  = m_Renderer->GetCamera();
+                auto& t    = m_Coordinator->GetComponent<TransformComponent>(m_SelectedEntity);
+                float camAspect = displayH2 > 0 ? displayW2 / displayH2 : 16.0f / 9.0f;
+                glm::mat4 view  = cam.GetViewMatrix();
+                glm::mat4 proj  = cam.GetProjectionMatrix(camAspect);
+                glm::mat4 model = t.GetModelMatrix();
+
+                // Gizmo drag undo: capture pre-drag state at the
+                // transition from "not using" to "using". The check
+                // runs BEFORE Manipulate so the capture is the true
+                // pre-drag transform, not the first-frame-applied
+                // one. One undo step per drag regardless of frame count.
+                bool wasUsing    = m_GizmoCapture.active;
+                bool isUsingNow  = GizmoSystem::IsUsing();
+                if (!wasUsing && isUsingNow) {
+                    m_GizmoCapture.active   = true;
+                    m_GizmoCapture.entity   = m_SelectedEntity;
+                    m_GizmoCapture.position = t.position;
+                    m_GizmoCapture.rotation = t.rotation;
+                    m_GizmoCapture.scale    = t.scale;
+                }
+
+                if (m_GizmoSystem->Manipulate(view, proj, model)) {
+                    float tr[3], rot[3], sc[3];
+                    ImGuizmo::DecomposeMatrixToComponents(
+                        glm::value_ptr(model), tr, rot, sc);
+                    t.position = {tr[0],  tr[1],  tr[2]};
+                    t.rotation = {rot[0], rot[1], rot[2]};
+                    t.scale    = {sc[0],  sc[1],  sc[2]};
+                    t.dirty    = true;
+                }
+
+                // Drag ended this frame — push the undo command.
+                if (wasUsing && !GizmoSystem::IsUsing() && m_GizmoCapture.active) {
+                    Coordinator* coord = m_Coordinator;
+                    Entity ent         = m_GizmoCapture.entity;
+                    glm::vec3 oldPos   = m_GizmoCapture.position;
+                    glm::vec3 oldRot   = m_GizmoCapture.rotation;
+                    glm::vec3 oldScale = m_GizmoCapture.scale;
+                    glm::vec3 newPos   = t.position;
+                    glm::vec3 newRot   = t.rotation;
+                    glm::vec3 newScale = t.scale;
+
+                    Mist::Editor::Command c;
+                    switch (m_GizmoSystem->GetMode()) {
+                        case GizmoMode::Translate: c.label = "Translate"; break;
+                        case GizmoMode::Rotate:    c.label = "Rotate";    break;
+                        case GizmoMode::Scale:     c.label = "Scale";     break;
+                    }
+                    c.merge_key = (static_cast<std::uint64_t>(ent) << 8)
+                                | (static_cast<std::uint64_t>(m_GizmoSystem->GetMode()) + 0x10);
+                    c.redo = [coord, ent, newPos, newRot, newScale]() {
+                        if (coord->HasComponent<TransformComponent>(ent)) {
+                            auto& tt = coord->GetComponent<TransformComponent>(ent);
+                            tt.position = newPos; tt.rotation = newRot; tt.scale = newScale;
+                            tt.dirty = true;
+                        }
+                    };
+                    c.undo = [coord, ent, oldPos, oldRot, oldScale]() {
+                        if (coord->HasComponent<TransformComponent>(ent)) {
+                            auto& tt = coord->GetComponent<TransformComponent>(ent);
+                            tt.position = oldPos; tt.rotation = oldRot; tt.scale = oldScale;
+                            tt.dirty = true;
+                        }
+                    };
+                    m_UndoStack.Push(std::move(c));
+                    m_GizmoCapture.active = false;
+                }
+            } else if (m_GizmoCapture.active && !GizmoSystem::IsUsing()) {
+                // Selection lost mid-drag (or entity deleted) — drop
+                // the capture so a stale entity doesn't get undo'd.
+                m_GizmoCapture.active = false;
+            }
         } else {
             ImGui::Text("No viewport texture");
         }
@@ -2064,18 +2373,14 @@ void UIManager::DrawEditorLayout() {
 
     // === RIGHT PANEL (Inspector) ===
     if (m_Layout.rightPanelVisible) {
-        ImGui::SetNextWindowPos(ImVec2(displayW - rightW, topOffset));
-        ImGui::SetNextWindowSize(ImVec2(rightW, centerH));
-        ImGui::Begin("Inspector", &m_Layout.rightPanelVisible, panelFlags);
+        ImGui::Begin("Inspector", &m_Layout.rightPanelVisible);
         DrawInspector();
         ImGui::End();
     }
 
     // === BOTTOM PANEL (Console / Asset Browser / Output tabs) ===
     if (m_Layout.bottomPanelVisible) {
-        ImGui::SetNextWindowPos(ImVec2(0, topOffset + centerH));
-        ImGui::SetNextWindowSize(ImVec2(displayW, bottomH));
-        ImGui::Begin("##BottomPanel", &m_Layout.bottomPanelVisible, panelFlags);
+        ImGui::Begin("##BottomPanel", &m_Layout.bottomPanelVisible);
 
         if (ImGui::BeginTabBar("BottomTabs")) {
             if (ImGui::BeginTabItem("Console")) {
@@ -2186,6 +2491,9 @@ void UIManager::SaveScene(const std::string& path) {
     extern Coordinator gCoordinator;
     if (SceneSerializer::Save(path, gCoordinator, m_EntityCounter)) {
         m_ConsoleMessages.push_back("Scene saved to: " + path);
+        // Clean the dirty marker so the title's `*` clears on next
+        // frame. Load does the same via Clear() below.
+        m_UndoStack.MarkSaved();
     } else {
         m_ConsoleMessages.push_back("Failed to save scene to: " + path);
     }
@@ -2203,11 +2511,11 @@ void UIManager::LoadScene(const std::string& path) {
         m_EntityCounter = entityCount;
         m_HasSelectedEntity = false;
         m_ConsoleMessages.push_back("Scene loaded from: " + path);
+        // New scene = fresh history. Undoing back into the previous
+        // scene's entities would produce zombie ids.
+        m_UndoStack.Clear();
     } else {
         m_ConsoleMessages.push_back("Failed to load scene from: " + path);
     }
 }
 
-UndoRedoManager& UIManager::GetUndoRedo() {
-    return *m_UndoRedo;
-}

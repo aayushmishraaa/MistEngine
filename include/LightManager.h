@@ -21,12 +21,16 @@ public:
 
     void Init();
 
-    // Light management
+    // Light management. Mutating operations flip m_LightsDirty so UploadToGPU
+    // only re-sends the SSBO when the contents have actually changed. Reading
+    // via GetLight() is assumed to be non-mutating; if a caller mutates the
+    // returned reference, they must call MarkLightsDirty() themselves.
     int AddLight(const Light& light);
     void RemoveLight(int index);
     Light& GetLight(int index) { return m_Lights[index]; }
     const std::vector<Light>& GetLights() const { return m_Lights; }
     int GetLightCount() const { return (int)m_Lights.size(); }
+    void MarkLightsDirty() { m_LightsDirty = true; }
 
     // Per-frame operations
     void UploadToGPU();
@@ -50,6 +54,7 @@ private:
     Shader m_ClusterCullShader;
 
     bool m_Initialized = false;
+    bool m_LightsDirty = true; // Force initial upload.
 };
 
 #endif

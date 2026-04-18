@@ -1,5 +1,7 @@
 #include "Shader.h"
 #include "Core/Logger.h"
+#include "Renderer/RenderingDevice.h"
+#include "Renderer/GLRenderingDevice.h"
 #include <fstream>
 #include <sstream>
 #include <glm/gtc/type_ptr.hpp>
@@ -19,76 +21,122 @@ std::string Shader::readFile(const char* path) {
     }
 }
 
-unsigned int Shader::compileShader(GLenum type, const char* source) {
-    unsigned int shader = glCreateShader(type);
-    glShaderSource(shader, 1, &source, NULL);
-    glCompileShader(shader);
-
-    const char* typeStr = (type == GL_VERTEX_SHADER) ? "VERTEX" :
-                          (type == GL_FRAGMENT_SHADER) ? "FRAGMENT" :
-                          (type == GL_GEOMETRY_SHADER) ? "GEOMETRY" : "COMPUTE";
-    if (!checkCompileErrors(shader, typeStr)) {
-        glDeleteShader(shader);
-        return 0;
-    }
-    return shader;
-}
-
 Shader::Shader(const char* vertexPath, const char* fragmentPath)
     : ID(0), m_VertexPath(vertexPath), m_FragmentPath(fragmentPath) {
-    std::string vertexCode = readFile(vertexPath);
+    auto* dev = static_cast<Mist::GPU::GLRenderingDevice*>(Mist::GPU::Device());
+    if (!dev) { LOG_ERROR("Shader: no RenderingDevice active"); return; }
+
+    std::string vertexCode   = readFile(vertexPath);
     std::string fragmentCode = readFile(fragmentPath);
     if (vertexCode.empty() || fragmentCode.empty()) return;
 
-    unsigned int vertex = compileShader(GL_VERTEX_SHADER, vertexCode.c_str());
-    if (!vertex) return;
+    // Compile stages through the device. CreateShader doesn't surface a
+    // compile-status return, so we inspect the raw GL handle afterwards to
+    // preserve the "log and bail" behaviour existing code relies on.
+    Mist::GPU::ShaderDesc vdesc{Mist::GPU::ShaderStage::Vertex,   vertexCode.c_str()};
+    Mist::GPU::ShaderDesc fdesc{Mist::GPU::ShaderStage::Fragment, fragmentCode.c_str()};
+    RID vrid = dev->CreateShader(vdesc);
+    RID frid = dev->CreateShader(fdesc);
+    GLuint vh = dev->GetGLHandle(vrid);
+    GLuint fh = dev->GetGLHandle(frid);
+    if (!checkCompileErrors(vh, "VERTEX") || !checkCompileErrors(fh, "FRAGMENT")) {
+        dev->Destroy(vrid);
+        dev->Destroy(frid);
+        return;
+    }
 
-    unsigned int fragment = compileShader(GL_FRAGMENT_SHADER, fragmentCode.c_str());
-    if (!fragment) { glDeleteShader(vertex); return; }
+    Mist::GPU::ProgramDesc pdesc{vrid, frid, RID{}};
+    m_ProgramRID = dev->CreateShaderProgram(pdesc);
+    // Stages are detached inside CreateShaderProgram and no longer needed.
+    dev->Destroy(vrid);
+    dev->Destroy(frid);
 
-    ID = glCreateProgram();
-    glAttachShader(ID, vertex);
-    glAttachShader(ID, fragment);
-    glLinkProgram(ID);
+    ID = dev->GetGLHandle(m_ProgramRID);
     if (!checkCompileErrors(ID, "PROGRAM")) {
-        glDeleteProgram(ID);
+        dev->Destroy(m_ProgramRID);
+        m_ProgramRID = {};
         ID = 0;
     }
-    glDeleteShader(vertex);
-    glDeleteShader(fragment);
 }
 
 Shader::Shader(const char* computePath) : ID(0), m_ComputePath(computePath) {
+    auto* dev = static_cast<Mist::GPU::GLRenderingDevice*>(Mist::GPU::Device());
+    if (!dev) { LOG_ERROR("Shader: no RenderingDevice active"); return; }
+
     std::string code = readFile(computePath);
     if (code.empty()) return;
 
-    unsigned int compute = compileShader(GL_COMPUTE_SHADER, code.c_str());
-    if (!compute) return;
+    Mist::GPU::ShaderDesc cdesc{Mist::GPU::ShaderStage::Compute, code.c_str()};
+    RID crid = dev->CreateShader(cdesc);
+    GLuint ch = dev->GetGLHandle(crid);
+    if (!checkCompileErrors(ch, "COMPUTE")) {
+        dev->Destroy(crid);
+        return;
+    }
 
-    ID = glCreateProgram();
-    glAttachShader(ID, compute);
-    glLinkProgram(ID);
+    Mist::GPU::ProgramDesc pdesc{RID{}, RID{}, crid};
+    m_ProgramRID = dev->CreateShaderProgram(pdesc);
+    dev->Destroy(crid);
+
+    ID = dev->GetGLHandle(m_ProgramRID);
     if (!checkCompileErrors(ID, "PROGRAM")) {
-        glDeleteProgram(ID);
+        dev->Destroy(m_ProgramRID);
+        m_ProgramRID = {};
         ID = 0;
     }
-    glDeleteShader(compute);
 }
 
 Shader::~Shader() {
-    // Note: Not deleting here because Shader is often copied.
-    // Resource management via ResourceManager handles cleanup.
+    if (m_ProgramRID.IsValid()) {
+        if (auto* dev = Mist::GPU::Device()) dev->Destroy(m_ProgramRID);
+        m_ProgramRID = {};
+    }
+    ID = 0;
+}
+
+Shader::Shader(Shader&& other) noexcept
+    : ID(other.ID)
+    , m_VertexPath(std::move(other.m_VertexPath))
+    , m_FragmentPath(std::move(other.m_FragmentPath))
+    , m_ComputePath(std::move(other.m_ComputePath))
+    , m_ProgramRID(other.m_ProgramRID)
+    , m_UniformLocationCache(std::move(other.m_UniformLocationCache)) {
+    other.ID = 0;
+    other.m_ProgramRID = {};
+}
+
+Shader& Shader::operator=(Shader&& other) noexcept {
+    if (this != &other) {
+        if (m_ProgramRID.IsValid()) {
+            if (auto* dev = Mist::GPU::Device()) dev->Destroy(m_ProgramRID);
+        }
+        ID = other.ID;
+        m_ProgramRID = other.m_ProgramRID;
+        m_VertexPath = std::move(other.m_VertexPath);
+        m_FragmentPath = std::move(other.m_FragmentPath);
+        m_ComputePath = std::move(other.m_ComputePath);
+        m_UniformLocationCache = std::move(other.m_UniformLocationCache);
+        other.ID = 0;
+        other.m_ProgramRID = {};
+    }
+    return *this;
 }
 
 void Shader::Reload() {
-    m_UniformLocationCache.clear();
-    if (ID) { glDeleteProgram(ID); ID = 0; }
-
+    // Build the replacement first; only swap on success so a failed reload
+    // leaves the currently-running program bound and usable.
+    Shader replacement;
     if (!m_ComputePath.empty()) {
-        *this = Shader(m_ComputePath.c_str());
+        replacement = Shader(m_ComputePath.c_str());
     } else if (!m_VertexPath.empty() && !m_FragmentPath.empty()) {
-        *this = Shader(m_VertexPath.c_str(), m_FragmentPath.c_str());
+        replacement = Shader(m_VertexPath.c_str(), m_FragmentPath.c_str());
+    } else {
+        return;
     }
+    if (replacement.ID == 0) {
+        return;
+    }
+    *this = std::move(replacement);
 }
 
 void Shader::use() const {

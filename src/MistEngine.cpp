@@ -1,59 +1,69 @@
-#include <iostream>
-#include <vector>
-#include <cstddef>
-#include <sys/stat.h>
-
+// Renderer.h includes glad before anything else pulls in GL — keep this first.
 #include "Renderer.h"
-#include "Scene.h"
-#include "Model.h"
+
+#include <cstddef>
+#include <filesystem>
+#include <iostream>
+#include <sys/stat.h>
+#include <vector>
+
+#include "Core/PathGuard.h"
+#include "InputManager.h"
+#include "Mesh.h"
+#include "ModuleManager.h"
 #include "Orb.h"
-#include "PhysicsSystem.h"  // Original physics system
-#include "Mesh.h" 
-#include "Texture.h" 
-#include "ShapeGenerator.h" 
+#include "PhysicsSystem.h"
+#include "Resources/AssetRegistry.h"
+#include "Resources/Ref.h"
+#include "Scene.h"
+#include "ShapeGenerator.h"
+#include "Texture.h"
 #include "UIManager.h"
-#include "InputManager.h"    // New input system
-#include "ModuleManager.h"   // New module system
-#include "FPSGameManager.h"  // FPS Game Manager
-#include "Version.h"         // Version information
+#include "Version.h"
+
 #include <glm/gtc/type_ptr.hpp>
 
-// ECS includes
-#include "ECS/Coordinator.h"
-#include "ECS/Components/TransformComponent.h"
-#include "ECS/Components/RenderComponent.h"
+// ECS
+#include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
+#include "ECS/Components/RenderComponent.h"
+#include "ECS/Components/TransformComponent.h"
+#include "ECS/Coordinator.h"
+#include "ECS/Systems/ECSPhysicsSystem.h"
+#include "ECS/Systems/HierarchySystem.h"
 #include "ECS/Systems/RenderSystem.h"
-#include "ECS/Systems/ECSPhysicsSystem.h"  // ECS physics system
 
-// Global ECS coordinator
-Coordinator gCoordinator;
+// Optional Lua scripting (G10 concrete).
+#if MIST_ENABLE_SCRIPTING
+#include "ECS/Components/ScriptComponent.h"
+#include "ECS/Systems/ScriptSystem.h"
+#include "Script/LuaScriptLanguage.h"
+#include "Script/ScriptRegistry.h"
+#include <fstream>
+#include <sstream>
+#endif
 
-// Global managers
-UIManager* g_uiManager = nullptr;
-InputManager* g_inputManager = nullptr;
-ModuleManager* g_moduleManager = nullptr;
-FPSGameManager* g_fpsGameManager = nullptr;  // NEW: FPS Game Manager
+// gCoordinator is defined in src/ECS/Coordinator.cpp so MistEngineLib exports
+// the symbol for tests and modules.
+extern Coordinator gCoordinator;
 
-// Global physics system reference for FPS enemies
-PhysicsSystem* g_physicsSystem = nullptr;
+// Global managers kept for the few callbacks that still need them.
+UIManager*      g_uiManager      = nullptr;
+InputManager*   g_inputManager   = nullptr;
+ModuleManager*  g_moduleManager  = nullptr;
+PhysicsSystem*  g_physicsSystem  = nullptr;
 
-// Global enemy system reference for projectile damage
-EnemyAISystem* g_enemySystem = nullptr;
-
-// Legacy input handling for backward compatibility with physics controls
-void ProcessLegacyPhysicsInput(GLFWwindow* window, PhysicsSystem& physicsSystem, std::vector<PhysicsRenderable>& physicsRenderables, float deltaTime) {
-    // Check if ImGui wants to capture input
+// Legacy physics debug keys — unchanged, not tied to any game mode. Left as a
+// quick way to push around the demo cube with IJKL while we work on the
+// renderer/editor direction.
+void ProcessLegacyPhysicsInput(GLFWwindow* window, PhysicsSystem& physicsSystem,
+                               std::vector<PhysicsRenderable>& physicsRenderables, float /*deltaTime*/) {
     ImGuiIO& io = ImGui::GetIO();
-    if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
-        return;
-    }
+    if (io.WantCaptureMouse || io.WantCaptureKeyboard) return;
 
-    // Physics controls (legacy system - keep for now)
     if (!physicsRenderables.empty() && physicsRenderables.size() > 1) {
         auto cubeBody = physicsRenderables[1].body;
         float force = 100.0f;
-
         if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS)
             physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, 0.0f, -force));
         if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)
@@ -63,12 +73,11 @@ void ProcessLegacyPhysicsInput(GLFWwindow* window, PhysicsSystem& physicsSystem,
         if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
             physicsSystem.ApplyForce(cubeBody, glm::vec3(force, 0.0f, 0.0f));
         if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS)
-             physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, force * 2.0f, 0.0f));
+            physicsSystem.ApplyForce(cubeBody, glm::vec3(0.0f, force * 2.0f, 0.0f));
     }
 }
 
-// Helper function to check if directory exists (C++14 compatible)
-bool DirectoryExists(const std::string& path) {
+static bool DirectoryExists(const std::string& path) {
 #ifdef _WIN32
     DWORD attributes = GetFileAttributesA(path.c_str());
     return (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY));
@@ -79,45 +88,49 @@ bool DirectoryExists(const std::string& path) {
 }
 
 int main() {
-    // Settings
     const unsigned int SCR_WIDTH = 1200;
     const unsigned int SCR_HEIGHT = 800;
 
-    std::cout << "=== " << MIST_ENGINE_NAME << " " << MIST_ENGINE_VERSION_STRING << " with FPS Game Starting Up ===" << std::endl;
-    std::cout << "NEW: FPS Game Mode Available!" << std::endl;
+    std::cout << "=== " << MIST_ENGINE_NAME << " " << MIST_ENGINE_VERSION_STRING
+              << " — editor + rendering sandbox ===" << std::endl;
     std::cout << "Built with " << MIST_ENGINE_COMPILER << " on " << MIST_ENGINE_PLATFORM << std::endl;
     std::cout << "Build Type: " << MIST_ENGINE_BUILD_TYPE << std::endl;
     std::cout << "Features: ";
-    #if MIST_ENGINE_HAS_AI_INTEGRATION
+#if MIST_ENGINE_HAS_AI_INTEGRATION
     std::cout << "AI ";
-    #endif
-    #if MIST_ENGINE_HAS_PHYSICS
+#endif
+#if MIST_ENGINE_HAS_PHYSICS
     std::cout << "Physics ";
-    #endif
-    #if MIST_ENGINE_HAS_OPENGL
+#endif
+#if MIST_ENGINE_HAS_OPENGL
     std::cout << "OpenGL ";
-    #endif
-    #if MIST_ENGINE_HAS_IMGUI
+#endif
+#if MIST_ENGINE_HAS_IMGUI
     std::cout << "ImGui ";
-    #endif
-    #if MIST_ENGINE_HAS_FPS_GAME
-    std::cout << "FPS-Game ";
-    #endif
+#endif
     std::cout << std::endl;
 
-    // Initialize ECS
-    gCoordinator.Init();
+    // Establish the project root once at startup so every `res://` lookup
+    // resolves against the same base regardless of CWD churn later on.
+    Mist::PathGuard::set_project_root(std::filesystem::current_path());
+    Mist::Assets::AssetRegistry::Instance().RegisterDefaultLoaders();
 
-    // Register core components
+    gCoordinator.Init();
     gCoordinator.RegisterComponent<TransformComponent>();
     gCoordinator.RegisterComponent<RenderComponent>();
     gCoordinator.RegisterComponent<PhysicsComponent>();
+    gCoordinator.RegisterComponent<HierarchyComponent>();
+#if MIST_ENABLE_SCRIPTING
+    gCoordinator.RegisterComponent<ScriptComponent>();
+#endif
 
-    // Register core systems
-    auto renderSystem = gCoordinator.RegisterSystem<RenderSystem>();
+    auto renderSystem     = gCoordinator.RegisterSystem<RenderSystem>();
     auto ecsPhysicsSystem = gCoordinator.RegisterSystem<ECSPhysicsSystem>();
+    auto hierarchySystem  = gCoordinator.RegisterSystem<HierarchySystem>();
+#if MIST_ENABLE_SCRIPTING
+    auto scriptSystem     = gCoordinator.RegisterSystem<ScriptSystem>();
+#endif
 
-    // Set core system signatures
     Signature renderSignature;
     renderSignature.set(gCoordinator.GetComponentType<TransformComponent>());
     renderSignature.set(gCoordinator.GetComponentType<RenderComponent>());
@@ -128,13 +141,28 @@ int main() {
     physicsSignature.set(gCoordinator.GetComponentType<PhysicsComponent>());
     gCoordinator.SetSystemSignature<ECSPhysicsSystem>(physicsSignature);
 
-    // Create Renderer
-    Renderer renderer(SCR_WIDTH, SCR_HEIGHT);
-    if (!renderer.Init()) {
-        return -1;
-    }
+    Signature hierarchySignature;
+    hierarchySignature.set(gCoordinator.GetComponentType<TransformComponent>());
+    hierarchySignature.set(gCoordinator.GetComponentType<HierarchyComponent>());
+    gCoordinator.SetSystemSignature<HierarchySystem>(hierarchySignature);
 
-    // Initialize UI Manager
+#if MIST_ENABLE_SCRIPTING
+    Signature scriptSignature;
+    scriptSignature.set(gCoordinator.GetComponentType<TransformComponent>());
+    scriptSignature.set(gCoordinator.GetComponentType<ScriptComponent>());
+    gCoordinator.SetSystemSignature<ScriptSystem>(scriptSignature);
+
+    // Register the Lua backend with the engine-wide ScriptRegistry.
+    // Compile happens on demand when a ScriptComponent's path resolves.
+    auto lua = std::make_shared<Mist::Script::LuaScriptLanguage>();
+    Mist::Script::ScriptRegistry::Instance().Register(lua);
+
+    scriptSystem->WireReadyCallback(gCoordinator);
+#endif
+
+    Renderer renderer(SCR_WIDTH, SCR_HEIGHT);
+    if (!renderer.Init()) return -1;
+
     UIManager uiManager;
     g_uiManager = &uiManager;
     if (!uiManager.Initialize(renderer.GetWindow())) {
@@ -142,41 +170,21 @@ int main() {
         return -1;
     }
 
-    // Initialize Input Manager AFTER UI Manager
     InputManager inputManager;
     g_inputManager = &inputManager;
     inputManager.Initialize(renderer.GetWindow());
     inputManager.SetCamera(&renderer.GetCamera());
-    inputManager.EnableSceneEditorMode(true); // Start in scene editor mode
+    inputManager.EnableSceneEditorMode(true);
     std::cout << "Input Manager initialized successfully" << std::endl;
 
-    // Initialize Physics System
     PhysicsSystem physicsSystem;
-    g_physicsSystem = &physicsSystem;  // Set global reference for FPS enemies
+    g_physicsSystem = &physicsSystem;
     uiManager.SetPhysicsSystem(&physicsSystem);
-    
-    // NEW: Initialize FPS Game Manager
-    FPSGameManager fpsGameManager;
-    g_fpsGameManager = &fpsGameManager;
-    if (!fpsGameManager.Initialize(&inputManager, &renderer.GetCamera(), &uiManager, &physicsSystem)) {
-        std::cerr << "Failed to initialize FPS Game Manager" << std::endl;
-        return -1;
-    }
-    
-    // Set global enemy system reference after FPS manager is initialized
-    if (fpsGameManager.m_enemySystem) {
-        g_enemySystem = fpsGameManager.m_enemySystem.get();
-    }
-    
-    std::cout << "FPS Game Manager initialized successfully" << std::endl;
 
-    // Initialize Module Manager
     ModuleManager moduleManager;
     g_moduleManager = &moduleManager;
     moduleManager.SetCoordinator(&gCoordinator);
     moduleManager.SetRenderer(&renderer);
-    
-    // Try to load modules from modules directory
     if (DirectoryExists("modules")) {
         std::cout << "Loading modules from 'modules' directory..." << std::endl;
         moduleManager.LoadModulesFromDirectory("modules");
@@ -184,105 +192,105 @@ int main() {
         std::cout << "No 'modules' directory found - continuing without external modules" << std::endl;
     }
 
-    // Create Clean Scene
     Scene scene;
     uiManager.SetScene(&scene);
     uiManager.SetCoordinator(&gCoordinator);
-    uiManager.SetFPSGameManager(&fpsGameManager);
     uiManager.SetRenderer(&renderer);
     moduleManager.SetScene(&scene);
 
-    // Default editor scene — ground plane + cube so viewport is never empty
+    // Default editor scene — authored in Lua. bootstrap.lua calls
+    // spawn_plane / run_script('res://scripts/orbits.lua') which in
+    // turn spawns a ring of cubes and attaches spinner.lua to each.
+    // Changing the opening scene now means editing a .lua file, not
+    // recompiling the engine. If scripting is disabled we fall back to
+    // the minimal hardcoded ground+cube so the editor still has
+    // something to render.
+#if MIST_ENABLE_SCRIPTING
     {
-        // Ground plane
+        auto lang = Mist::Script::ScriptRegistry::Instance().Get(".lua");
+        if (lang) {
+            auto path = Mist::PathGuard::resolve_res_path("res://scripts/bootstrap.lua");
+            std::ifstream in(path);
+            if (in.is_open()) {
+                std::stringstream ss; ss << in.rdbuf();
+                auto inst = lang->Compile(ss.str());
+                if (!inst) {
+                    std::cerr << "[warn] bootstrap.lua failed to compile" << std::endl;
+                }
+                // Top-level already ran during Compile(); inst drops here.
+            } else {
+                std::cerr << "[warn] bootstrap.lua not found at " << path << std::endl;
+            }
+        }
+    }
+#else
+    // No-scripting fallback — ground + cube so the viewport isn't empty.
+    {
+        auto& meshes   = Mist::Assets::AssetRegistry::Instance().meshes();
+        auto planeMesh = LoadRef(meshes, "builtin://plane");
+        auto cubeMesh  = LoadRef(meshes, "builtin://cube");
+
         Entity ground = gCoordinator.CreateEntity();
         TransformComponent gt;
         gt.position = {0.0f, -0.01f, 0.0f};
-        gt.scale = {20.0f, 1.0f, 20.0f};
+        gt.scale    = {20.0f, 1.0f, 20.0f};
         gCoordinator.AddComponent(ground, gt);
-        std::vector<Vertex> gv; std::vector<unsigned int> gi;
-        generatePlaneMesh(gv, gi);
-        auto* gmesh = new Mesh(gv, gi, {});
-        RenderComponent gr; gr.renderable = gmesh; gr.visible = true;
+        RenderComponent gr;
+        gr.renderable = planeMesh.get();
+        gr.visible    = true;
         gCoordinator.AddComponent(ground, gr);
         uiManager.SetEntityName(ground, "Ground");
 
-        // Default cube
         Entity cube = gCoordinator.CreateEntity();
         TransformComponent ct;
         ct.position = {0.0f, 0.5f, 0.0f};
-        ct.scale = {1.0f, 1.0f, 1.0f};
         gCoordinator.AddComponent(cube, ct);
-        std::vector<Vertex> cv; std::vector<unsigned int> ci;
-        generateCubeMesh(cv, ci);
-        auto* cmesh = new Mesh(cv, ci, {});
-        RenderComponent cr; cr.renderable = cmesh; cr.visible = true;
+        RenderComponent cr;
+        cr.renderable = cubeMesh.get();
+        cr.visible    = true;
         gCoordinator.AddComponent(cube, cr);
         uiManager.SetEntityName(cube, "Default Cube");
     }
+#endif
 
-    // Position camera to see default scene
     renderer.GetCamera().Position = glm::vec3(5.0f, 3.0f, 5.0f);
-    renderer.GetCamera().Yaw = -135.0f;
-    renderer.GetCamera().Pitch = -20.0f;
+    renderer.GetCamera().Yaw      = -135.0f;
+    renderer.GetCamera().Pitch    = -20.0f;
     renderer.GetCamera().updateCameraVectors();
     renderer.GetCamera().SetOrbitMode(true);
 
     std::cout << "=== Engine Initialization Complete ===" << std::endl;
-    std::cout << "Ready! Press SPACE to start FPS game, or use Scene Editor (F3)" << std::endl;
-    std::cout << "FPS Game Features:" << std::endl;
-    std::cout << "  - Room-based levels with enemy AI" << std::endl;
-    std::cout << "  - Multiple weapon types" << std::endl;
-    std::cout << "  - Projectile physics and hit detection" << std::endl;
-    std::cout << "  - Score and health systems" << std::endl;
+    std::cout << "Editor ready. F1=Demo  F2=AI panel  F3=Scene editor  F=focus on selection" << std::endl;
 
-    // Main loop
+    // Fixed-timestep physics. Decouples deterministic physics from the
+    // variable-rate render frame: at 144 Hz display we still run physics at
+    // 60 Hz, at 30 Hz display we catch up by stepping twice per frame.
+    // Clamped at 0.25s (15 steps) to prevent the classic "spiral of death"
+    // on a slow frame.
+    constexpr float kPhysicsStep       = 1.0f / 60.0f;
+    constexpr float kMaxFrameDelta     = 0.25f;
+    float           physicsAccumulator = 0.0f;
+
     while (!glfwWindowShouldClose(renderer.GetWindow())) {
         float deltaTime = renderer.GetDeltaTime();
 
-        // Handle ESC to close (only if not in FPS game mode)
         if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-            if (!fpsGameManager.IsGameActive()) {
-                glfwSetWindowShouldClose(renderer.GetWindow(), true);
-            }
+            glfwSetWindowShouldClose(renderer.GetWindow(), true);
         }
 
-        // Toggle UI demo window with F1
-        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F1) == GLFW_PRESS) {
+        {
             static bool f1Pressed = false;
-            if (!f1Pressed) {
-                if (g_uiManager) {
-                    g_uiManager->SetShowDemo(!g_uiManager->IsShowingDemo());
-                }
-                f1Pressed = true;
+            bool f1Cur = glfwGetKey(renderer.GetWindow(), GLFW_KEY_F1) == GLFW_PRESS;
+            if (f1Cur && !f1Pressed && g_uiManager) {
+                g_uiManager->SetShowDemo(!g_uiManager->IsShowingDemo());
             }
-        } else {
-            static bool f1Pressed = false;
-            f1Pressed = false;
+            f1Pressed = f1Cur;
         }
 
-        // Toggle AI window with F2
-        if (glfwGetKey(renderer.GetWindow(), GLFW_KEY_F2) == GLFW_PRESS) {
-            static bool f2Pressed = false;
-            if (!f2Pressed) {
-                if (g_uiManager) {
-                    g_uiManager->SetShowAI(!g_uiManager->IsShowingAI());
-                }
-                f2Pressed = true;
-            }
-        } else {
-            static bool f2Pressed = false;
-            f2Pressed = false;
-        }
-
-        // NEW: Update FPS Game Manager FIRST (before legacy physics input)
-        fpsGameManager.Update(deltaTime);
-
-        // Update input system
         inputManager.Update(deltaTime);
 
-        // F key — focus camera on selected entity (Godot-like) — disabled during gameplay
-        if (!fpsGameManager.IsGameActive()) {
+        // F key — focus camera on selected entity (Godot-style).
+        {
             static bool fWasPressed = false;
             bool fIsPressed = glfwGetKey(renderer.GetWindow(), GLFW_KEY_F) == GLFW_PRESS;
             if (fIsPressed && !fWasPressed && uiManager.HasSelectedEntity()) {
@@ -295,30 +303,41 @@ int main() {
             fWasPressed = fIsPressed;
         }
 
-        // Legacy physics input (for backwards compatibility) - only if FPS game is not active
-        if (!scene.getPhysicsRenderables().empty() && !fpsGameManager.IsGameActive()) {
+        if (!scene.getPhysicsRenderables().empty()) {
             ProcessLegacyPhysicsInput(renderer.GetWindow(), physicsSystem, scene.getPhysicsRenderables(), deltaTime);
         }
 
-        // Update modules
         moduleManager.UpdateModules(deltaTime);
 
-        // Physics Update (both systems)
-        physicsSystem.Update(deltaTime);
-        ecsPhysicsSystem->Update(deltaTime);
+        // Advance the physics clock in fixed-step chunks — see the
+        // accumulator declared above for the reasoning. The render frame
+        // itself still uses `deltaTime` for camera smoothing etc; only
+        // physics is locked to 60 Hz.
+        float frameDelta = std::min(deltaTime, kMaxFrameDelta);
+        physicsAccumulator += frameDelta;
+        while (physicsAccumulator >= kPhysicsStep) {
+            physicsSystem.Update(kPhysicsStep);
+            ecsPhysicsSystem->Update(kPhysicsStep);
+            physicsAccumulator -= kPhysicsStep;
+        }
 
-        // Render with UI
+        // Resolve parent→child transform chains into cachedGlobal, then
+        // fire any pending OnReady callbacks, before rendering picks them up.
+        hierarchySystem->UpdateTransforms(gCoordinator);
+        hierarchySystem->FireReadyCallbacks(gCoordinator);
+
+#if MIST_ENABLE_SCRIPTING
+        // _process runs after _ready-via-OnReady so first-frame scripts
+        // see a live transform. deltaTime is already clamped above.
+        scriptSystem->Update(gCoordinator, deltaTime);
+#endif
+
         renderer.RenderWithECSAndUI(scene, renderSystem, &uiManager);
     }
 
     std::cout << "=== MistEngine Shutting Down ===" << std::endl;
-    
-    // Cleanup
-    fpsGameManager.Shutdown();  // NEW: Cleanup FPS Game Manager
     uiManager.Shutdown();
     moduleManager.UnloadAllModules();
-
     std::cout << "=== Shutdown Complete ===" << std::endl;
     return 0;
 }
-

@@ -1,5 +1,6 @@
 #include "GameExporter.h"
 #include "Version.h"
+#include "Core/PathGuard.h"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -7,10 +8,25 @@
 #include <cstring>
 #include <vector>
 #include <cstdint>
+#include <filesystem>
 #ifdef _WIN32
 #include <direct.h>
 #endif
 #include <sys/stat.h>
+
+namespace {
+// Exports go under ./exports. Keeping the sandbox narrow means a hostile
+// ExportSettings.outputDirectory of "../../" can't be used to spray files
+// outside the project.
+std::filesystem::path ExportSandboxRoot() {
+    std::error_code ec;
+    auto cwd = std::filesystem::current_path(ec);
+    if (ec) {
+        return std::filesystem::path{"exports"};
+    }
+    return cwd / "exports";
+}
+} // namespace
 
 GameExporter::GameExporter()
     : m_isExporting(false)
@@ -38,8 +54,21 @@ bool GameExporter::ExportGame(const ExportSettings& settings) {
         return false;
     }
     
-    // Create output directory
-    std::string outputPath = settings.outputDirectory + "/" + settings.gameName;
+    // Create output directory. Resolve under the export sandbox so a malicious
+    // outputDirectory (e.g. "../../etc") can't escape the project tree.
+    const auto sandbox = ExportSandboxRoot();
+    std::error_code sandbox_ec;
+    std::filesystem::create_directories(sandbox, sandbox_ec);
+
+    std::filesystem::path requested = std::filesystem::path(settings.outputDirectory) /
+                                      std::filesystem::path(settings.gameName);
+    std::filesystem::path resolvedOut;
+    if (!Mist::PathGuard::is_under(sandbox, requested, &resolvedOut)) {
+        UpdateExportProgress(0.0f, "Export failed: output path escapes sandbox");
+        m_isExporting = false;
+        return false;
+    }
+    std::string outputPath = resolvedOut.generic_string();
     if (!CreateDirectory(outputPath)) {
         UpdateExportProgress(0.0f, "Export failed: Could not create output directory");
         m_isExporting = false;

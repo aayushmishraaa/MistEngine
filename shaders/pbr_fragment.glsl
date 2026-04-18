@@ -148,6 +148,9 @@ void main() {
         N = normalize(fs_in.Normal);
     }
 
+    // Two-sided lighting: flip normal for back faces (e.g. inside room walls)
+    if (!gl_FrontFacing) N = -N;
+
     vec3 V = normalize(viewPos - fs_in.FragPos);
     vec3 R = reflect(-V, N);
 
@@ -167,6 +170,7 @@ void main() {
 
     float NDF = DistributionGGX(N, H, roughness);
     float G   = GeometrySmith(N, V, L, roughness);
+    // H = normalize(V + L), so dot(H, V) == dot(H, L); both are valid Schlick inputs.
     vec3  F   = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
     vec3 numerator    = NDF * G * F;
@@ -200,7 +204,7 @@ void main() {
 
         ambient = (kDamb * diffuseIBL + specularIBL) * ao;
     } else {
-        ambient = vec3(0.03) * albedo * ao;
+        ambient = vec3(0.15) * albedo * ao;
     }
 
     vec3 color = ambient + (1.0 - shadow) * Lo + emissive;

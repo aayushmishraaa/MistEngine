@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# MistEngine pre-commit hook
+#
+# Enable once per clone:
+#     git config core.hooksPath .githooks
+#
+# Two passes, both over staged files only:
+#   1. clang-format --dry-run --Werror — rejects the commit if any staged C/C++
+#      source drifts from .clang-format. Run `clang-format -i <file>` to fix.
+#   2. Reject trailing whitespace in any text file.
+#
+# Vendored third-party sources (imgui/glad/stb/KHR) are skipped so drive-by
+# touches to those files don't block unrelated commits.
+
+set -u
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "${STAGED}" ] && exit 0
+
+# Pattern of vendored files to skip. Keep in sync with .clang-tidy's
+# HeaderFilterRegex so the two linters agree on scope.
+SKIP_RE='^(include/(imgui|glad|stb|KHR|imstb)|src/(imgui|glad|stb)).*'
+
+fail=0
+
+# --- clang-format ---
+if command -v clang-format >/dev/null 2>&1; then
+    while IFS= read -r f; do
+        case "${f}" in
+            *.cpp|*.cc|*.cxx|*.c|*.h|*.hpp|*.hh) ;;
+            *) continue ;;
+        esac
+        [[ "${f}" =~ ${SKIP_RE} ]] && continue
+        if ! clang-format --dry-run --Werror "${f}" 2>/dev/null; then
+            echo "  format: ${f} — run: clang-format -i ${f}"
+            fail=1
+        fi
+    done <<< "${STAGED}"
+else
+    echo "pre-commit: clang-format not installed; skipping format check"
+fi
+
+# --- trailing whitespace ---
+while IFS= read -r f; do
+    [ -f "${f}" ] || continue
+    [[ "${f}" =~ ${SKIP_RE} ]] && continue
+    # Don't bother with binary files or extraction artifacts.
+    if grep -Il '' "${f}" >/dev/null 2>&1; then
+        if grep -nE ' +$' "${f}" >/dev/null 2>&1; then
+            echo "  whitespace: ${f} has trailing whitespace"
+            fail=1
+        fi
+    fi
+done <<< "${STAGED}"
+
+if [ "${fail}" -ne 0 ]; then
+    echo
+    echo "Pre-commit check failed. Fix the above and re-stage."
+    exit 1
+fi
+exit 0

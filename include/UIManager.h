@@ -17,6 +17,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "Editor/UndoStack.h"
+
 // Forward declarations
 class Coordinator;
 struct TransformComponent;
@@ -24,13 +26,8 @@ struct RenderComponent;
 struct PhysicsComponent;
 class Scene;
 class PhysicsSystem;
-class AIManager;
-class AIWindow;
-struct ChatMessage;
 class GameExporter;
-class FPSGameManager;
 class Renderer;
-class UndoRedoManager;
 class AssetBrowser;
 class GizmoSystem;
 class EditorState;
@@ -51,6 +48,44 @@ public:
 
     void DrawMainMenuBar();
     void DrawHierarchy();
+    // Recursive helper — renders one entity row and walks its
+    // HierarchyComponent::children. Kept public so editor modules could
+    // hook it in the future, but today only DrawHierarchy calls it.
+    void DrawHierarchyNode(Entity entity, const std::string& filterLower);
+    // Cycle check for drag-drop reparenting: returns true if `candidate`
+    // is `entity` itself or appears anywhere in its subtree. Attaching a
+    // parent to its own descendant would create a loop.
+    bool IsDescendantOf(Entity candidate, Entity entity) const;
+
+    // Minimal entity snapshot for delete-undo. Not a full-fidelity scene
+    // dump — for this cycle we restore Transform + Render (via the
+    // shared mesh pointer which AssetRegistry keeps alive) + Hierarchy
+    // parent link. Physics rigid bodies are NOT recreated on undo —
+    // destroying a physics body through Bullet invalidates it; user
+    // re-adds the component if they want it back.
+    struct EntitySnapshot {
+        bool        hasTransform = false;
+        glm::vec3   position{0}, rotation{0}, scale{1};
+        bool        hasRender    = false;
+        void*       renderable   = nullptr;   // Renderable*; opaque here
+        bool        visible      = true;
+        bool        hasHierarchy = false;
+        Entity      parent       = static_cast<Entity>(-1);
+        std::string name;
+    };
+    EntitySnapshot SnapshotEntity(Entity e) const;
+    Entity         RespawnFromSnapshot(const EntitySnapshot& snap);
+
+    // Called when an ASSET_PATH payload is dropped onto the viewport.
+    // Routes by file extension: mesh-ish → spawn entity, scene-ish →
+    // load scene, anything else → toast a warning.
+    void HandleAssetDrop(const std::string& path);
+    // Helper: spawn a new entity with the mesh loaded from `path`.
+    // Uses AssetRegistry's mesh cache so repeated drops of the same
+    // file don't re-parse from disk. Returns the new entity id, or
+    // (Entity)-1 on failure.
+    Entity SpawnMeshEntity(const std::string& path);
+
     void DrawInspector();
     void DrawSceneView();
     void DrawAssetBrowser();
@@ -70,28 +105,21 @@ public:
     void SetShowDemo(bool show) { m_ShowDemo = show; }
     bool IsShowingDemo() const { return m_ShowDemo; }
 
-    // AI functionality
-    void InitializeAI(const std::string& apiKey, const std::string& provider = "OpenAI", const std::string& endpoint = "");
-    void SetShowAI(bool show) { m_ShowAI = show; }
-    bool IsShowingAI() const { return m_ShowAI; }
-    void ShowAPIKeyDialog();
-
     // References to engine systems
     void SetCoordinator(Coordinator* coordinator) { m_Coordinator = coordinator; }
     void SetScene(Scene* scene) { m_Scene = scene; }
     void SetPhysicsSystem(PhysicsSystem* physics) { m_PhysicsSystem = physics; }
     void SetRenderer(Renderer* renderer) { m_Renderer = renderer; }
 
-    // FPS Game Manager reference
-    void SetFPSGameManager(FPSGameManager* fpsManager);
-
-    // Public methods for FPS game to create objects
+    // Generic builders (used to be called from the old FPS game's toolbar
+    // wrappers; now retained for module code / future tools).
     void CreateGameCube() { CreateCube(); }
     void CreateGamePlane() { CreatePlane(); }
     void CreateGameSphere() { CreateSphere(); }
 
-    // Undo/Redo access
-    UndoRedoManager& GetUndoRedo();
+    // Undo/Redo access — scene-local command history with merge
+    // semantics. Replaces the earlier `UndoRedoManager` type.
+    Mist::Editor::UndoStack& GetUndoStack() { return m_UndoStack; }
 
     // Scene save/load
     void SaveScene(const std::string& path);
@@ -111,8 +139,6 @@ private:
     bool m_ShowSceneView;
     bool m_ShowAssetBrowser;
     bool m_ShowConsole;
-    bool m_ShowAI;
-    bool m_ShowAPIKeyDialog;
     bool m_ShowExportDialog;
     bool m_ShowProfiler;
     bool m_ShowPostProcess;
@@ -135,19 +161,21 @@ private:
     void DrawRenderComponent(RenderComponent& render);
     void DrawPhysicsComponent(PhysicsComponent& physics);
 
-    // AI helpers
-    void DrawAPIKeyDialog();
-
     // Export dialog
     void DrawExportDialog();
 
-    // FPS Game Launcher
-    void DrawFPSGameLauncher();
-
-    // FPS Game HUD
-    void DrawFPSGameHUD();
+    // Crosshair overlay (kept — generic editor/runtime overlay).
     void DrawCrosshair();
-    void DrawGameOverScreen();
+
+    // Reflection-driven generic property editor. Draws ImGui widgets for
+    // every field in `props` targeting `obj` as the base pointer. New
+    // components register via MIST_REFLECT and get a functional inspector
+    // block with zero UIManager edits.
+    //
+    // `const Mist::PropertyList&` is the typedef from Core/Reflection.h. We
+    // use void* here so UIManager.h doesn't need that include in the public
+    // header; the .cpp pulls in the real type.
+    void DrawReflectedProperties(void* obj, const void* propertyListPtr);
 
     // Editor panels (wired from EditorUI.cpp)
     void DrawProfilerWindow();
@@ -165,27 +193,15 @@ private:
     PhysicsSystem* m_PhysicsSystem;
     Renderer* m_Renderer;
 
-    // FPS Game Manager reference
-    FPSGameManager* m_FPSGameManager;
-
     // Editor subsystems
-    std::unique_ptr<UndoRedoManager> m_UndoRedo;
+    Mist::Editor::UndoStack m_UndoStack;
     std::unique_ptr<AssetBrowser> m_AssetBrowser;
     std::unique_ptr<GizmoSystem> m_GizmoSystem;
     std::unique_ptr<EditorState> m_EditorState;
     std::unique_ptr<ConsoleSystem> m_ConsoleSystem;
 
-    // AI components
-    std::unique_ptr<AIManager> m_AIManager;
-    std::unique_ptr<AIWindow> m_AIWindow;
-
     // Game export components
     std::unique_ptr<GameExporter> m_GameExporter;
-
-    // API Key dialog state
-    char m_APIKeyBuffer[512];
-    char m_EndpointBuffer[512];
-    int m_SelectedProvider;
 
     // Export dialog state
     char m_GameNameBuffer[256];
@@ -200,6 +216,12 @@ private:
     int m_ViewportWidth = 0;
     int m_ViewportHeight = 0;
 
+    // Cached GLFW window — captured on Initialize so scene save/load
+    // and the dirty-indicator title update don't need to thread the
+    // pointer through every caller.
+    GLFWwindow* m_Window = nullptr;
+    bool        m_PrevDirty = false;  // tracks last frame's dirty state
+
     // Scene file dialog state
     char m_ScenePathBuffer[512];
 
@@ -213,6 +235,19 @@ private:
     // Drag-drop hierarchy
     Entity m_DraggedEntity = 0;
     bool m_IsDragging = false;
+
+    // Gizmo drag capture — tracks the pre-drag transform so we can
+    // push a single undo command on mouse release instead of one
+    // per frame. `active` flips on drag start (IsUsing transitions
+    // from false to true) and off on drag end.
+    struct GizmoCapture {
+        bool      active = false;
+        Entity    entity = 0;
+        glm::vec3 position{};
+        glm::vec3 rotation{};
+        glm::vec3 scale{1.0f};
+    };
+    GizmoCapture m_GizmoCapture;
 
     // Godot-like fixed layout
     struct EditorLayout {

@@ -2,71 +2,35 @@
 #ifndef MIST_SCENE_SERIALIZER_H
 #define MIST_SCENE_SERIALIZER_H
 
+#include <cstdint>
 #include <string>
-#include <vector>
-#include <fstream>
-#include <sstream>
-#include <glm/glm.hpp>
 
 class Coordinator;
-class Scene;
-struct TransformComponent;
-struct RenderComponent;
-struct PhysicsComponent;
 
-typedef uint32_t Entity;
+using Entity = uint32_t;
 
-// Minimal JSON writer (no external dependency)
-class JsonWriter {
-public:
-    void BeginObject();
-    void EndObject();
-    void BeginArray(const std::string& key);
-    void EndArray();
-    void Key(const std::string& key);
-    void String(const std::string& value);
-    void Number(float value);
-    void Number(int value);
-    void Bool(bool value);
-    void Vec3(const std::string& key, const glm::vec3& v);
-    std::string GetString() const { return m_Stream.str(); }
-
-private:
-    std::ostringstream m_Stream;
-    bool m_NeedComma = false;
-    int m_Indent = 0;
-
-    void writeIndent();
-    void writeComma();
-};
-
-// Minimal JSON reader
-struct JsonValue {
-    enum Type { NUL, BOOL, NUMBER, STRING, ARRAY, OBJECT };
-    Type type = NUL;
-    std::string strValue;
-    float numValue = 0.0f;
-    bool boolValue = false;
-    std::vector<JsonValue> arrayValues;
-    std::vector<std::pair<std::string, JsonValue>> objectValues;
-
-    const JsonValue& operator[](const std::string& key) const;
-    const JsonValue& operator[](size_t index) const;
-    size_t size() const;
-    bool has(const std::string& key) const;
-    glm::vec3 toVec3() const;
-
-    static JsonValue Parse(const std::string& json);
-
-private:
-    static JsonValue parseValue(const std::string& json, size_t& pos);
-    static JsonValue parseObject(const std::string& json, size_t& pos);
-    static JsonValue parseArray(const std::string& json, size_t& pos);
-    static JsonValue parseString(const std::string& json, size_t& pos);
-    static JsonValue parseNumber(const std::string& json, size_t& pos);
-    static void skipWhitespace(const std::string& json, size_t& pos);
-};
-
+// Scene serializer v2 — stores entities as JSON with ExtResource references
+// to shared assets. Supersedes the hand-rolled JsonValue/JsonWriter pair
+// that previously lived here; those inlined every mesh into the scene file
+// and couldn't express asset reuse.
+//
+// File shape (v0.5):
+// {
+//   "version": "0.5",
+//   "entities": [
+//     {
+//       "name": "Ground",
+//       "transform": {"pos":[0,-0.01,0], "rot":[0,0,0], "scale":[20,1,20]},
+//       "render":    {"mesh": {"builtin": "plane"}, "visible": true},
+//       "physics":   {"hasRigidBody": false, "syncTransform": true}
+//     }
+//   ]
+// }
+//
+// `mesh` is either `{"builtin": "cube|plane|sphere"}` for built-in primitives
+// or `{"ext": "res://meshes/foo.mesh"}` for on-disk assets. Load path routes
+// both through AssetRegistry::meshes() so two entities referencing the same
+// path share one underlying Mesh.
 class SceneSerializer {
 public:
     static bool Save(const std::string& filepath, Coordinator& coordinator, int entityCount);

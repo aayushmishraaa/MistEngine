@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  linux:
+    name: Linux ${{ matrix.build_type }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            libglfw3-dev \
+            libglm-dev \
+            libassimp-dev \
+            libbullet-dev \
+            libfreetype-dev \
+            libcurl4-openssl-dev \
+            xvfb
+
+      - name: Configure
+        run: cmake --preset linux-ci -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: Build
+        run: cmake --build --preset linux-ci -j
+
+      - name: Test (headless)
+        run: ctest --preset linux-ci --output-on-failure
+
+  windows:
+    name: Windows Release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: c8696863d371ab7f46e213d8f5ca923c4aef2a00
+
+      - name: Configure
+        shell: bash
+        env:
+          VCPKG_ROOT: ${{ runner.workspace }}/vcpkg
+        run: cmake --preset windows-release
+
+      - name: Build
+        run: cmake --build --preset windows-release --config Release
+
+      - name: Test
+        run: ctest --preset windows-release -C Release

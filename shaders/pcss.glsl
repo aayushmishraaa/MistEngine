@@ -72,7 +72,9 @@ float findBlockerDepth(sampler2DArray shadowMap, int cascade, vec3 projCoords, f
 
 // Step 2: Estimate penumbra size from blocker distance
 float estimatePenumbra(float receiverDepth, float blockerDepth) {
-    return PCSS_LIGHT_SIZE * (receiverDepth - blockerDepth) / blockerDepth;
+    // Guard against blockerDepth == 0, which would produce NaN/inf and
+    // propagate to every pixel this fragment contributes to.
+    return PCSS_LIGHT_SIZE * (receiverDepth - blockerDepth) / max(blockerDepth, 0.001);
 }
 
 // Step 3: PCF with variable kernel

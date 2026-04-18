@@ -1,5 +1,6 @@
 #include <iostream>
 #include "Renderer.h"
+#include "Renderer/ShaderManager.h"
 #include "Scene.h"
 #include "PhysicsSystem.h"
 #include "UIManager.h"
@@ -13,6 +14,9 @@
 // Global pointer to the renderer instance for callbacks
 Renderer* g_renderer = nullptr;
 
+// Initializer list ordered to match declaration order in Renderer.h. GCC's
+// -Wreorder was flagging the mismatch; fixing it also removes the class of
+// bugs where a member's init reads another that hasn't been constructed yet.
 Renderer::Renderer(unsigned int width, unsigned int height)
     : screenWidth(width), screenHeight(height),
       camera(glm::vec3(0.0f, 0.0f, 3.0f)),
@@ -20,8 +24,9 @@ Renderer::Renderer(unsigned int width, unsigned int height)
       deltaTime(0.0f), lastFrame(0.0f),
       lightDir(-0.2f, -1.0f, -0.3f), lightColor(1.0f, 1.0f, 1.0f),
       shadowWidth(1024), shadowHeight(1024),
-      planeVAO(0), planeVBO(0), cubeVAO(0), cubeVBO(0), cubeEBO(0),
-      skyboxVAO(0), skyboxVBO(0)
+      skyboxVAO(0), skyboxVBO(0),
+      planeVAO(0), planeVBO(0),
+      cubeVAO(0), cubeVBO(0), cubeEBO(0)
 {
     g_renderer = this;
 }
@@ -34,6 +39,10 @@ Renderer::~Renderer() {
     glDeleteBuffers(1, &skyboxVBO);
     glDeleteFramebuffers(1, &depthMapFBO);
     glDeleteTextures(1, &depthMap);
+
+    // Clear the global device before GL dies so any late dtor call that
+    // still reaches for Device() sees nullptr instead of a dangling member.
+    Mist::GPU::SetDevice(nullptr);
 
     glfwDestroyWindow(window);
     glfwTerminate();
@@ -61,6 +70,10 @@ bool Renderer::Init() {
     }
 
     glfwMakeContextCurrent(window);
+    // vsync: cap frame rate to display refresh so the idle loop doesn't peg
+    // a CPU core. Users wanting uncapped frames can call glfwSwapInterval(0)
+    // themselves after window creation.
+    glfwSwapInterval(1);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetScrollCallback(window, scroll_callback);
 
@@ -84,6 +97,12 @@ bool Renderer::Init() {
                               0, nullptr, GL_FALSE);
         LOG_INFO("OpenGL debug callback enabled");
     }
+
+    // Register the GL-backed device as the process-wide backend before any
+    // subsystem Init runs — migrated subsystems (Framebuffer, Shader, Mesh,
+    // ShadowSystem) read `Mist::GPU::Device()` during their construction.
+    Mist::GPU::SetDevice(&m_GpuDevice);
+    LOG_INFO("Rendering backend: ", m_GpuDevice.GetBackendName());
 
     LOG_INFO("OpenGL Version: ", (const char*)glGetString(GL_VERSION));
     LOG_INFO("GLSL Version: ", (const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
@@ -149,6 +168,8 @@ bool Renderer::Init() {
     DebugDraw::Init();
     m_Profiler.Init();
 
+    CreateDummyTextures();
+
     LOG_INFO("Renderer initialized: all subsystems ready");
     LOG_INFO("  PBR: enabled, HDR pipeline: enabled, Post-processing: bloom/SSAO/FXAA");
 
@@ -159,6 +180,14 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     float currentFrame = glfwGetTime();
     deltaTime = currentFrame - lastFrame;
     lastFrame = currentFrame;
+
+    // Cheap poll — mtime syscall per registered shader, no reload unless a
+    // file actually changed. Gated behind a frame counter so a slow disk
+    // can't turn this into a per-frame cost.
+    static int hotReloadCounter = 0;
+    if ((++hotReloadCounter % 30) == 0) {
+        Mist::Renderer::ShaderManager::Instance().PollAndReload();
+    }
 
     m_Profiler.BeginFrame();
 
@@ -226,6 +255,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_PostProcess.BeginSceneCapture();
 
     glViewport(0, 0, screenWidth, screenHeight);
+    glClearColor(0.05f, 0.05f, 0.08f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // Skybox
@@ -245,6 +275,9 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.BeginCPUSection("Scene");
     m_Profiler.BeginGPUSection("Scene");
 
+    // Disable face culling so inside-of-room geometry (back faces) renders
+    glDisable(GL_CULL_FACE);
+
     Shader& mainShader = m_UsePBR ? pbrShader : objectShader;
     mainShader.use();
     mainShader.setMat4("projection", projection);
@@ -256,8 +289,17 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         mainShader.setVec3("lightDir", glm::normalize(lightDir));
         mainShader.setVec3("lightColor", lightColor);
 
-        // CSM shadow maps
-        m_ShadowSystem.BindCascadeShadowMaps(mainShader, 0);
+        // CSM shadow maps — bind to unit 7+ to avoid conflict with material units 1-6
+        m_ShadowSystem.BindCascadeShadowMaps(mainShader, 7);
+
+        // The PBR vertex shader uses singular "lightSpaceMatrix" for FragPosLightSpace
+        mainShader.setMat4("lightSpaceMatrix", m_ShadowSystem.GetLightSpaceMatrix(0));
+
+        // The PBR fragment shader uses "shadowMap" (sampler2D) — bind a dummy white
+        // texture so Mesa doesn't reject draws due to sampler2D vs TEXTURE_2D_ARRAY mismatch
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
+        mainShader.setInt("shadowMap", 0);
 
         // IBL textures (units 10-12)
         if (m_IBL.IsLoaded()) {
@@ -265,10 +307,25 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
             mainShader.setBool("useIBL", true);
         } else {
             mainShader.setBool("useIBL", false);
+            // Bind dummy cubemaps so Mesa doesn't reject draw calls
+            glActiveTexture(GL_TEXTURE10);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, m_DummyTexCube);
+            mainShader.setInt("irradianceMap", 10);
+            glActiveTexture(GL_TEXTURE11);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, m_DummyTexCube);
+            mainShader.setInt("prefilterMap", 11);
+            glActiveTexture(GL_TEXTURE12);
+            glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
+            mainShader.setInt("brdfLUT", 12);
         }
 
-        // SSAO texture (will be available after post-process, but PBR reads it)
+        // SSAO texture
         mainShader.setBool("useSSAO", m_PostProcess.enableSSAO);
+        if (!m_PostProcess.enableSSAO) {
+            glActiveTexture(GL_TEXTURE13);
+            glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
+            mainShader.setInt("ssaoTexture", 13);
+        }
 
         // Bind light SSBOs (bindings 2-5 set by LightManager)
         m_LightManager.BindForRendering();
@@ -338,12 +395,42 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_PostProcess.Execute(m_Exposure, projection, view);
     m_Profiler.EndGPUSection("PostProcess");
 
+    // === VIEWPORT OUTPUT ===
+    // Keep the public viewport descriptor in sync so external consumers
+    // (UI, plugins) can read the output texture without reaching into
+    // Renderer internals. `GetHDRTexture()` returns the final post-tonemap
+    // texture; the naming is a legacy of the earlier HDR-only pipeline.
+    m_PrimaryViewport.width         = static_cast<int>(screenWidth);
+    m_PrimaryViewport.height        = static_cast<int>(screenHeight);
+    m_PrimaryViewport.outputTexture = m_PostProcess.GetHDRTexture();
+
     // === UI RENDERING (after tone mapping, directly to screen) ===
-    if (uiManager) {
-        // Provide the HDR texture to the scene view panel
-        uiManager->SetViewportTexture(m_PostProcess.GetHDRTexture(), screenWidth, screenHeight);
+    if (uiManager && !m_PrimaryViewport.presentFullscreen) {
+        // Editor mode — hand the viewport's output to the Scene View panel.
+        uiManager->SetViewportTexture(m_PrimaryViewport.outputTexture,
+                                      m_PrimaryViewport.width,
+                                      m_PrimaryViewport.height);
         uiManager->NewFrame();
         uiManager->Render();
+    } else if (m_PrimaryViewport.presentFullscreen) {
+        // No editor UI — blit the viewport texture straight to the default
+        // framebuffer. Before this path existed, closing the Scene View
+        // panel showed ImGui's empty background (the "blue screen" bug):
+        // the viewport was rendered but had nowhere to go.
+        GLuint readFBO = m_PostProcess.GetHDRFramebuffer().GetFBO();
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        glBlitFramebuffer(0, 0, m_PrimaryViewport.width, m_PrimaryViewport.height,
+                          0, 0, m_PrimaryViewport.width, m_PrimaryViewport.height,
+                          GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // Still run ImGui for any always-on overlays (profiler, console),
+        // but without the Scene View holding the texture.
+        if (uiManager) {
+            uiManager->NewFrame();
+            uiManager->Render();
+        }
     }
 
     // Store previous frame's view-projection for TAA motion vectors
@@ -470,6 +557,31 @@ void Renderer::ProcessInputWithPhysics(GLFWwindow* window, PhysicsSystem& physic
 void Renderer::RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderSystem) {
     // Delegate to the full render path without UI
     RenderWithECSAndUI(scene, renderSystem, nullptr);
+}
+
+void Renderer::CreateDummyTextures() {
+    // 1x1 white 2D texture — prevents GL_INVALID_OPERATION on Mesa for unbound samplers
+    glGenTextures(1, &m_DummyTex2D);
+    glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
+    uint8_t white[] = {255, 255, 255, 255};
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // 1x1 white cubemap texture
+    glGenTextures(1, &m_DummyTexCube);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, m_DummyTexCube);
+    for (int face = 0; face < 6; ++face)
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + face, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    LOG_INFO("Dummy textures created for unbound sampler safety");
 }
 
 void Renderer::setupShadowMap() {

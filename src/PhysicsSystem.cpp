@@ -1,111 +1,78 @@
 #include "PhysicsSystem.h"
-#include <glm/gtc/type_ptr.hpp> // Include for glm::make_mat4
 
+#include <glm/gtc/type_ptr.hpp>
 
-PhysicsSystem::PhysicsSystem() {
-    collisionConfiguration = new btDefaultCollisionConfiguration();
-    dispatcher = new btCollisionDispatcher(collisionConfiguration);
-    overlappingPairCache = new btDbvtBroadphase();
-    solver = new btSequentialImpulseConstraintSolver();
-    dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, overlappingPairCache, solver, collisionConfiguration);
+using Mist::Physics::ScopedCollisionShape;
+using Mist::Physics::ScopedMotionState;
+using Mist::Physics::ScopedRigidBody;
 
-    // Set gravity (you can adjust this)
-    dynamicsWorld->setGravity(btVector3(0, -9.81f, 0));
+PhysicsSystem::PhysicsSystem()
+    : m_CollisionConfiguration(std::make_unique<btDefaultCollisionConfiguration>())
+    , m_Dispatcher(std::make_unique<btCollisionDispatcher>(m_CollisionConfiguration.get()))
+    , m_Broadphase(std::make_unique<btDbvtBroadphase>())
+    , m_Solver(std::make_unique<btSequentialImpulseConstraintSolver>())
+    , m_DynamicsWorld(std::make_unique<btDiscreteDynamicsWorld>(
+          m_Dispatcher.get(), m_Broadphase.get(), m_Solver.get(), m_CollisionConfiguration.get())) {
+    m_DynamicsWorld->setGravity(btVector3(0, -9.81f, 0));
 }
 
 PhysicsSystem::~PhysicsSystem() {
-    // Clean up physics objects in reverse order of creation
-    // Remove rigid bodies from the world and delete them
-    for (int i = dynamicsWorld->getNumCollisionObjects() - 1; i >= 0; i--) {
-        btCollisionObject* obj = dynamicsWorld->getCollisionObjectArray()[i];
-        btRigidBody* body = btRigidBody::upcast(obj);
-        if (body && body->getMotionState()) {
-            delete body->getMotionState();
-        }
-        dynamicsWorld->removeCollisionObject(obj);
-        delete obj;
-    }
-
-    // Delete collision shapes
-    for (btCollisionShape* shape : collisionShapes) {
-        delete shape;
-    }
-    collisionShapes.clear();
-
-    // Delete motion states (already deleted with rigid bodies above, but clear the vector)
-    motionStates.clear();
-
-    // Delete dynamics world and related components
-    delete dynamicsWorld;
-    delete solver;
-    delete overlappingPairCache;
-    delete dispatcher;
-    delete collisionConfiguration;
+    // Order matters: bodies must leave the world before the world dies.
+    // Clearing m_Bodies first triggers each ScopedRigidBody's dtor, which
+    // removes itself from m_DynamicsWorld (still alive at this point).
+    m_Bodies.clear();
+    m_Shapes.clear();
+    // m_DynamicsWorld, m_Solver, m_Broadphase, m_Dispatcher,
+    // m_CollisionConfiguration are destroyed in reverse declaration order,
+    // which is exactly what Bullet requires.
 }
 
 void PhysicsSystem::Update(float deltaTime) {
-    // Step the physics simulation
-    // You can adjust the parameters for accuracy and performance
-    dynamicsWorld->stepSimulation(deltaTime, 10); // 10 is the maximum number of internal substeps
+    m_DynamicsWorld->stepSimulation(deltaTime, 10);
+}
+
+btRigidBody* PhysicsSystem::addBody(ScopedCollisionShape shape,
+                                     const glm::vec3& position,
+                                     float mass) {
+    ScopedMotionState motionState(new btDefaultMotionState(
+        btTransform(btQuaternion(0, 0, 0, 1), btVector3(position.x, position.y, position.z))));
+
+    btVector3 inertia(0, 0, 0);
+    if (mass > 0.0f) {
+        shape->calculateLocalInertia(mass, inertia);
+    }
+
+    btRigidBody::btRigidBodyConstructionInfo info(mass, motionState.get(), shape.get(), inertia);
+    auto body = std::make_unique<btRigidBody>(info);
+    btRigidBody* raw = body.get();
+
+    m_DynamicsWorld->addRigidBody(raw);
+
+    // Shape is kept alive in m_Shapes because Bullet stores a non-owning
+    // pointer to the shape inside the body's construction info.
+    m_Shapes.push_back(std::move(shape));
+    m_Bodies.emplace_back(m_DynamicsWorld.get(), std::move(body), std::move(motionState));
+    return raw;
 }
 
 btRigidBody* PhysicsSystem::CreateGroundPlane(const glm::vec3& position) {
-    // Create a static ground plane
-    btCollisionShape* groundShape = new btStaticPlaneShape(btVector3(0, 1, 0), 0); // Normal and distance from origin
-    collisionShapes.push_back(groundShape);
-
-    btDefaultMotionState* groundMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, 1), btVector3(position.x, position.y, position.z)));
-    motionStates.push_back(groundMotionState);
-
-    btRigidBody::btRigidBodyConstructionInfo groundRigidBodyCI(0, groundMotionState, groundShape, btVector3(0, 0, 0)); // Mass 0 for static object
-    btRigidBody* groundBody = new btRigidBody(groundRigidBodyCI);
-
-    dynamicsWorld->addRigidBody(groundBody);
-
-    return groundBody;
+    ScopedCollisionShape shape(new btStaticPlaneShape(btVector3(0, 1, 0), 0));
+    return addBody(std::move(shape), position, 0.0f);
 }
 
 btRigidBody* PhysicsSystem::CreateCube(const glm::vec3& position, float mass) {
-    // Create a dynamic cube
-    btCollisionShape* cubeShape = new btBoxShape(btVector3(0.5f, 0.5f, 0.5f)); // Half extents
-    collisionShapes.push_back(cubeShape);
-
-    btDefaultMotionState* cubeMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, 1), btVector3(position.x, position.y, position.z)));
-    motionStates.push_back(cubeMotionState);
-
-    btVector3 fallInertia(0, 0, 0);
-    cubeShape->calculateLocalInertia(mass, fallInertia);
-
-    btRigidBody::btRigidBodyConstructionInfo cubeRigidBodyCI(mass, cubeMotionState, cubeShape, fallInertia);
-    btRigidBody* cubeBody = new btRigidBody(cubeRigidBodyCI);
-
-    dynamicsWorld->addRigidBody(cubeBody);
-
-    return cubeBody;
+    ScopedCollisionShape shape(new btBoxShape(btVector3(0.5f, 0.5f, 0.5f)));
+    return addBody(std::move(shape), position, mass);
 }
 
 btRigidBody* PhysicsSystem::CreateSphere(const glm::vec3& position, float radius, float mass) {
-    // Create a dynamic sphere
-    btCollisionShape* sphereShape = new btSphereShape(radius);
-    collisionShapes.push_back(sphereShape);
-
-    btDefaultMotionState* sphereMotionState = new btDefaultMotionState(btTransform(btQuaternion(0, 0, 0, 1), btVector3(position.x, position.y, position.z)));
-    motionStates.push_back(sphereMotionState);
-
-    btVector3 fallInertia(0, 0, 0);
-    sphereShape->calculateLocalInertia(mass, fallInertia);
-
-    btRigidBody::btRigidBodyConstructionInfo sphereRigidBodyCI(mass, sphereMotionState, sphereShape, fallInertia);
-    btRigidBody* sphereBody = new btRigidBody(sphereRigidBodyCI);
-
-    dynamicsWorld->addRigidBody(sphereBody);
-
-    return sphereBody;
+    ScopedCollisionShape shape(new btSphereShape(radius));
+    return addBody(std::move(shape), position, mass);
 }
 
 void PhysicsSystem::ApplyForce(btRigidBody* body, const glm::vec3& force) {
     if (body) {
-        body->activate(true); // Activate the body if it was sleeping
+        body->activate(true);
         body->applyCentralForce(btVector3(force.x, force.y, force.z));
     }
 }

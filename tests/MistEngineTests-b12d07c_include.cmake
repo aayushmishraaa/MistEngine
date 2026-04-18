@@ -1,0 +1,5 @@
+if(EXISTS "/home/it8/Repos/MistEngine/tests/MistEngineTests-b12d07c_tests.cmake")
+  include("/home/it8/Repos/MistEngine/tests/MistEngineTests-b12d07c_tests.cmake")
+else()
+  add_test(MistEngineTests_NOT_BUILT-b12d07c MistEngineTests_NOT_BUILT-b12d07c)
+endif()

@@ -4,6 +4,7 @@
 
 SSAORenderer::~SSAORenderer() {
     if (m_NoiseTexture) glDeleteTextures(1, &m_NoiseTexture);
+    if (m_SamplesUBO)   glDeleteBuffers(1, &m_SamplesUBO);
 }
 
 void SSAORenderer::Init(int width, int height) {
@@ -18,8 +19,21 @@ void SSAORenderer::Init(int width, int height) {
 
     generateKernel();
     generateNoiseTexture();
+    uploadKernelUBO();
 
     LOG_INFO("SSAO initialized: ", width, "x", height, ", ", m_Kernel.size(), " samples");
+}
+
+void SSAORenderer::uploadKernelUBO() {
+    // std140 pads vec3 to vec4, so we pack into vec4 here for a direct match
+    // to the shader's `vec4 samples[64]`. One-time upload; the kernel never
+    // changes after Init.
+    glm::vec4 packed[64];
+    for (size_t i = 0; i < m_Kernel.size() && i < 64; ++i) {
+        packed[i] = glm::vec4(m_Kernel[i], 0.0f);
+    }
+    glCreateBuffers(1, &m_SamplesUBO);
+    glNamedBufferStorage(m_SamplesUBO, sizeof(packed), packed, 0);
 }
 
 void SSAORenderer::Resize(int width, int height) {
@@ -85,9 +99,10 @@ void SSAORenderer::Render(GLuint depthTex, const glm::mat4& projection, const gl
     glBindTexture(GL_TEXTURE_2D, m_NoiseTexture);
     m_SSAOShader.setInt("noiseTexture", 1);
 
-    for (unsigned int i = 0; i < m_Kernel.size(); ++i) {
-        m_SSAOShader.setVec3("samples[" + std::to_string(i) + "]", m_Kernel[i]);
-    }
+    // Pre-fix: 64 per-frame std::to_string + setVec3 + glGetUniformLocation
+    // calls (~64 string concats × every frame SSAO is enabled). Now a single
+    // UBO bind at binding 6, matching the shader's layout(std140, binding=6).
+    glBindBufferBase(GL_UNIFORM_BUFFER, 6, m_SamplesUBO);
     m_SSAOShader.setMat4("projection", projection);
     m_SSAOShader.setMat4("view", view);
     m_SSAOShader.setFloat("radius", radius);

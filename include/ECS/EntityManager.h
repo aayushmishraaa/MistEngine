@@ -2,6 +2,7 @@
 #define ENTITYMANAGER_H
 
 #include <queue>
+#include <unordered_set>
 #include <vector>
 #include <bitset>
 #include <cassert>
@@ -24,6 +25,7 @@ public:
         Entity id = m_AvailableEntities.front();
         m_AvailableEntities.pop();
         ++m_LivingEntityCount;
+        m_LivingEntities.insert(id);
         return id;
     }
 
@@ -31,6 +33,7 @@ public:
         assert(entity < MAX_ENTITIES && "Entity out of range");
         m_Signatures[entity].reset();
         m_AvailableEntities.push(entity);
+        m_LivingEntities.erase(entity);
         --m_LivingEntityCount;
     }
 
@@ -46,8 +49,16 @@ public:
 
     uint32_t GetLivingEntityCount() const { return m_LivingEntityCount; }
 
+    // Authoritative set of currently-allocated entity IDs. UI and
+    // serialization iterate this rather than guessing from a max-seen-ID
+    // counter — the latter silently skips entities created by non-UI
+    // paths (Lua, plugins) and was the root cause of the "Entity 0"
+    // hierarchy bug.
+    const std::unordered_set<Entity>& GetLivingEntities() const { return m_LivingEntities; }
+
 private:
     std::queue<Entity> m_AvailableEntities{};
+    std::unordered_set<Entity> m_LivingEntities{};
     std::vector<Signature> m_Signatures{};
     uint32_t m_LivingEntityCount{};
 };

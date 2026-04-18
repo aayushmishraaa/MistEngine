@@ -1,6 +1,6 @@
-# ?? Contributing to MistEngine
+# Contributing to MistEngine
 
-Welcome to **MistEngine 0.3.0**! We're excited to have you contribute to this modern C++ game engine with AI integration and complete FPS game functionality.
+Welcome to **MistEngine 0.5.0-prealpha**! This is a modern C++17 game engine â€” editor + rendering sandbox with AI assistant integration. Contributions are welcome on Windows and Linux.
 
 ## ?? **Project Overview**
 
@@ -16,24 +16,40 @@ MistEngine is a sophisticated 3D game engine featuring:
 ## ?? **Quick Start for Contributors**
 
 ### **Prerequisites**
-- Visual Studio 2019+ with C++14 support
-- Windows 10/11 (x64)
-- Git for version control
-- Basic knowledge of C++, OpenGL, and game engine architecture
+- CMake 3.21+
+- A C++17 compiler (MSVC 2019+, GCC 9+, or Clang 10+)
+- Git
+- On Linux: `libglfw3-dev`, `libglm-dev`, `libassimp-dev`, `libbullet-dev`,
+  `libfreetype-dev`, `libcurl4-openssl-dev`, `ninja-build`
+- On Windows: [vcpkg](https://vcpkg.io) (the repo ships a `vcpkg.json` manifest)
 
-### **Setup Development Environment**
+### **Setup â€” Linux**
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/MistEngine.git
 cd MistEngine
-
-# Open in Visual Studio
-start MistEngine.sln
-
-# Build and test
-# Press Ctrl+F5 to build and run
-# Click "?? START FPS GAME" to test FPS functionality
+cmake --preset linux-debug
+cmake --build --preset linux-debug
+ctest --preset linux-ci  # runs the Catch2 suite
+./build-linux-debug/MistEngine
 ```
+
+### **Setup â€” Windows**
+```powershell
+git clone https://github.com/yourusername/MistEngine.git
+cd MistEngine
+$env:VCPKG_ROOT = "C:\path\to\vcpkg"
+cmake --preset windows-release
+cmake --build --preset windows-release --config Release
+ctest --preset windows-release -C Release
+```
+
+### **Style & automation**
+- Formatting: `clang-format` is enforced in CI. Run `clang-format -i` on
+  files you touch, or install the pre-commit hook from `.githooks/`.
+- Static analysis: `clang-tidy` runs against changed files in CI using
+  `.clang-tidy` at the repo root.
+- Tests: every new subsystem should land with at least one Catch2 test under
+  `tests/`. GL-dependent tests go behind `MIST_TEST_GL=ON`.
 
 ---
 
@@ -327,7 +343,7 @@ Any other relevant information
 
 ### **Game Engine Development**
 - **"Game Engine Architecture" by Jason Gregory** - Comprehensive engine design
-- **"Real-Time Rendering" by Möller & Haines** - Advanced rendering techniques
+- **"Real-Time Rendering" by Mï¿½ller & Haines** - Advanced rendering techniques
 - **"AI for Games" by Millington & Funge** - Game AI implementation
 - **OpenGL SuperBible** - Modern OpenGL programming
 
@@ -388,6 +404,6 @@ Any other relevant information
 
 **Built with ?? by the MistEngine Community**
 
-*Modern C++14 • ECS Architecture • AI Integration • Complete FPS Game*
+*Modern C++14 ï¿½ ECS Architecture ï¿½ AI Integration ï¿½ Complete FPS Game*
 
 </div>

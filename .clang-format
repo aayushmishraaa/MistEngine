@@ -1,0 +1,27 @@
+# Base: LLVM with project-specific tweaks. Enforced by CI via
+# `clang-format --dry-run --Werror` over changed files.
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++17
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+PointerAlignment: Left
+ReferenceAlignment: Left
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+SpaceAfterCStyleCast: true
+SpacesBeforeTrailingComments: 1
+FixNamespaceComments: true
+IncludeBlocks: Regroup
+SortIncludes: CaseInsensitive
+IncludeCategories:
+  - Regex: '^"[^/]+\.h"$'
+    Priority: 1
+  - Regex: '^".+/.+\.h"$'
+    Priority: 2
+  - Regex: '^<.+>$'
+    Priority: 3

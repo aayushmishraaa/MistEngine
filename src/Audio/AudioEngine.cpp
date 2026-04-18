@@ -1,10 +1,37 @@
 #include "Audio/AudioEngine.h"
 #include "Core/Logger.h"
 
+#include <algorithm>
+#include <filesystem>
+#include <memory>
+
 #ifdef MIST_ENABLE_AUDIO
 
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio.h"
+
+namespace {
+// Custom deleters so we can use unique_ptr for ma_engine / ma_sound. These
+// objects need their ma_*_uninit called before delete, otherwise miniaudio
+// leaks internal decoder state even if the C++ side frees the struct.
+struct MaEngineDeleter {
+    void operator()(ma_engine* e) const noexcept {
+        if (e) {
+            ma_engine_uninit(e);
+            delete e;
+        }
+    }
+};
+struct MaSoundDeleter {
+    void operator()(ma_sound* s) const noexcept {
+        if (s) {
+            ma_sound_uninit(s);
+            delete s;
+        }
+    }
+};
+using MaSoundPtr = std::unique_ptr<ma_sound, MaSoundDeleter>;
+} // namespace
 
 AudioEngine::AudioEngine() {}
 
@@ -70,13 +97,23 @@ std::shared_ptr<AudioClip> AudioEngine::LoadClip(const std::string& path, const 
     auto it = m_Clips.find(clipName);
     if (it != m_Clips.end()) return it->second;
 
+    // Verify the file exists up front. Previously loaded=true was set
+    // unconditionally, so PlaySound would silently fail at playback time with
+    // no obvious cause.
+    std::error_code ec;
+    const bool exists = std::filesystem::exists(path, ec) && !ec;
+
     auto clip = std::make_shared<AudioClip>();
     clip->name = clipName;
     clip->filePath = path;
-    clip->loaded = true;
+    clip->loaded = exists;
     m_Clips[clipName] = clip;
 
-    LOG_INFO("AudioClip loaded: ", clipName);
+    if (exists) {
+        LOG_INFO("AudioClip loaded: ", clipName);
+    } else {
+        LOG_WARN("AudioClip file missing: ", path);
+    }
     return clip;
 }
 
@@ -106,24 +143,32 @@ void AudioEngine::PlaySound3D(const std::string& clipName, const glm::vec3& posi
         return;
     }
 
-    ma_sound* sound = new ma_sound();
+    // RAII: if ma_sound_init_from_file fails OR any set_* call below throws,
+    // the unique_ptr destroys the ma_sound via ma_sound_uninit + delete.
+    // We release ownership into the active-sounds vector only once everything
+    // succeeded.
+    ma_sound* raw = new ma_sound();
     ma_result result = ma_sound_init_from_file(m_Engine, it->second->filePath.c_str(),
-        MA_SOUND_FLAG_DECODE, nullptr, nullptr, sound);
+        MA_SOUND_FLAG_DECODE, nullptr, nullptr, raw);
 
     if (result != MA_SUCCESS) {
         LOG_ERROR("AudioEngine: Failed to play 3D sound: ", clipName);
-        delete sound;
+        // Init failed; miniaudio doesn't require uninit on failure. Avoid
+        // passing the raw pointer to the RAII deleter which would call
+        // ma_sound_uninit on an uninitialized object.
+        delete raw;
         return;
     }
 
-    ma_sound_set_position(sound, position.x, position.y, position.z);
-    ma_sound_set_volume(sound, volume * m_SFXVolume * m_MasterVolume);
-    ma_sound_set_min_distance(sound, minDist);
-    ma_sound_set_max_distance(sound, maxDist);
-    ma_sound_set_spatialization_enabled(sound, MA_TRUE);
-    ma_sound_start(sound);
+    MaSoundPtr sound(raw);
+    ma_sound_set_position(sound.get(), position.x, position.y, position.z);
+    ma_sound_set_volume(sound.get(), volume * m_SFXVolume * m_MasterVolume);
+    ma_sound_set_min_distance(sound.get(), minDist);
+    ma_sound_set_max_distance(sound.get(), maxDist);
+    ma_sound_set_spatialization_enabled(sound.get(), MA_TRUE);
+    ma_sound_start(sound.get());
 
-    m_ActiveSounds.push_back({sound, clipName});
+    m_ActiveSounds.push_back({sound.release(), clipName});
 }
 
 void AudioEngine::PlayMusic(const std::string& path, float volume, bool loop) {

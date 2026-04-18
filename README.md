@@ -1,13 +1,13 @@
-# ?? MistEngine 0.3.0
+# MistEngine 0.5.0
 
-[![Version](https://img.shields.io/badge/version-0.3.0--prealpha-brightgreen.svg)](https://github.com/yourusername/MistEngine)
-[![Platform](https://img.shields.io/badge/platform-Windows%20x64-blue.svg)](https://github.com/yourusername/MistEngine)
-[![C++](https://img.shields.io/badge/C%2B%2B-14-blue.svg)](https://github.com/yourusername/MistEngine)
+[![Version](https://img.shields.io/badge/version-0.5.0--prealpha-brightgreen.svg)](https://github.com/yourusername/MistEngine)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue.svg)](https://github.com/yourusername/MistEngine)
+[![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://github.com/yourusername/MistEngine)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> **A Modern C++ Game Engine with AI Integration and FPS Game Mode**
+> **A modern C++17 OpenGL 4.6 engine â€” editor + renderer sandbox.**
 
-MistEngine is a sophisticated 3D game engine built with modern C++14, featuring an Entity-Component-System (ECS) architecture, advanced physics simulation, AI-powered development assistance, and a complete FPS game implementation.
+MistEngine is a 3D engine built with modern C++17, featuring an Entity-Component-System (ECS) architecture, a PBR renderer with CSM/SSGI/TAA/bloom/FXAA, clustered lighting, Bullet physics, Dear ImGui-based scene editor, hot-reloadable plugin modules, and an optional AI assistant (Gemini / OpenAI). Builds from a single CMake tree on Windows (via vcpkg) and Linux (via system packages). The bundled FPS demo from 0.4.x was removed in 0.5.0 â€” the engine's direction is now the editor + rendering sandbox.
 
 ---
 
@@ -335,7 +335,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Built with ?? using Modern C++14 • ECS Architecture • AI Integration**
+**Built with ?? using Modern C++14 ï¿½ ECS Architecture ï¿½ AI Integration**
 
 *MistEngine 0.3.0 - Where Games Meet Innovation*
 

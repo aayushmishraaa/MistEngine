@@ -7,22 +7,27 @@
 # MistEngine .gitignore
 # =========================
 
-# Build directory
+# Build directories (CMake / Ninja out-of-tree)
 build/
+build-*/
+Testing/
+CTestTestfile.cmake
 
-# AI Configuration Files (contain API keys - NEVER commit these)
+# ImGui Settings Files (per-user layout state, not project state)
+imgui.ini
+imgui_*.ini
+
+# Legacy AI config (subsystem removed; pattern kept as a safety net)
 ai_config.json
 ai_config_*.json
 *.ai_config
 
-# ImGui Settings Files
-imgui.ini
-imgui_*.ini
-
-# Documentation Folder (contains development notes and technical docs)
-docs/
+# Packaging output
 package/
-scripts/
+
+# NOTE: `docs/` and `scripts/` WERE ignored but carry project content —
+# user-facing documentation (editor_controls.md, scripting.md) and
+# runtime-loaded Lua scripts (bootstrap.lua, etc.) must be tracked.
 
 # =========================
 # Visual Studio Files
@@ -392,4 +397,4 @@ config.local.json
 *.backup
 *.old
 
-*.ps1*.ps1
+*.ps1

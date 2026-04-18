@@ -1,4 +1,6 @@
 #include "ModuleManager.h"
+#include "Core/PathGuard.h"
+#include <filesystem>
 #include <iostream>
 #include <algorithm>
 
@@ -27,18 +29,36 @@ ModuleLoadResult ModuleManager::LoadModule(const std::string& filePath) {
     ModuleLoadResult result;
     result.success = false;
 
-    // Extract module name from file path (simple approach for C++14)
-    size_t lastSlash = filePath.find_last_of("/\\");
-    size_t lastDot = filePath.find_last_of('.');
-    std::string moduleName = filePath.substr(lastSlash + 1, lastDot - lastSlash - 1);
-    
+    // Only load from the project's ./modules directory. Loading arbitrary
+    // shared libraries from an untrusted path is a classic DLL/SO injection
+    // hole, so the sandbox is enforced at the boundary rather than at each
+    // caller.
+    std::error_code ec;
+    std::filesystem::path cwd = std::filesystem::current_path(ec);
+    std::filesystem::path modulesRoot = ec ? std::filesystem::path{"modules"} : cwd / "modules";
+    std::filesystem::path resolved;
+    if (!Mist::PathGuard::is_under(modulesRoot, filePath, &resolved)) {
+        result.errorMessage = "Refusing to load module outside ./modules: " + filePath;
+        return result;
+    }
+
+    // Derive a module name safely from the resolved path — guards against
+    // find_last_of returning npos for a path with no separators (npos + 1
+    // would wrap).
+    std::string moduleName = resolved.stem().string();
+    if (moduleName.empty()) {
+        result.errorMessage = "Could not derive module name from path: " + filePath;
+        return result;
+    }
+    const std::string resolvedPath = resolved.string();
+
     if (IsModuleLoaded(moduleName)) {
         result.errorMessage = "Module '" + moduleName + "' is already loaded";
         return result;
     }
 
-    // Load the dynamic library
-    MODULE_HANDLE handle = LOAD_MODULE(filePath.c_str());
+    // Load the dynamic library from the canonical resolved path.
+    MODULE_HANDLE handle = LOAD_MODULE(resolvedPath.c_str());
     if (!handle) {
 #ifdef _WIN32
         DWORD error = GetLastError();
@@ -96,7 +116,7 @@ ModuleLoadResult ModuleManager::LoadModule(const std::string& filePath) {
     loadedModule.module = module;
     loadedModule.createFunc = createFunc;
     loadedModule.destroyFunc = destroyFunc;
-    loadedModule.filePath = filePath;
+    loadedModule.filePath = resolvedPath;
     loadedModule.info = info;
     loadedModule.initialized = false;
 

@@ -302,6 +302,52 @@ void InputManager::ProcessCameraMovement(float deltaTime) {
         std::cout << "SUCCESS: Camera movement working! WASD/QE controls active." << std::endl;
         firstMovement = false;
     }
+
+    // Numpad view presets (Godot convention). Edge-triggered so holding
+    // the key doesn't spam-reset every frame. Each preset snaps the
+    // camera to a canonical orientation and re-seats the orbit focal
+    // distance so the scene stays framed the same as before.
+    auto justPressed = [&](int key) {
+        return m_KeyStates[key] && !m_PrevKeyStates[key];
+    };
+
+    if (justPressed(GLFW_KEY_KP_1)) {
+        // Front view — looking down -Z.
+        m_Camera->Yaw   = -90.0f;
+        m_Camera->Pitch =   0.0f;
+        m_Camera->updateCameraVectors();
+        std::cout << "Numpad 1: front view" << std::endl;
+    }
+    if (justPressed(GLFW_KEY_KP_3)) {
+        // Right view — looking down -X (from +X toward origin).
+        m_Camera->Yaw   = 180.0f;
+        m_Camera->Pitch =   0.0f;
+        m_Camera->updateCameraVectors();
+        std::cout << "Numpad 3: right view" << std::endl;
+    }
+    if (justPressed(GLFW_KEY_KP_7)) {
+        // Top view — looking straight down. Pitch -89 (not -90) avoids
+        // the degenerate Front≈WorldUp case that makes Right go to 0.
+        m_Camera->Yaw   = -90.0f;
+        m_Camera->Pitch = -89.0f;
+        m_Camera->updateCameraVectors();
+        std::cout << "Numpad 7: top view" << std::endl;
+    }
+    if (justPressed(GLFW_KEY_KP_5)) {
+        // Toggle orbit/free camera mode.
+        m_Camera->SetOrbitMode(!m_Camera->OrbitMode);
+        std::cout << "Numpad 5: orbit mode "
+                  << (m_Camera->OrbitMode ? "ON" : "OFF") << std::endl;
+    }
+    if (justPressed(GLFW_KEY_KP_0)) {
+        // Reset to the default editor vantage — matches the startup
+        // pose (above + behind origin, looking in).
+        m_Camera->FocusOn(glm::vec3(0.0f), 10.0f);
+        m_Camera->Yaw   = -90.0f;
+        m_Camera->Pitch = -20.0f;
+        m_Camera->updateCameraVectors();
+        std::cout << "Numpad 0: reset view" << std::endl;
+    }
 }
 
 void InputManager::ProcessCameraLook(double xpos, double ypos) {
@@ -339,7 +385,15 @@ void InputManager::UpdateKeyStatesFromPolling() {
     m_KeyStates[GLFW_KEY_D] = (glfwGetKey(m_Window, GLFW_KEY_D) == GLFW_PRESS);
     m_KeyStates[GLFW_KEY_Q] = (glfwGetKey(m_Window, GLFW_KEY_Q) == GLFW_PRESS);
     m_KeyStates[GLFW_KEY_E] = (glfwGetKey(m_Window, GLFW_KEY_E) == GLFW_PRESS);
-    
+
+    // Godot-style numpad view presets — polled here so edge-trigger
+    // detection in HandleKeyboardPolling can diff against m_PrevKeyStates.
+    m_KeyStates[GLFW_KEY_KP_1] = (glfwGetKey(m_Window, GLFW_KEY_KP_1) == GLFW_PRESS);
+    m_KeyStates[GLFW_KEY_KP_3] = (glfwGetKey(m_Window, GLFW_KEY_KP_3) == GLFW_PRESS);
+    m_KeyStates[GLFW_KEY_KP_7] = (glfwGetKey(m_Window, GLFW_KEY_KP_7) == GLFW_PRESS);
+    m_KeyStates[GLFW_KEY_KP_5] = (glfwGetKey(m_Window, GLFW_KEY_KP_5) == GLFW_PRESS);
+    m_KeyStates[GLFW_KEY_KP_0] = (glfwGetKey(m_Window, GLFW_KEY_KP_0) == GLFW_PRESS);
+
     // Also check mode toggle key
     m_KeyStates[GLFW_KEY_F3] = (glfwGetKey(m_Window, GLFW_KEY_F3) == GLFW_PRESS);
     

@@ -1,358 +1,239 @@
 #include "Scene/SceneSerializer.h"
-#include "ECS/Coordinator.h"
-#include "ECS/Components/TransformComponent.h"
-#include "ECS/Components/RenderComponent.h"
-#include "ECS/Components/PhysicsComponent.h"
+
 #include "Core/Logger.h"
+#include "Core/PathGuard.h"
+#include "ECS/Components/PhysicsComponent.h"
+#include "ECS/Components/RenderComponent.h"
+#include "ECS/Components/TransformComponent.h"
+#include "ECS/Coordinator.h"
+#include "Mesh.h"
+#include "Renderable.h"
+#include "Resources/AssetRegistry.h"
+#include "Resources/Ref.h"
+
+#include <nlohmann/json.hpp>
+
+#include <cstdint>
+#include <filesystem>
 #include <fstream>
-#include <algorithm>
-#include <cmath>
+#include <string>
 
 extern Coordinator gCoordinator;
 
-// --- JsonWriter ---
+using json = nlohmann::json;
 
-void JsonWriter::writeIndent() {
-    for (int i = 0; i < m_Indent; i++) m_Stream << "  ";
+namespace {
+
+// Cap scene files to 64 MiB. Legitimate scenes are well under a megabyte;
+// anything above this is almost certainly a mistake or an attempt to exhaust
+// memory by forcing the whole contents into RAM.
+constexpr std::uintmax_t kMaxSceneBytes = 64ull * 1024ull * 1024ull;
+
+std::filesystem::path SceneSandboxRoot() {
+    std::error_code ec;
+    auto cwd = std::filesystem::current_path(ec);
+    if (ec) return std::filesystem::path{"scenes"};
+    return cwd / "scenes";
 }
 
-void JsonWriter::writeComma() {
-    if (m_NeedComma) m_Stream << ",";
-    m_Stream << "\n";
-    m_NeedComma = false;
+// Serialize a glm::vec3 as a 3-element JSON array.
+json vec3_to_json(const glm::vec3& v) {
+    return json::array({v.x, v.y, v.z});
 }
 
-void JsonWriter::BeginObject() {
-    if (m_NeedComma) writeComma();
-    writeIndent();
-    m_Stream << "{";
-    m_Indent++;
-    m_NeedComma = false;
-}
-
-void JsonWriter::EndObject() {
-    m_Indent--;
-    m_Stream << "\n";
-    writeIndent();
-    m_Stream << "}";
-    m_NeedComma = true;
-}
-
-void JsonWriter::BeginArray(const std::string& key) {
-    writeComma();
-    writeIndent();
-    m_Stream << "\"" << key << "\": [";
-    m_Indent++;
-    m_NeedComma = false;
-}
-
-void JsonWriter::EndArray() {
-    m_Indent--;
-    m_Stream << "\n";
-    writeIndent();
-    m_Stream << "]";
-    m_NeedComma = true;
-}
-
-void JsonWriter::Key(const std::string& key) {
-    writeComma();
-    writeIndent();
-    m_Stream << "\"" << key << "\": ";
-    m_NeedComma = false;
-}
-
-void JsonWriter::String(const std::string& value) {
-    m_Stream << "\"" << value << "\"";
-    m_NeedComma = true;
-}
-
-void JsonWriter::Number(float value) {
-    if (std::isfinite(value))
-        m_Stream << value;
-    else
-        m_Stream << "0.0";
-    m_NeedComma = true;
-}
-
-void JsonWriter::Number(int value) {
-    m_Stream << value;
-    m_NeedComma = true;
-}
-
-void JsonWriter::Bool(bool value) {
-    m_Stream << (value ? "true" : "false");
-    m_NeedComma = true;
-}
-
-void JsonWriter::Vec3(const std::string& key, const glm::vec3& v) {
-    writeComma();
-    writeIndent();
-    m_Stream << "\"" << key << "\": [" << v.x << ", " << v.y << ", " << v.z << "]";
-    m_NeedComma = true;
-}
-
-// --- JsonValue ---
-
-static JsonValue s_NullValue;
-
-const JsonValue& JsonValue::operator[](const std::string& key) const {
-    for (auto& kv : objectValues) {
-        if (kv.first == key) return kv.second;
-    }
-    return s_NullValue;
-}
-
-const JsonValue& JsonValue::operator[](size_t index) const {
-    if (index < arrayValues.size()) return arrayValues[index];
-    return s_NullValue;
-}
-
-size_t JsonValue::size() const {
-    if (type == ARRAY) return arrayValues.size();
-    if (type == OBJECT) return objectValues.size();
-    return 0;
-}
-
-bool JsonValue::has(const std::string& key) const {
-    for (auto& kv : objectValues) {
-        if (kv.first == key) return true;
-    }
-    return false;
-}
-
-glm::vec3 JsonValue::toVec3() const {
-    if (type == ARRAY && arrayValues.size() >= 3) {
-        return glm::vec3(arrayValues[0].numValue, arrayValues[1].numValue, arrayValues[2].numValue);
-    }
-    return glm::vec3(0.0f);
-}
-
-void JsonValue::skipWhitespace(const std::string& json, size_t& pos) {
-    while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\n' || json[pos] == '\r' || json[pos] == '\t'))
-        pos++;
-}
-
-JsonValue JsonValue::parseString(const std::string& json, size_t& pos) {
-    JsonValue val;
-    val.type = STRING;
-    pos++; // skip opening "
-    while (pos < json.size() && json[pos] != '"') {
-        if (json[pos] == '\\') {
-            pos++;
-            if (pos < json.size()) {
-                switch (json[pos]) {
-                    case '"':  val.strValue += '"'; break;
-                    case '\\': val.strValue += '\\'; break;
-                    case 'n':  val.strValue += '\n'; break;
-                    case 't':  val.strValue += '\t'; break;
-                    default:   val.strValue += json[pos]; break;
-                }
-            }
-        } else {
-            val.strValue += json[pos];
-        }
-        pos++;
-    }
-    if (pos < json.size()) pos++; // skip closing "
-    return val;
-}
-
-JsonValue JsonValue::parseNumber(const std::string& json, size_t& pos) {
-    JsonValue val;
-    val.type = NUMBER;
-    size_t start = pos;
-    if (pos < json.size() && json[pos] == '-') pos++;
-    while (pos < json.size() && (isdigit(json[pos]) || json[pos] == '.' || json[pos] == 'e' || json[pos] == 'E' || json[pos] == '+' || json[pos] == '-')) {
-        if ((json[pos] == '+' || json[pos] == '-') && pos > start && json[pos-1] != 'e' && json[pos-1] != 'E') break;
-        pos++;
-    }
-    val.numValue = std::stof(json.substr(start, pos - start));
-    return val;
-}
-
-JsonValue JsonValue::parseArray(const std::string& json, size_t& pos) {
-    JsonValue val;
-    val.type = ARRAY;
-    pos++; // skip [
-    skipWhitespace(json, pos);
-    while (pos < json.size() && json[pos] != ']') {
-        val.arrayValues.push_back(parseValue(json, pos));
-        skipWhitespace(json, pos);
-        if (pos < json.size() && json[pos] == ',') pos++;
-        skipWhitespace(json, pos);
-    }
-    if (pos < json.size()) pos++; // skip ]
-    return val;
-}
-
-JsonValue JsonValue::parseObject(const std::string& json, size_t& pos) {
-    JsonValue val;
-    val.type = OBJECT;
-    pos++; // skip {
-    skipWhitespace(json, pos);
-    while (pos < json.size() && json[pos] != '}') {
-        skipWhitespace(json, pos);
-        if (pos >= json.size() || json[pos] != '"') break;
-        JsonValue keyVal = parseString(json, pos);
-        skipWhitespace(json, pos);
-        if (pos < json.size() && json[pos] == ':') pos++;
-        skipWhitespace(json, pos);
-        JsonValue value = parseValue(json, pos);
-        val.objectValues.push_back({keyVal.strValue, value});
-        skipWhitespace(json, pos);
-        if (pos < json.size() && json[pos] == ',') pos++;
-        skipWhitespace(json, pos);
-    }
-    if (pos < json.size()) pos++; // skip }
-    return val;
-}
-
-JsonValue JsonValue::parseValue(const std::string& json, size_t& pos) {
-    skipWhitespace(json, pos);
-    if (pos >= json.size()) return JsonValue();
-
-    char c = json[pos];
-    if (c == '"') return parseString(json, pos);
-    if (c == '{') return parseObject(json, pos);
-    if (c == '[') return parseArray(json, pos);
-    if (c == 't' || c == 'f') {
-        JsonValue val;
-        val.type = BOOL;
-        if (json.substr(pos, 4) == "true") { val.boolValue = true; pos += 4; }
-        else { val.boolValue = false; pos += 5; }
-        return val;
-    }
-    if (c == 'n') { pos += 4; return JsonValue(); }
-    if (c == '-' || isdigit(c)) return parseNumber(json, pos);
-    return JsonValue();
-}
-
-JsonValue JsonValue::Parse(const std::string& json) {
-    size_t pos = 0;
-    return parseValue(json, pos);
-}
-
-// --- SceneSerializer ---
-
-bool SceneSerializer::Save(const std::string& filepath, Coordinator& coordinator, int entityCount) {
-    JsonWriter w;
-    w.BeginObject();
-
-    w.Key("version"); w.String("0.4.0");
-    w.Key("engine"); w.String("MistEngine");
-
-    w.BeginArray("entities");
-
-    for (int i = 0; i < entityCount; i++) {
-        Entity entity = static_cast<Entity>(i);
-
-        // Check if entity has at least a transform
-        bool hasTransform = false;
-        TransformComponent transform;
-        try {
-            transform = coordinator.GetComponent<TransformComponent>(entity);
-            hasTransform = true;
-        } catch (...) {}
-
-        if (!hasTransform) continue;
-
-        w.BeginObject();
-        w.Key("id"); w.Number(static_cast<int>(entity));
-
-        // Transform
-        w.Vec3("position", transform.position);
-        w.Vec3("rotation", transform.rotation);
-        w.Vec3("scale", transform.scale);
-
-        // Render component
-        try {
-            auto& render = coordinator.GetComponent<RenderComponent>(entity);
-            w.Key("visible"); w.Bool(render.visible);
-            w.Key("hasRenderable"); w.Bool(render.renderable != nullptr);
-        } catch (...) {}
-
-        // Physics component
-        try {
-            auto& physics = coordinator.GetComponent<PhysicsComponent>(entity);
-            w.Key("hasPhysics"); w.Bool(true);
-            w.Key("syncTransform"); w.Bool(physics.syncTransform);
-            if (physics.rigidBody) {
-                w.Key("mass"); w.Number(physics.rigidBody->getMass());
-            }
-        } catch (...) {}
-
-        w.EndObject();
-    }
-
-    w.EndArray();
-    w.EndObject();
-
-    std::ofstream file(filepath);
-    if (!file.is_open()) {
-        LOG_ERROR("Failed to open file for writing: ", filepath);
-        return false;
-    }
-    file << w.GetString();
-    file.close();
-
-    LOG_INFO("Scene saved to: ", filepath);
+bool vec3_from_json(const json& arr, glm::vec3& out) {
+    if (!arr.is_array() || arr.size() != 3) return false;
+    out.x = arr[0].get<float>();
+    out.y = arr[1].get<float>();
+    out.z = arr[2].get<float>();
     return true;
 }
 
-bool SceneSerializer::Load(const std::string& filepath, Coordinator& coordinator, int& entityCount) {
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
+// Best-effort classification for a Renderable* so we can write a useful
+// mesh reference. Today we only track meshes loaded via AssetRegistry;
+// anything else (Scene::CreateOwnedRenderable, dynamically-generated meshes)
+// falls back to `{"builtin": "cube"}` so the entity at least has geometry
+// on reload instead of silently disappearing.
+json mesh_ref_for(Renderable* /*r*/) {
+    // A future phase will walk AssetRegistry::meshes() to find the path for
+    // the given renderable pointer. For now we emit the safe default.
+    return json{{"builtin", "cube"}};
+}
+
+// Resolve a `"mesh"` JSON object into a Renderable* via AssetRegistry.
+// Returns nullptr on bad input; the caller is responsible for deciding
+// whether to skip the component or fail the load.
+Renderable* resolve_mesh_ref(const json& meshJson) {
+    if (!meshJson.is_object()) return nullptr;
+
+    auto& registry = Mist::Assets::AssetRegistry::Instance();
+
+    if (meshJson.contains("builtin") && meshJson["builtin"].is_string()) {
+        std::string path = "builtin://" + meshJson["builtin"].get<std::string>();
+        auto ref = LoadRef(registry.meshes(), path);
+        return ref.get();
+    }
+    if (meshJson.contains("ext") && meshJson["ext"].is_string()) {
+        const std::string& uri = meshJson["ext"].get_ref<const std::string&>();
+        // On-disk mesh loader lands with G4's later extension; for now emit
+        // a clear warning and fall through to a placeholder cube so the
+        // entity still renders.
+        LOG_WARN("SceneSerializer: ext mesh refs not yet loadable: ", uri);
+        auto ref = LoadRef(registry.meshes(), "builtin://cube");
+        return ref.get();
+    }
+    return nullptr;
+}
+
+} // namespace
+
+bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinator*/,
+                            int entityCount) {
+    const auto sandbox = SceneSandboxRoot();
+    std::filesystem::path resolved;
+    if (!Mist::PathGuard::is_under(sandbox, filepath, &resolved)) {
+        LOG_ERROR("Refusing to save outside scene sandbox: ", filepath);
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(resolved.parent_path(), ec);
+
+    json root = {
+        {"version",  "0.5"},
+        {"engine",   "MistEngine"},
+        {"entities", json::array()},
+    };
+
+    for (int i = 0; i < entityCount; ++i) {
+        const Entity entity = static_cast<Entity>(i);
+
+        json e = json::object();
+        e["id"] = static_cast<int>(entity);
+
+        // Transform is the gatekeeper — any entity without one is skipped.
+        TransformComponent transform;
+        try {
+            transform = gCoordinator.GetComponent<TransformComponent>(entity);
+        } catch (...) {
+            continue;
+        }
+        e["transform"] = {
+            {"pos",   vec3_to_json(transform.position)},
+            {"rot",   vec3_to_json(transform.rotation)},
+            {"scale", vec3_to_json(transform.scale)},
+        };
+
+        try {
+            auto& render = gCoordinator.GetComponent<RenderComponent>(entity);
+            e["render"] = {
+                {"mesh",    mesh_ref_for(render.renderable)},
+                {"visible", render.visible},
+            };
+        } catch (...) {
+            // No render component — skip.
+        }
+
+        try {
+            auto& physics = gCoordinator.GetComponent<PhysicsComponent>(entity);
+            e["physics"] = {
+                {"hasRigidBody",  physics.rigidBody != nullptr},
+                {"syncTransform", physics.syncTransform},
+            };
+        } catch (...) {
+            // No physics component — skip.
+        }
+
+        root["entities"].push_back(std::move(e));
+    }
+
+    std::ofstream out(resolved);
+    if (!out.is_open()) {
+        LOG_ERROR("Failed to open file for writing: ", filepath);
+        return false;
+    }
+    out << root.dump(2);
+    LOG_INFO("Scene saved to: ", resolved.string());
+    return true;
+}
+
+bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinator*/,
+                            int& entityCount) {
+    const auto sandbox = SceneSandboxRoot();
+    std::filesystem::path resolved;
+    if (!Mist::PathGuard::is_under(sandbox, filepath, &resolved)) {
+        LOG_ERROR("Refusing to load outside scene sandbox: ", filepath);
+        return false;
+    }
+
+    std::error_code ec;
+    const auto fileSize = std::filesystem::file_size(resolved, ec);
+    if (ec) {
+        LOG_ERROR("Failed to stat scene file: ", filepath);
+        return false;
+    }
+    if (fileSize > kMaxSceneBytes) {
+        LOG_ERROR("Scene file exceeds cap (", fileSize, " > ", kMaxSceneBytes, "): ", filepath);
+        return false;
+    }
+
+    std::ifstream in(resolved);
+    if (!in.is_open()) {
         LOG_ERROR("Failed to open file for reading: ", filepath);
         return false;
     }
 
-    std::string json((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    file.close();
-
-    JsonValue root = JsonValue::Parse(json);
-    if (root.type != JsonValue::OBJECT) {
-        LOG_ERROR("Invalid scene file format");
+    json root;
+    try {
+        in >> root;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Scene parse failed: ", e.what());
         return false;
     }
 
-    if (!root.has("entities")) {
-        LOG_ERROR("Scene file has no entities array");
+    if (!root.is_object() || !root.contains("entities") || !root["entities"].is_array()) {
+        LOG_ERROR("Invalid scene: missing or non-array 'entities'");
         return false;
     }
 
-    const JsonValue& entities = root["entities"];
     entityCount = 0;
-
-    for (size_t i = 0; i < entities.size(); i++) {
-        const JsonValue& ent = entities[i];
-
-        Entity entity = coordinator.CreateEntity();
+    for (const auto& e : root["entities"]) {
+        Entity entity = gCoordinator.CreateEntity();
         entityCount = std::max(entityCount, static_cast<int>(entity) + 1);
 
-        // Transform
-        TransformComponent transform;
-        if (ent.has("position")) transform.position = ent["position"].toVec3();
-        if (ent.has("rotation")) transform.rotation = ent["rotation"].toVec3();
-        if (ent.has("scale")) transform.scale = ent["scale"].toVec3();
-        coordinator.AddComponent(entity, transform);
-
-        // Render (just set visible flag; actual meshes need recreation)
-        if (ent.has("visible")) {
-            RenderComponent render;
-            render.renderable = nullptr;
-            render.visible = ent["visible"].boolValue;
-            coordinator.AddComponent(entity, render);
+        // Transform — required.
+        if (e.contains("transform") && e["transform"].is_object()) {
+            TransformComponent t;
+            if (e["transform"].contains("pos"))
+                vec3_from_json(e["transform"]["pos"], t.position);
+            if (e["transform"].contains("rot"))
+                vec3_from_json(e["transform"]["rot"], t.rotation);
+            if (e["transform"].contains("scale"))
+                vec3_from_json(e["transform"]["scale"], t.scale);
+            gCoordinator.AddComponent(entity, t);
         }
 
-        // Physics (flag only; actual rigid bodies need recreation)
-        if (ent.has("hasPhysics") && ent["hasPhysics"].boolValue) {
-            PhysicsComponent physics;
-            physics.rigidBody = nullptr;
-            physics.syncTransform = ent.has("syncTransform") ? ent["syncTransform"].boolValue : true;
-            coordinator.AddComponent(entity, physics);
+        // Render — optional; resolves mesh via AssetRegistry so two entities
+        // referencing the same path share the cached Mesh.
+        if (e.contains("render") && e["render"].is_object()) {
+            RenderComponent r;
+            r.visible = e["render"].value("visible", true);
+            if (e["render"].contains("mesh")) {
+                r.renderable = resolve_mesh_ref(e["render"]["mesh"]);
+            }
+            gCoordinator.AddComponent(entity, r);
+        }
+
+        // Physics — optional; we keep the flag only. Reconstruction of the
+        // rigid body is caller-driven (PhysicsSystem::CreateCube/etc).
+        if (e.contains("physics") && e["physics"].is_object()) {
+            PhysicsComponent p;
+            p.syncTransform = e["physics"].value("syncTransform", true);
+            gCoordinator.AddComponent(entity, p);
         }
     }
 
-    LOG_INFO("Scene loaded from: ", filepath, " (", entities.size(), " entities)");
+    LOG_INFO("Scene loaded from: ", resolved.string(),
+             " (", root["entities"].size(), " entities)");
     return true;
 }

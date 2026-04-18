@@ -118,9 +118,9 @@ public:
     void EnableHotReload(bool enable) { m_HotReloadEnabled = enable; }
     void CheckForModuleChanges();
 
-    // Event system for modules
-    template<typename... Args>
-    void BroadcastEvent(const std::string& eventName, Args&&... args);
+    // Event system for modules — the template was declared but never defined,
+    // making any caller a guaranteed link error. Remove the dangling
+    // declaration; the ECS EventBus is the intended path for now.
 
 private:
     std::unordered_map<std::string, LoadedModule> m_LoadedModules;

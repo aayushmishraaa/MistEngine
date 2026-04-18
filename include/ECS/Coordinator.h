@@ -25,6 +25,10 @@ public:
         m_SystemManager->EntityDestroyed(entity);
     }
 
+    const std::unordered_set<Entity>& GetLivingEntities() const {
+        return m_EntityManager->GetLivingEntities();
+    }
+
     // Component methods
     template<typename T>
     void RegisterComponent() {
@@ -56,6 +60,11 @@ public:
     template<typename T>
     T& GetComponent(Entity entity) {
         return m_ComponentManager->GetComponent<T>(entity);
+    }
+
+    template<typename T>
+    bool HasComponent(Entity entity) {
+        return m_ComponentManager->HasComponent<T>(entity);
     }
 
     template<typename T>
