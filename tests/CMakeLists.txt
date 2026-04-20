@@ -23,10 +23,14 @@ add_executable(MistEngineTests
     test_script_registry.cpp
     test_asset_drop.cpp
     test_shortcut_registry.cpp
+    test_kelvin.cpp
+    test_lightsystem.cpp
     test_signal.cpp
     test_undo_integration.cpp
     test_undo_stack.cpp
     test_audio_clip.cpp
+    test_physics_component.cpp
+    test_physics_bindings.cpp
     test_version.cpp
 )
 

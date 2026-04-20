@@ -82,7 +82,7 @@ void TAARenderer::EndVelocityPass() {
     m_VelocityFBO.Unbind();
 }
 
-void TAARenderer::Resolve(GLuint currentFrameTexture, GLuint fullscreenVAO) {
+void TAARenderer::Resolve(GLuint currentFrameTexture, GLuint depthTex, GLuint fullscreenVAO) {
     int outputIdx = m_CurrentHistory;
     int historyIdx = 1 - m_CurrentHistory;
 
@@ -108,6 +108,14 @@ void TAARenderer::Resolve(GLuint currentFrameTexture, GLuint fullscreenVAO) {
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, m_VelocityFBO.GetColorTexture());
     m_TAAResolveShader.setInt("velocityBuffer", 2);
+
+    // Depth (prepass) — for closest-depth 3x3 velocity pick. Zero
+    // falls back to an opaque black sampler; the shader detects this
+    // by testing textureSize == 1x1 isn't possible with the bound
+    // texture, so we rely on the caller passing non-zero.
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, depthTex);
+    m_TAAResolveShader.setInt("depthBuffer", 3);
 
     m_TAAResolveShader.setVec2("inverseScreenSize", glm::vec2(1.0f / m_Width, 1.0f / m_Height));
 

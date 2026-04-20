@@ -1,0 +1,36 @@
+#version 460 core
+// Hi-Z min-reduction: one mip level per dispatch.
+//
+// `srcMip` is the input mip (sampler2D so we can texelFetch with
+// explicit LOD; writing into a mip of the *same* texture as we read
+// would need GL_EXT_shader_image_load_formatted or similar, so the
+// C++ side uses separate texture views / reads the full texture and
+// specifies the source LOD via the texelFetch level).
+//
+// Min-reduction is the conservative choice for occlusion / SSR
+// rejection — a ray test against a coarse mip fails only if the
+// closest-depth 2x2 region occludes, otherwise the query descends
+// into a finer mip. Max-reduction gives the opposite invariant;
+// SSR-shaped workloads want min.
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(binding = 0) uniform sampler2D srcMip;
+layout(r32f, binding = 0) uniform writeonly image2D dstMip;
+
+uniform int  uSrcLod;
+uniform ivec2 uDstSize;
+
+void main() {
+    ivec2 dstPx = ivec2(gl_GlobalInvocationID.xy);
+    if (dstPx.x >= uDstSize.x || dstPx.y >= uDstSize.y) return;
+
+    ivec2 srcPx = dstPx * 2;
+    float d0 = texelFetch(srcMip, srcPx + ivec2(0, 0), uSrcLod).r;
+    float d1 = texelFetch(srcMip, srcPx + ivec2(1, 0), uSrcLod).r;
+    float d2 = texelFetch(srcMip, srcPx + ivec2(0, 1), uSrcLod).r;
+    float d3 = texelFetch(srcMip, srcPx + ivec2(1, 1), uSrcLod).r;
+    float dmin = min(min(d0, d1), min(d2, d3));
+
+    imageStore(dstMip, dstPx, vec4(dmin));
+}

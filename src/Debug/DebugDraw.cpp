@@ -130,6 +130,62 @@ void DebugDraw::Sphere(const glm::vec3& center, float radius, const glm::vec3& c
     }
 }
 
+void DebugDraw::Capsule(const glm::vec3& center, const glm::vec3& axisUp, float radius, float height,
+                        const glm::vec3& color, int segments) {
+    if (!s_Enabled) return;
+
+    // Orthonormal basis around `axisUp`. Any non-parallel seed works;
+    // x-axis is the canonical choice, y-axis as a fallback when up is
+    // already horizontal along +x.
+    glm::vec3 up = glm::normalize(axisUp);
+    glm::vec3 seed = (std::abs(up.x) < 0.9f) ? glm::vec3(1, 0, 0) : glm::vec3(0, 1, 0);
+    glm::vec3 right   = glm::normalize(glm::cross(up, seed));
+    glm::vec3 forward = glm::normalize(glm::cross(up, right));
+
+    float halfH = 0.5f * height;
+    glm::vec3 top    = center + up * halfH;
+    glm::vec3 bottom = center - up * halfH;
+
+    float step = 2.0f * 3.14159265f / static_cast<float>(segments);
+
+    // Cylinder wall rings at top and bottom caps. Connecting lines
+    // at four cardinals give the user a sense of the side surface.
+    for (int i = 0; i < segments; ++i) {
+        float a0 = step * i;
+        float a1 = step * (i + 1);
+        glm::vec3 r0 = right * std::cos(a0) + forward * std::sin(a0);
+        glm::vec3 r1 = right * std::cos(a1) + forward * std::sin(a1);
+        Line(top    + r0 * radius, top    + r1 * radius, color);
+        Line(bottom + r0 * radius, bottom + r1 * radius, color);
+    }
+    for (int q = 0; q < 4; ++q) {
+        float a = step * (segments / 4) * q;
+        glm::vec3 r = (right * std::cos(a) + forward * std::sin(a)) * radius;
+        Line(bottom + r, top + r, color);
+    }
+
+    // End-cap hemispheres: half-circle arcs in the two planes spanned
+    // by (right, up) and (forward, up).
+    int halfSeg = std::max(2, segments / 2);
+    for (int i = 0; i < halfSeg; ++i) {
+        float a0 = 3.14159265f * i       / halfSeg;
+        float a1 = 3.14159265f * (i + 1) / halfSeg;
+        glm::vec3 tR0 = right   * std::sin(a0) + up * std::cos(a0);
+        glm::vec3 tR1 = right   * std::sin(a1) + up * std::cos(a1);
+        glm::vec3 tF0 = forward * std::sin(a0) + up * std::cos(a0);
+        glm::vec3 tF1 = forward * std::sin(a1) + up * std::cos(a1);
+        Line(top + tR0 * radius, top + tR1 * radius, color);
+        Line(top + tF0 * radius, top + tF1 * radius, color);
+        // Bottom cap: negated up
+        glm::vec3 bR0 = right   * std::sin(a0) - up * std::cos(a0);
+        glm::vec3 bR1 = right   * std::sin(a1) - up * std::cos(a1);
+        glm::vec3 bF0 = forward * std::sin(a0) - up * std::cos(a0);
+        glm::vec3 bF1 = forward * std::sin(a1) - up * std::cos(a1);
+        Line(bottom + bR0 * radius, bottom + bR1 * radius, color);
+        Line(bottom + bF0 * radius, bottom + bF1 * radius, color);
+    }
+}
+
 void DebugDraw::Frustum(const glm::mat4& viewProj, const glm::vec3& color) {
     if (!s_Enabled) return;
     glm::mat4 inv = glm::inverse(viewProj);

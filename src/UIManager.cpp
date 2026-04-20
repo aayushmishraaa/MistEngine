@@ -6,7 +6,14 @@
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Components/LightComponent.h"
+#if MIST_ENABLE_SCRIPTING
+#include "ECS/Components/ScriptComponent.h"
+#endif
 #include "ECS/Systems/HierarchySystem.h"
+#include "Assets/MaterialSerializer.h"
+#include "Import/SceneImporter.h"
+#include "Material.h"
 #include "Scene.h"
 #include "PhysicsSystem.h"
 #include "Mesh.h"
@@ -323,6 +330,10 @@ void UIManager::DrawMainMenuBar() {
                 LoadScene(m_ScenePathBuffer);
             }
             ImGui::Separator();
+            if (ImGui::MenuItem("Import Model...")) {
+                ImGui::OpenPopup("ImportModel");
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Export Game...")) {
                 m_ShowExportDialog = true;
             }
@@ -377,6 +388,9 @@ void UIManager::DrawMainMenuBar() {
             ImGui::MenuItem("Shadow Controls", nullptr, &m_ShowShadowControls);
             ImGui::MenuItem("Light Editor", nullptr, &m_ShowLightEditor);
             ImGui::MenuItem("Skybox Controls", nullptr, &m_ShowSkyboxControls);
+            if (m_Renderer) {
+                ImGui::MenuItem("Collision Shapes", nullptr, &m_Renderer->ShowPhysicsDebug());
+            }
             ImGui::Separator();
             if (ImGui::BeginMenu("Theme")) {
                 if (ImGui::MenuItem("Mist Dark")) {
@@ -388,6 +402,13 @@ void UIManager::DrawMainMenuBar() {
                 if (ImGui::MenuItem("Monochrome")) {
                     Mist::Editor::MistTheme::Apply(Mist::Editor::MistTheme::Monochrome());
                 }
+                ImGui::EndMenu();
+            }
+            if (m_Renderer && ImGui::BeginMenu("Tonemap")) {
+                int& op = m_Renderer->GetPostProcess().tonemapOperator;
+                if (ImGui::MenuItem("ACES",     nullptr, op == 0)) op = 0;
+                if (ImGui::MenuItem("Reinhard", nullptr, op == 1)) op = 1;
+                if (ImGui::MenuItem("AgX",      nullptr, op == 2)) op = 2;
                 ImGui::EndMenu();
             }
             ImGui::Separator();
@@ -403,7 +424,55 @@ void UIManager::DrawMainMenuBar() {
             }
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Assets")) {
+            if (ImGui::MenuItem("New Material (.mistmat)...")) {
+                ImGui::OpenPopup("NewMaterial");
+            }
+            ImGui::EndMenu();
+        }
         ImGui::EndMainMenuBar();
+    }
+
+    // File -> Import Model... popup. Lives outside the menu bar so the
+    // modal stays open after the menu closes. The path buffer is a
+    // persistent member so the user can re-open the popup without
+    // losing their last typed path.
+    if (ImGui::BeginPopupModal("ImportModel", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Model path (.obj / .fbx / .gltf / .glb)");
+        ImGui::SetNextItemWidth(420);
+        ImGui::InputText("##ImportModelPath", m_ImportModelPathBuffer, sizeof(m_ImportModelPathBuffer));
+        ImGui::Separator();
+        if (ImGui::Button("Import", ImVec2(120, 0))) {
+            HandleAssetDrop(m_ImportModelPathBuffer);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    // Assets -> New Material popup. Creates a default .mistmat at the
+    // path the user types. Path completion / picker is a future-cycle
+    // nicety; the text input covers authoring today.
+    if (ImGui::BeginPopupModal("NewMaterial", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Output .mistmat path");
+        ImGui::SetNextItemWidth(420);
+        ImGui::InputText("##NewMaterialPath", m_NewMaterialPathBuffer, sizeof(m_NewMaterialPathBuffer));
+        ImGui::Separator();
+        if (ImGui::Button("Create", ImVec2(120, 0))) {
+            PBRMaterial def;
+            if (Mist::Assets::MaterialSerializer::Save(def, m_NewMaterialPathBuffer)) {
+                m_ConsoleMessages.push_back(
+                    std::string("Material written: ") + m_NewMaterialPathBuffer);
+            } else {
+                m_ConsoleMessages.push_back(
+                    std::string("Failed to write material: ") + m_NewMaterialPathBuffer);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
 }
 
@@ -420,6 +489,21 @@ std::string ascii_lower(const std::string& s) {
 
 Entity UIManager::SpawnMeshEntity(const std::string& path) {
     if (!m_Coordinator) return static_cast<Entity>(-1);
+
+    // Model files on disk route through the Assimp importer, which
+    // spawns a *tree* of entities (one per aiNode, with RenderComponent
+    // per submesh). Builtin / cached mesh refs still go through the
+    // ResourceManager fast path below.
+    if (Mist::Import::SceneImporter::IsSupportedPath(path)) {
+        Entity root = Mist::Import::SceneImporter::ImportToScene(
+            path, *m_Coordinator, &m_EntityNames);
+        if (root == static_cast<Entity>(-1)) {
+            LOG_ERROR("SpawnMeshEntity: import failed: ", path);
+            return static_cast<Entity>(-1);
+        }
+        SelectEntity(root);
+        return root;
+    }
 
     auto& registry = Mist::Assets::AssetRegistry::Instance();
     auto ref = LoadRef(registry.meshes(), path);
@@ -860,6 +944,58 @@ void UIManager::DrawInspector() {
             [=] { PhysicsComponent p; coord->AddComponent(sel, p); },
             [&] { DrawPhysicsComponent(coord->GetComponent<PhysicsComponent>(sel)); });
 
+        // Light — reflection-driven body (MIST_REFLECT on
+        // LightComponent registers it with TypeRegistry at
+        // static-init). Godot Light3D equivalents: color, energy,
+        // range, cone angles, shadow knobs, Kelvin temperature.
+        drawComponent("Light",
+            [&] { return coord->HasComponent<LightComponent>(sel); },
+            [=] { coord->RemoveComponent<LightComponent>(sel); },
+            [=] { coord->AddComponent(sel, LightComponent{}); },
+            [&] {
+                auto& lc = coord->GetComponent<LightComponent>(sel);
+                // Dedicated type picker — reflected draw handles
+                // primitives but not enums cleanly yet.
+                const char* typeNames[] = {"Directional", "Omni", "Spot"};
+                int t = static_cast<int>(lc.type);
+                if (ImGui::Combo("Type", &t, typeNames, IM_ARRAYSIZE(typeNames))) {
+                    lc.type = static_cast<MistLightType>(t);
+                }
+                if (auto* props = Mist::TypeRegistry::Instance().Get("LightComponent")) {
+                    DrawReflectedProperties(&lc, props);
+                }
+            });
+
+        // Hierarchy — read-only status display. Parent/children fields
+        // are excluded from the reflected property list (hierarchy is
+        // edited graphically via the scene tree, not typed).
+        drawComponent("Hierarchy",
+            [&] { return coord->HasComponent<HierarchyComponent>(sel); },
+            [=] { coord->RemoveComponent<HierarchyComponent>(sel); },
+            [=] { coord->AddComponent(sel, HierarchyComponent{}); },
+            [&] {
+                auto& h = coord->GetComponent<HierarchyComponent>(sel);
+                if (h.parent == HierarchyComponent::kNoParent) {
+                    ImGui::TextDisabled("Parent: (root)");
+                } else {
+                    ImGui::Text("Parent: Entity %u", h.parent);
+                }
+                ImGui::Text("Children: %zu", h.children.size());
+            });
+
+#if MIST_ENABLE_SCRIPTING
+        drawComponent("Script",
+            [&] { return coord->HasComponent<ScriptComponent>(sel); },
+            [=] { coord->RemoveComponent<ScriptComponent>(sel); },
+            [=] { coord->AddComponent(sel, ScriptComponent{}); },
+            [&] {
+                auto& sc = coord->GetComponent<ScriptComponent>(sel);
+                ImGui::Text("Path: %s", sc.path.empty() ? "(none)" : sc.path.c_str());
+                ImGui::Text("Instance: %s", sc.instance ? "loaded" : "none");
+                ImGui::TextDisabled("Use Lua attach_script(id, path) to set.");
+            });
+#endif
+
         ImGui::Separator();
 
         // Add Component button — HasComponent replaces the old
@@ -897,6 +1033,17 @@ void UIManager::DrawInspector() {
                        PhysicsComponent p; p.rigidBody = nullptr; p.syncTransform = true;
                        coord->AddComponent(sel, p);
                    });
+            tryAdd("Light",
+                   [&] { return coord->HasComponent<LightComponent>(sel); },
+                   [&] { coord->AddComponent(sel, LightComponent{}); });
+            tryAdd("Hierarchy",
+                   [&] { return coord->HasComponent<HierarchyComponent>(sel); },
+                   [&] { coord->AddComponent(sel, HierarchyComponent{}); });
+#if MIST_ENABLE_SCRIPTING
+            tryAdd("Script",
+                   [&] { return coord->HasComponent<ScriptComponent>(sel); },
+                   [&] { coord->AddComponent(sel, ScriptComponent{}); });
+#endif
             ImGui::EndPopup();
         }
     } else {
@@ -1169,11 +1316,13 @@ void UIManager::CreateCube() {
         m_Coordinator->AddComponent(entity, render);
         m_ConsoleMessages.push_back("Added render component");
         
-        // Physics
-        btRigidBody* body = m_PhysicsSystem->CreateCube(transform.position, 1.0f);
+        // Physics — body is built by ECSPhysicsSystem on next tick
+        // from the component's shape/mass params. No direct Bullet
+        // call here; Inspector can now flip the shape freely.
         PhysicsComponent physics;
-        physics.rigidBody = body;
-        physics.syncTransform = true;
+        physics.shape       = CollisionShape::Box;
+        physics.halfExtents = glm::vec3(0.5f);
+        physics.mass        = 1.0f;
         m_Coordinator->AddComponent(entity, physics);
         m_ConsoleMessages.push_back("Added physics component");
         
@@ -1215,11 +1364,11 @@ void UIManager::CreateSphere() {
         m_Coordinator->AddComponent(entity, render);
         m_ConsoleMessages.push_back("Added render component");
         
-        // Physics - create sphere physics body
-        btRigidBody* body = m_PhysicsSystem->CreateSphere(transform.position, 1.0f, 1.0f); // position, radius, mass
+        // Physics — sphere shape, built next tick by ECSPhysicsSystem.
         PhysicsComponent physics;
-        physics.rigidBody = body;
-        physics.syncTransform = true;
+        physics.shape  = CollisionShape::Sphere;
+        physics.radius = 1.0f;
+        physics.mass   = 1.0f;
         m_Coordinator->AddComponent(entity, physics);
         m_ConsoleMessages.push_back("Added physics component");
         
@@ -1261,11 +1410,10 @@ void UIManager::CreatePlane() {
         m_Coordinator->AddComponent(entity, render);
         m_ConsoleMessages.push_back("Added render component");
         
-        // Physics
-        btRigidBody* body = m_PhysicsSystem->CreateGroundPlane(transform.position);
+        // Physics — infinite static ground plane, built next tick.
         PhysicsComponent physics;
-        physics.rigidBody = body;
-        physics.syncTransform = true;
+        physics.shape = CollisionShape::StaticPlane;
+        physics.mass  = 0.0f;  // static
         m_Coordinator->AddComponent(entity, physics);
         m_ConsoleMessages.push_back("Added physics component");
         
@@ -1454,6 +1602,32 @@ void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr) 
                 char buf[256];
                 std::strncpy(buf, s->c_str(), sizeof(buf) - 1);
                 buf[sizeof(buf) - 1] = '\0';
+
+                if (p.hint == Mist::PropertyHint::ResourceRef) {
+                    // Resource picker: read-only text + "..." button + drop
+                    // target. Drag a path from the asset browser onto the
+                    // field; the ASSET_PATH payload gets copied in. The
+                    // picker button is a future enhancement — for now it
+                    // just logs a reminder. hintString carries the asset
+                    // type filter ("Texture", "Material", "Mesh") so a
+                    // future picker modal can restrict the listing.
+                    ImGui::SetNextItemWidth(-40.0f);
+                    if (ImGui::InputText(p.name, buf, sizeof(buf))) {
+                        *s = buf;
+                    }
+                    if (ImGui::BeginDragDropTarget()) {
+                        if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                            *s = std::string(
+                                static_cast<const char*>(payload->Data),
+                                static_cast<std::size_t>(payload->DataSize));
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("X")) s->clear();
+                    break;
+                }
+
                 const ImGuiInputTextFlags flags =
                     (p.hint == Mist::PropertyHint::Multiline) ? ImGuiInputTextFlags_AllowTabInput
                                                                : 0;
@@ -2021,6 +2195,48 @@ void UIManager::DrawPostProcessControls() {
         ImGui::SliderFloat("GI Intensity", &postProcess.ssgi.intensity, 0.0f, 3.0f);
     } else {
         postProcess.ssgi.enabled = false;
+    }
+
+    // --- New post-effects (this cycle) -------------------------------
+    ImGui::Separator();
+    ImGui::Checkbox("SSR (Screen-Space Reflections)", &postProcess.enableSSR);
+    if (postProcess.enableSSR) {
+        postProcess.ssr.enabled = true;
+        ImGui::SliderFloat("SSR Roughness Cutoff", &postProcess.ssr.roughnessCutoff, 0.0f, 1.0f);
+        ImGui::SliderFloat("SSR Max Distance",     &postProcess.ssr.maxDistance,     1.0f, 200.0f);
+        ImGui::SliderInt  ("SSR Max Steps",        &postProcess.ssr.maxSteps,        16, 128);
+    } else {
+        postProcess.ssr.enabled = false;
+    }
+
+    ImGui::Separator();
+    ImGui::Checkbox("Motion Blur", &postProcess.enableMotionBlur);
+    if (postProcess.enableMotionBlur) {
+        ImGui::SliderFloat("MB Strength", &postProcess.motionBlurStrength, 0.0f, 2.0f);
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 0.6f, 1.0f),
+                           "Velocity pass runs (decoupled from TAA)");
+    }
+
+    ImGui::Separator();
+    ImGui::Checkbox("Depth of Field (bokeh)", &postProcess.enableDOF);
+    if (postProcess.enableDOF) {
+        ImGui::SliderFloat("Focus Distance", &postProcess.dofFocusDistance, 0.5f, 100.0f);
+        ImGui::SliderFloat("Aperture",       &postProcess.dofAperture,      0.01f, 1.0f);
+        ImGui::SliderFloat("Max Blur Radius",&postProcess.dofMaxRadius,     2.0f, 20.0f);
+    }
+
+    ImGui::Separator();
+    const char* tonemapNames[] = { "ACES", "Reinhard", "AgX (default)" };
+    ImGui::Combo("Tonemap Operator", &postProcess.tonemapOperator,
+                 tonemapNames, IM_ARRAYSIZE(tonemapNames));
+
+    ImGui::Separator();
+    ImGui::SliderFloat("Shadow Softness", &postProcess.shadowSoftness, 0.0f, 8.0f);
+    const char* shadowQualityNames[] = { "Low (4/16)", "High (8/32)" };
+    ImGui::Combo("Shadow Quality", &postProcess.shadowQuality,
+                 shadowQualityNames, IM_ARRAYSIZE(shadowQualityNames));
+    if (postProcess.shadowSoftness <= 0.001f) {
+        ImGui::TextDisabled("0 = hard shadows (PCSS disabled)");
     }
 
     ImGui::End();

@@ -7,7 +7,13 @@
 #include "Version.h"
 #include "Core/Logger.h"
 #include "Debug/DebugDraw.h"
+#include "ECS/Coordinator.h"
+#include "ECS/Components/TransformComponent.h"
+#include "ECS/Components/LightComponent.h"
+#include "ECS/Components/PhysicsComponent.h"
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <cmath>
 
 #include "Orb.h"
 
@@ -19,7 +25,14 @@ Renderer* g_renderer = nullptr;
 // bugs where a member's init reads another that hasn't been constructed yet.
 Renderer::Renderer(unsigned int width, unsigned int height)
     : screenWidth(width), screenHeight(height),
-      camera(glm::vec3(0.0f, 0.0f, 3.0f)),
+      // Showcase-friendly starting pose: elevated (y=5) + pulled back
+      // (z=14) + pitched 18° down so the ground plane, shadows, and
+      // receding cube rows all read on first frame. Numpad 0 resets
+      // to the same-shape view via InputManager.
+      camera(glm::vec3(0.0f, 5.0f, 14.0f),
+             glm::vec3(0.0f, 1.0f, 0.0f),
+             -90.0f,
+             -18.0f),
       lastX(width / 2.0f), lastY(height / 2.0f), firstMouse(true),
       deltaTime(0.0f), lastFrame(0.0f),
       lightDir(-0.2f, -1.0f, -0.3f), lightColor(1.0f, 1.0f, 1.0f),
@@ -123,6 +136,7 @@ bool Renderer::Init() {
     // Load legacy shaders (kept as fallback)
     objectShader = Shader("shaders/vertex.glsl", "shaders/fragment.glsl");
     depthShader = Shader("shaders/depth_vertex.glsl", "shaders/depth_fragment.glsl");
+    depthPrepassShader = Shader("shaders/depth_prepass.vert", "shaders/depth_prepass.frag");
     glowShader = Shader("shaders/glow_vertex.glsl", "shaders/glow_fragment.glsl");
     skyboxShader = Shader("shaders/skybox_vertex.glsl", "shaders/skybox_fragment.glsl");
 
@@ -144,6 +158,7 @@ bool Renderer::Init() {
     m_UBOManager.Init();
 
     m_ShadowSystem.Init();
+    m_ShadowSystem.InitOmniShadowAtlas();
     LOG_INFO("Cascaded shadow maps initialized (4 cascades, 2048x2048)");
 
     m_LightManager.Init();
@@ -155,6 +170,7 @@ bool Renderer::Init() {
     m_LightManager.AddLight(dirLight);
 
     m_PostProcess.Init(screenWidth, screenHeight);
+    m_HiZ.Init(screenWidth, screenHeight);
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
@@ -205,6 +221,36 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     glm::mat4 viewProjection = jitteredProjection * view;
 
+    // Phase F — sun-sky coupling. Scan ECS for the first directional
+    // LightComponent; if one exists, use *its* direction/color as the
+    // scene's sun (drives CSM + PBR + the skybox's sunDirection).
+    // Falling back to the hardcoded `lightDir` member keeps the
+    // engine lit on bare scenes that haven't spawned a sun entity.
+    {
+        extern Coordinator gCoordinator;
+        const auto& living = gCoordinator.GetLivingEntities();
+        for (Entity e : living) {
+            if (!gCoordinator.HasComponent<LightComponent>(e)) continue;
+            if (!gCoordinator.HasComponent<TransformComponent>(e)) continue;
+            const auto& lc = gCoordinator.GetComponent<LightComponent>(e);
+            if (lc.type != MistLightType::Directional) continue;
+
+            const auto& t = gCoordinator.GetComponent<TransformComponent>(e);
+            glm::mat4 R(1.0f);
+            R = glm::rotate(R, glm::radians(t.rotation.x), glm::vec3(1,0,0));
+            R = glm::rotate(R, glm::radians(t.rotation.y), glm::vec3(0,1,0));
+            R = glm::rotate(R, glm::radians(t.rotation.z), glm::vec3(0,0,1));
+            glm::vec3 dir = glm::normalize(glm::vec3(R * glm::vec4(0,0,-1,0)));
+            lightDir   = dir;
+            lightColor = lc.color * lc.energy;
+            break;  // first directional wins — matches Godot
+        }
+    }
+
+    // Skybox tracks the sun. Negate because lightDir is where light
+    // is *heading*, sunDirection is where the sun is *from*.
+    m_Skybox.sunDirection = glm::normalize(-lightDir);
+
     // Update UBOs
     PerFrameUBO perFrame;
     perFrame.view = view;
@@ -251,6 +297,92 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.EndGPUSection("Shadows");
     m_Profiler.EndCPUSection("Shadows");
 
+    // === OMNI SHADOW ATLAS (Phase H) ===
+    // Render up to 4 shadow-enabled omni lights into the cubemap
+    // array. For each light, 6 faces are drawn sequentially via
+    // ShadowSystem::BindOmniShadowFace; geometry comes through the
+    // same RenderSystem update used by CSM.
+    {
+        m_Profiler.BeginGPUSection("OmniShadows");
+        extern Coordinator gCoordinator;
+        const auto& living = gCoordinator.GetLivingEntities();
+        int layer = 0;
+        for (Entity e : living) {
+            if (layer >= ShadowSystem::MAX_OMNI_SHADOWS) break;
+            if (!gCoordinator.HasComponent<LightComponent>(e)) continue;
+            if (!gCoordinator.HasComponent<TransformComponent>(e)) continue;
+            const auto& lc = gCoordinator.GetComponent<LightComponent>(e);
+            if (lc.type != MistLightType::Omni)    continue;
+            if (!lc.shadowEnabled)                  continue;
+
+            const auto& t = gCoordinator.GetComponent<TransformComponent>(e);
+            m_ShadowSystem.BeginOmniShadowPass(layer, t.position, lc.range);
+            for (int face = 0; face < 6; ++face) {
+                m_ShadowSystem.BindOmniShadowFace(face);
+                renderSystem->Update(m_ShadowSystem.omniDepthShader);
+                for (auto& obj : scene.getPhysicsRenderables()) {
+                    updateModelMatrixFromPhysics(obj.body, obj.modelMatrix);
+                    m_ShadowSystem.omniDepthShader.setMat4("model", obj.modelMatrix);
+                    if (obj.renderable) obj.renderable->Draw(m_ShadowSystem.omniDepthShader);
+                }
+            }
+            m_ShadowSystem.EndOmniShadowPass();
+            ++layer;
+        }
+        m_Profiler.EndGPUSection("OmniShadows");
+    }
+
+    // === DEPTH PREPASS ===
+    // Writes screen-res depth + packed normal+roughness. Depth will
+    // later feed TAA's closest-depth velocity fetch and the Hi-Z
+    // pyramid; normal+roughness reserved for SSR. Main PBR pass
+    // currently does NOT reuse this depth (would need shared-depth
+    // Framebuffer API); it's additive data for now.
+    m_Profiler.BeginGPUSection("Prepass");
+    m_PostProcess.BeginPrepass();
+    depthPrepassShader.use();
+    depthPrepassShader.setMat4("projection", projection);
+    depthPrepassShader.setMat4("view", view);
+    depthPrepassShader.setFloat("roughnessValue", 0.5f);
+    depthPrepassShader.setBool("hasRoughnessMap", false);
+    renderSystem->UpdateDepthOnly(depthPrepassShader);
+    for (auto& obj : scene.getPhysicsRenderables()) {
+        updateModelMatrixFromPhysics(obj.body, obj.modelMatrix);
+        depthPrepassShader.setMat4("model", obj.modelMatrix);
+        if (obj.renderable) obj.renderable->Draw(depthPrepassShader);
+    }
+    m_PostProcess.EndPrepass();
+    m_Profiler.EndGPUSection("Prepass");
+
+    // === HI-Z PYRAMID ===
+    // Min-reduction mips of the prepass depth. Consumers (SSR, GPU
+    // culling) land in future cycles; this pass builds the data.
+    m_Profiler.BeginGPUSection("HiZ");
+    m_HiZ.Build(m_PostProcess.GetPrepassDepth());
+    m_Profiler.EndGPUSection("HiZ");
+
+    // === VELOCITY PASS ===
+    // Writes RG16F screen-space motion vectors. Consumed by TAA
+    // (closest-depth velocity pick) and by the motion-blur post
+    // pass. Decoupled from TAA's enable flag so motion blur works
+    // when TAA is off; the extra geometry walk is cheap at scene
+    // sizes MistEngine targets today.
+    bool needVelocity = (m_PostProcess.enableTAA && m_PostProcess.taa.enabled)
+                      || m_PostProcess.enableMotionBlur;
+    if (needVelocity) {
+        m_Profiler.BeginGPUSection("Velocity");
+        m_PostProcess.taa.BeginVelocityPass();
+        auto& velShader = m_PostProcess.taa.GetVelocityShader();
+        velShader.use();
+        velShader.setMat4("viewProjection",     viewProjection);
+        velShader.setMat4("prevViewProjection", m_PrevViewProjection);
+        velShader.setVec2("jitter",     m_PostProcess.taa.GetJitter());
+        velShader.setVec2("prevJitter", m_PostProcess.taa.GetPreviousJitter());
+        renderSystem->UpdateVelocity(velShader);
+        m_PostProcess.taa.EndVelocityPass();
+        m_Profiler.EndGPUSection("Velocity");
+    }
+
     // === HDR SCENE PASS (render to HDR framebuffer) ===
     m_PostProcess.BeginSceneCapture();
 
@@ -286,20 +418,56 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     if (m_UsePBR) {
         // PBR lighting setup
-        mainShader.setVec3("lightDir", glm::normalize(lightDir));
+        mainShader.setVec3("lightDir",   glm::normalize(lightDir));
         mainShader.setVec3("lightColor", lightColor);
+        // Default energy multiplier — Godot's Light3D.light_energy
+        // equivalent. 2.5 lands the sunlit ground around ~0.6 linear
+        // brightness; after AgX tonemap that reads as "sunny outdoor"
+        // without blowing out to white. Replaced per-light once
+        // LightComponent lands (Phase C).
+        mainShader.setFloat("lightEnergy", 2.5f);
 
-        // CSM shadow maps — bind to unit 7+ to avoid conflict with material units 1-6
+        // CSM array + per-cascade matrices/splits, on unit 7.
+        // `BindCascadeShadowMaps` sets `cascadeShadowMap` sampler +
+        // `lightSpaceMatrices[]` + `cascadeSplits[]` uniforms. The old
+        // dummy-shadowMap-on-unit-0 shim is gone — the shader now
+        // samples the array directly (pbr_fragment.glsl).
         m_ShadowSystem.BindCascadeShadowMaps(mainShader, 7);
+        mainShader.setMat4("view", view);
+        {
+            GLint loc = glGetUniformLocation(mainShader.ID, "numCascades");
+            if (loc >= 0) glUniform1i(loc, ShadowSystem::NUM_CASCADES);
+        }
+        // Bias values chosen so cascade 0 (~7u range) doesn't acne
+        // AND cascade 3 (~100u range) still resolves fine geometry.
+        // Shader multiplies by cascadeMult = (layer+1) to scale with
+        // cascade size. Per-cascade arrays arrive in Phase E.
+        mainShader.setFloat("shadowBias",       0.005f);
+        mainShader.setFloat("shadowNormalBias", 1.0f);
+        // PCSS soft shadow params. 0 = hard shadows (legacy path),
+        // larger values widen the penumbra. Stored on PostProcess so
+        // the View menu can tune them live.
+        mainShader.setFloat("shadowSoftness", m_PostProcess.shadowSoftness);
+        {
+            GLint locQ = glGetUniformLocation(mainShader.ID, "shadowQuality");
+            if (locQ >= 0) glUniform1i(locQ, m_PostProcess.shadowQuality);
+        }
 
-        // The PBR vertex shader uses singular "lightSpaceMatrix" for FragPosLightSpace
-        mainShader.setMat4("lightSpaceMatrix", m_ShadowSystem.GetLightSpaceMatrix(0));
+        // Clustered point/spot lights — shader iterates the SSBOs
+        // populated by LightManager's cull compute dispatch. Cluster
+        // lookup needs screen dims + near/far to invert the log-z
+        // depth slicing.
+        mainShader.setVec2("screenSize",
+            glm::vec2((float)screenWidth, (float)screenHeight));
+        mainShader.setFloat("nearPlane", 0.1f);
+        mainShader.setFloat("farPlane",  100.0f);
+        mainShader.setBool("useClusteredLights", true);
 
-        // The PBR fragment shader uses "shadowMap" (sampler2D) — bind a dummy white
-        // texture so Mesa doesn't reject draws due to sampler2D vs TEXTURE_2D_ARRAY mismatch
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
-        mainShader.setInt("shadowMap", 0);
+        // Omni shadow atlas on texture unit 8. Uniform is a
+        // samplerCubeArray; PBR shader samples via light's
+        // params.z (shadow slot) + normalize(fragPos - lightPos)
+        // as the cubemap direction.
+        m_ShadowSystem.BindOmniShadowAtlas(mainShader, 8);
 
         // IBL textures (units 10-12)
         if (m_IBL.IsLoaded()) {
@@ -384,6 +552,130 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         }
     }
 
+    // === LIGHT GIZMOS ===
+    //
+    // Per-light wireframes (Phase G of Godot-parity lighting). Drawn
+    // on top of the scene, before post-process, via the same
+    // DebugDraw line pipeline the grid uses. Shape per type:
+    //   * Directional — axis line + arrow head along the light dir.
+    //   * Omni        — 3 great-circle wires at `range` radius.
+    //   * Spot        — cone wireframe (apex + 4 ribs + base circle).
+    // Colour-coded with the light's own RGB so the user can see
+    // which gizmo matches which light at a glance.
+    {
+        extern Coordinator gCoordinator;
+        const auto& living = gCoordinator.GetLivingEntities();
+        for (Entity e : living) {
+            if (!gCoordinator.HasComponent<LightComponent>(e)) continue;
+            if (!gCoordinator.HasComponent<TransformComponent>(e)) continue;
+
+            const auto& t  = gCoordinator.GetComponent<TransformComponent>(e);
+            const auto& lc = gCoordinator.GetComponent<LightComponent>(e);
+            glm::vec3 C  = lc.color;
+            glm::vec3 P  = t.position;
+
+            // Forward from entity rotation — matches LightSystem's
+            // directionFromEuler helper (rotate -Z). Kept inline
+            // here to avoid cross-module header churn.
+            glm::mat4 R(1.0f);
+            R = glm::rotate(R, glm::radians(t.rotation.x), glm::vec3(1,0,0));
+            R = glm::rotate(R, glm::radians(t.rotation.y), glm::vec3(0,1,0));
+            R = glm::rotate(R, glm::radians(t.rotation.z), glm::vec3(0,0,1));
+            glm::vec3 F = glm::normalize(glm::vec3(R * glm::vec4(0,0,-1,0)));
+            glm::vec3 U = glm::normalize(glm::vec3(R * glm::vec4(0,1,0,0)));
+            glm::vec3 Rt= glm::normalize(glm::cross(F, U));
+
+            switch (lc.type) {
+                case MistLightType::Directional: {
+                    // 2-unit arrow along the light direction.
+                    glm::vec3 tip = P + F * 2.0f;
+                    DebugDraw::Line(P, tip, C);
+                    // Small arrow head (4 fins).
+                    DebugDraw::Line(tip, tip - F * 0.4f + Rt * 0.2f, C);
+                    DebugDraw::Line(tip, tip - F * 0.4f - Rt * 0.2f, C);
+                    DebugDraw::Line(tip, tip - F * 0.4f + U  * 0.2f, C);
+                    DebugDraw::Line(tip, tip - F * 0.4f - U  * 0.2f, C);
+                    break;
+                }
+                case MistLightType::Omni: {
+                    float r = std::max(lc.range, 0.05f);
+                    DebugDraw::Sphere(P, r, C, 24);
+                    break;
+                }
+                case MistLightType::Spot: {
+                    float r   = std::max(lc.range, 0.05f);
+                    float ang = glm::radians(std::max(lc.outerCone, 0.5f));
+                    float baseRadius = r * std::tan(ang);
+                    glm::vec3 base   = P + F * r;
+                    // 4 ribs from apex to base ring at cardinal points.
+                    DebugDraw::Line(P, base + Rt * baseRadius, C);
+                    DebugDraw::Line(P, base - Rt * baseRadius, C);
+                    DebugDraw::Line(P, base + U  * baseRadius, C);
+                    DebugDraw::Line(P, base - U  * baseRadius, C);
+                    // Base ring — 24-segment circle in the plane
+                    // perpendicular to F.
+                    const int N = 24;
+                    glm::vec3 prev = base + Rt * baseRadius;
+                    for (int i = 1; i <= N; ++i) {
+                        float th = (float)i / (float)N * 6.2831853f;
+                        glm::vec3 p = base
+                                    + Rt * (std::cos(th) * baseRadius)
+                                    + U  * (std::sin(th) * baseRadius);
+                        DebugDraw::Line(prev, p, C);
+                        prev = p;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Physics collision-shape gizmos (Phase E of physics cycle).
+    // Bright green = dynamic; red-ish = static (mass == 0). Shape
+    // dispatch mirrors CollisionShape values so the viewport wire
+    // matches what Bullet actually simulates.
+    if (m_ShowPhysicsDebug) {
+        extern Coordinator gCoordinator;
+        const auto& livingPhys = gCoordinator.GetLivingEntities();
+        for (Entity e : livingPhys) {
+            if (!gCoordinator.HasComponent<PhysicsComponent>(e)) continue;
+            if (!gCoordinator.HasComponent<TransformComponent>(e)) continue;
+
+            const auto& t  = gCoordinator.GetComponent<TransformComponent>(e);
+            const auto& pc = gCoordinator.GetComponent<PhysicsComponent>(e);
+            glm::vec3 P = t.position;
+            glm::vec3 C = (pc.mass <= 0.0f) ? glm::vec3(1.0f, 0.25f, 0.25f)
+                                             : glm::vec3(0.1f, 1.0f, 0.3f);
+
+            switch (pc.shape) {
+                case CollisionShape::Box: {
+                    DebugDraw::Box(P - pc.halfExtents, P + pc.halfExtents, C);
+                    break;
+                }
+                case CollisionShape::Sphere: {
+                    DebugDraw::Sphere(P, pc.radius, C, 20);
+                    break;
+                }
+                case CollisionShape::Capsule: {
+                    DebugDraw::Capsule(P, glm::vec3(0, 1, 0), pc.radius, pc.height, C, 20);
+                    break;
+                }
+                case CollisionShape::StaticPlane: {
+                    // Infinite plane — draw a 20x20 proxy grid at y=0
+                    // so the user gets a visible hint of the collider.
+                    float span = 10.0f;
+                    int   n    = 10;
+                    for (int i = -n; i <= n; ++i) {
+                        float f = (float)i / (float)n * span;
+                        DebugDraw::Line({-span, P.y, f}, { span, P.y, f}, C);
+                        DebugDraw::Line({  f , P.y,-span}, {  f , P.y, span}, C);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
     // === DEBUG DRAW ===
     DebugDraw::Flush(viewProjection);
 
@@ -392,7 +684,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     // === POST-PROCESSING (tone map + bloom + SSAO + FXAA → default framebuffer) ===
     m_Profiler.BeginGPUSection("PostProcess");
-    m_PostProcess.Execute(m_Exposure, projection, view);
+    m_PostProcess.Execute(m_Exposure, projection, view, m_HiZ.GetTexture());
     m_Profiler.EndGPUSection("PostProcess");
 
     // === VIEWPORT OUTPUT ===

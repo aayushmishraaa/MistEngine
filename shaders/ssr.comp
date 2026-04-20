@@ -1,0 +1,182 @@
+#version 460 core
+// Screen-space reflections via Hi-Z ray march.
+//
+// Reads:
+//   hdrColor               RGBA16F  post-TAA HDR scene color
+//   prepassDepth           D32/D24  full-res scene depth
+//   prepassNormalRoughness RGBA16F  .rg = octahedral-encoded world normal,
+//                                   .b  = roughness
+//   hiZ                    R32F     min-depth pyramid, mips 0..4
+//
+// Writes:
+//   outColor RGBA16F — hdrColor with reflection contribution added.
+//
+// Algorithm: reconstruct view-space position + reflection vector,
+// march along reflVec in screen space, using Hi-Z as an acceleration
+// structure. At each step test against the current mip; step up a
+// mip on miss, step down on intersect. Output fades at screen edges
+// and rolls off with roughness.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(binding = 0) uniform sampler2D hdrColor;
+layout(binding = 1) uniform sampler2D prepassDepth;
+layout(binding = 2) uniform sampler2D prepassNormalRoughness;
+layout(binding = 3) uniform sampler2D hiZ;
+
+layout(rgba16f, binding = 0) uniform writeonly image2D outColor;
+
+uniform mat4  uInvProj;      // inverse projection (screen -> view)
+uniform mat4  uProj;         // projection (view -> screen)
+uniform mat4  uView;         // world -> view
+uniform ivec2 uScreenSize;
+uniform float uRoughnessCutoff;  // skip if roughness > this
+uniform float uMaxDistance;      // max ray distance in view space
+uniform int   uMaxSteps;         // cap total iterations
+
+const float EDGE_FADE = 0.08;    // 8% margin fade at screen edges
+const int   HIZ_MAX_LOD = 4;     // matches HiZPyramid::MIP_COUNT - 1
+
+// Undo our depth_prepass.frag's octahedral encoding.
+vec3 octDecode(vec2 e) {
+    e = e * 2.0 - 1.0;
+    vec3 v = vec3(e.x, e.y, 1.0 - abs(e.x) - abs(e.y));
+    if (v.z < 0.0) {
+        vec2 s = vec2(v.x >= 0.0 ? 1.0 : -1.0,
+                      v.y >= 0.0 ? 1.0 : -1.0);
+        v.xy = (1.0 - abs(v.yx)) * s;
+    }
+    return normalize(v);
+}
+
+// Reconstruct view-space position from screen-space UV + depth.
+vec3 viewPosFromDepth(vec2 uv, float depth) {
+    vec4 clip = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    vec4 view = uInvProj * clip;
+    return view.xyz / view.w;
+}
+
+// Sample Hi-Z at `uv` at given LOD. mip 0 reads the prepass depth
+// directly (not stored in hiZ per HiZPyramid's split-ownership
+// contract). mips 1..4 read hiZ.
+float sampleHiZ(vec2 uv, int lod) {
+    if (lod <= 0) return texture(prepassDepth, uv).r;
+    return textureLod(hiZ, uv, float(lod - 1)).r;
+}
+
+// Hi-Z hierarchical ray march. Starts at the ray origin and marches
+// forward until it either hits a surface or runs out of steps/bounds.
+bool hiZTrace(vec3 originVS, vec3 dirVS, out vec2 hitUV, out float hitDepth) {
+    // Project origin into screen space.
+    vec4 originClip = uProj * vec4(originVS, 1.0);
+    vec2 originUV   = (originClip.xy / originClip.w) * 0.5 + 0.5;
+    float originZ   = originClip.z / originClip.w * 0.5 + 0.5;
+
+    // End point: origin + dir * maxDistance.
+    vec3 endVS      = originVS + dirVS * uMaxDistance;
+    vec4 endClip    = uProj * vec4(endVS, 1.0);
+    vec2 endUV      = (endClip.xy / endClip.w) * 0.5 + 0.5;
+    float endZ      = endClip.z / endClip.w * 0.5 + 0.5;
+
+    vec2  deltaUV = endUV - originUV;
+    float deltaZ  = endZ  - originZ;
+
+    // Bail out if ray is going backwards or degenerate.
+    if (deltaZ <= 0.0) return false;
+
+    int   lod     = 0;
+    float tMin    = 0.0;
+    float tMax    = 1.0;
+    float t       = 0.0;
+
+    for (int i = 0; i < uMaxSteps; ++i) {
+        vec2 uv = originUV + deltaUV * t;
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return false;
+
+        float rayZ   = originZ + deltaZ * t;
+        float sceneZ = sampleHiZ(uv, lod);
+
+        if (rayZ > sceneZ) {
+            // Hit — if at finest mip, accept. Otherwise descend.
+            if (lod <= 0) {
+                hitUV    = uv;
+                hitDepth = sceneZ;
+                return true;
+            }
+            lod -= 1;
+            // Step backwards a fraction to avoid overshooting at
+            // finer mip.
+            t = max(tMin, t - (tMax - tMin) * 0.1);
+        } else {
+            // Miss — step forward and try a coarser mip.
+            tMin = t;
+            t   += (tMax - tMin) * 0.1 * float(1 << lod);
+            lod  = min(HIZ_MAX_LOD, lod + 1);
+        }
+    }
+
+    return false;
+}
+
+void main() {
+    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+    if (px.x >= uScreenSize.x || px.y >= uScreenSize.y) return;
+
+    vec2 uv = (vec2(px) + 0.5) / vec2(uScreenSize);
+
+    // Start from the post-TAA HDR color — SSR is additive on top.
+    vec4 base = texelFetch(hdrColor, px, 0);
+
+    // Decode material.
+    vec4 nr = texelFetch(prepassNormalRoughness, px, 0);
+    float roughness = nr.b;
+    if (roughness > uRoughnessCutoff) {
+        imageStore(outColor, px, base);
+        return;
+    }
+
+    float depth = texelFetch(prepassDepth, px, 0).r;
+    if (depth >= 1.0) {
+        // Sky / far plane — no reflection.
+        imageStore(outColor, px, base);
+        return;
+    }
+
+    // View-space position + normal + reflection vector.
+    vec3 posVS  = viewPosFromDepth(uv, depth);
+    vec3 nWorld = octDecode(nr.rg);
+    vec3 nVS    = normalize(mat3(uView) * nWorld);
+    vec3 vVS    = normalize(-posVS);
+    vec3 rVS    = reflect(-vVS, nVS);
+
+    // Small bias along the normal to avoid self-intersection at
+    // step 0 (classic SSR seam artifact).
+    vec3 originVS = posVS + nVS * 0.005;
+
+    vec2 hitUV; float hitZ;
+    bool ok = hiZTrace(originVS, rVS, hitUV, hitZ);
+
+    vec3 add = vec3(0.0);
+    if (ok) {
+        // Roughness -> mip for blurred reflections.
+        float mip   = roughness * 5.0;
+        vec3  refl  = textureLod(hdrColor, hitUV, mip).rgb;
+
+        // Fade near screen edges.
+        vec2 edge = min(hitUV, 1.0 - hitUV);
+        float eFade = smoothstep(0.0, EDGE_FADE, edge.x)
+                    * smoothstep(0.0, EDGE_FADE, edge.y);
+
+        // Schlick Fresnel, dielectric-only for v1.
+        float cosT = clamp(dot(nVS, vVS), 0.0, 1.0);
+        float F0   = 0.04;
+        float F    = F0 + (1.0 - F0) * pow(1.0 - cosT, 5.0);
+
+        // Roughness attenuation — smooth surfaces reflect more.
+        float rFade = 1.0 - roughness;
+
+        add = refl * eFade * F * rFade;
+    }
+
+    imageStore(outColor, px, vec4(base.rgb + add, base.a));
+}

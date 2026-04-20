@@ -25,12 +25,14 @@
 
 // ECS
 #include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Components/LightComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Coordinator.h"
 #include "ECS/Systems/ECSPhysicsSystem.h"
 #include "ECS/Systems/HierarchySystem.h"
+#include "ECS/Systems/LightSystem.h"
 #include "ECS/Systems/RenderSystem.h"
 
 // Optional Lua scripting (G10 concrete).
@@ -120,6 +122,7 @@ int main() {
     gCoordinator.RegisterComponent<RenderComponent>();
     gCoordinator.RegisterComponent<PhysicsComponent>();
     gCoordinator.RegisterComponent<HierarchyComponent>();
+    gCoordinator.RegisterComponent<LightComponent>();
 #if MIST_ENABLE_SCRIPTING
     gCoordinator.RegisterComponent<ScriptComponent>();
 #endif
@@ -127,6 +130,7 @@ int main() {
     auto renderSystem     = gCoordinator.RegisterSystem<RenderSystem>();
     auto ecsPhysicsSystem = gCoordinator.RegisterSystem<ECSPhysicsSystem>();
     auto hierarchySystem  = gCoordinator.RegisterSystem<HierarchySystem>();
+    auto lightSystem      = gCoordinator.RegisterSystem<LightSystem>();
 #if MIST_ENABLE_SCRIPTING
     auto scriptSystem     = gCoordinator.RegisterSystem<ScriptSystem>();
 #endif
@@ -145,6 +149,11 @@ int main() {
     hierarchySignature.set(gCoordinator.GetComponentType<TransformComponent>());
     hierarchySignature.set(gCoordinator.GetComponentType<HierarchyComponent>());
     gCoordinator.SetSystemSignature<HierarchySystem>(hierarchySignature);
+
+    Signature lightSignature;
+    lightSignature.set(gCoordinator.GetComponentType<TransformComponent>());
+    lightSignature.set(gCoordinator.GetComponentType<LightComponent>());
+    gCoordinator.SetSystemSignature<LightSystem>(lightSignature);
 
 #if MIST_ENABLE_SCRIPTING
     Signature scriptSignature;
@@ -331,6 +340,12 @@ int main() {
         // see a live transform. deltaTime is already clamped above.
         scriptSystem->Update(gCoordinator, deltaTime);
 #endif
+
+        // Sync ECS lights -> LightManager BEFORE the renderer's
+        // UploadToGPU/CullLights runs. LightSystem iterates every
+        // {Transform + LightComponent} entity and rebuilds the
+        // manager's array from scratch each frame.
+        lightSystem->Update(gCoordinator, renderer.GetLightManager());
 
         renderer.RenderWithECSAndUI(scene, renderSystem, &uiManager);
     }

@@ -16,6 +16,7 @@
 
 // New subsystems
 #include "PostProcessStack.h"
+#include "HiZPyramid.h"
 #include "ShadowSystem.h"
 #include "LightManager.h"
 #include "IBL.h"
@@ -84,6 +85,7 @@ private:
     // Shaders
     Shader objectShader;    // Legacy Phong (kept as fallback)
     Shader depthShader;     // Legacy depth (kept as fallback)
+    Shader depthPrepassShader; // Writes screen-space depth + packed normal/roughness
     Shader glowShader;
     Shader skyboxShader;    // Legacy skybox (kept as fallback)
     Shader pbrShader;       // PBR Cook-Torrance
@@ -123,6 +125,7 @@ private:
 
     // New subsystems
     PostProcessStack m_PostProcess;
+    HiZPyramid       m_HiZ;
     ShadowSystem m_ShadowSystem;
     LightManager m_LightManager;
     IBL m_IBL;
@@ -133,6 +136,10 @@ private:
     float m_Exposure = 1.0f;
     bool m_UsePBR = true;
     bool m_ShowEditorGrid = true;
+    bool m_ShowPhysicsDebug = false;  // View -> Debug -> Collision Shapes
+public:
+    bool& ShowPhysicsDebug() { return m_ShowPhysicsDebug; }
+private:
     GLuint m_DummyTex2D = 0;
     GLuint m_DummyTexCube = 0;
     void CreateDummyTextures();

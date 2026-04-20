@@ -183,3 +183,75 @@ void ShadowSystem::BindPointLightShadowMap(Shader& shader, int unit) {
     glBindTexture(GL_TEXTURE_CUBE_MAP, m_PointShadowCubemap);
     shader.setInt("pointShadowMap", unit);
 }
+
+// --- Multi-omni shadow atlas (Phase H) ---
+
+void ShadowSystem::InitOmniShadowAtlas() {
+    omniDepthShader = Shader("shaders/omni_depth.vert",
+                             "shaders/omni_depth.frag");
+
+    // Single cubemap-array holding MAX_OMNI_SHADOWS cubemaps. One
+    // depth-texture allocation; each frame we rebind specific
+    // layer+face via glFramebufferTextureLayer. Avoids per-light
+    // texture creation churn.
+    glCreateTextures(GL_TEXTURE_CUBE_MAP_ARRAY, 1, &m_OmniShadowArray);
+    // glTextureStorage3D for cube-map array takes (depth = layers*6).
+    glTextureStorage3D(m_OmniShadowArray, 1, GL_DEPTH_COMPONENT32F,
+                       OMNI_SHADOW_SIZE, OMNI_SHADOW_SIZE,
+                       MAX_OMNI_SHADOWS * 6);
+    glTextureParameteri(m_OmniShadowArray, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTextureParameteri(m_OmniShadowArray, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTextureParameteri(m_OmniShadowArray, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(m_OmniShadowArray, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTextureParameteri(m_OmniShadowArray, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    glCreateFramebuffers(1, &m_OmniShadowFBO);
+    glNamedFramebufferDrawBuffer(m_OmniShadowFBO, GL_NONE);
+    glNamedFramebufferReadBuffer(m_OmniShadowFBO, GL_NONE);
+
+    LOG_INFO("Omni shadow atlas initialized: ", MAX_OMNI_SHADOWS,
+             " cubemaps at ", OMNI_SHADOW_SIZE, "x", OMNI_SHADOW_SIZE);
+}
+
+void ShadowSystem::BeginOmniShadowPass(int layer, const glm::vec3& lightPos,
+                                       float farPlane) {
+    m_OmniShadowLightPos = lightPos;
+    m_OmniShadowFarPlane = farPlane;
+    m_CurrentOmniLayer   = layer;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, m_OmniShadowFBO);
+    glViewport(0, 0, OMNI_SHADOW_SIZE, OMNI_SHADOW_SIZE);
+
+    omniDepthShader.use();
+    omniDepthShader.setVec3("lightPos", lightPos);
+    omniDepthShader.setFloat("farPlane", farPlane);
+
+    // Build the 6 face matrices once per light; BindOmniShadowFace
+    // picks one each time the caller loops.
+    const glm::mat4 proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, farPlane);
+    m_OmniFaceMatrices[0] = proj * glm::lookAt(lightPos, lightPos + glm::vec3( 1,0,0), glm::vec3(0,-1,0));
+    m_OmniFaceMatrices[1] = proj * glm::lookAt(lightPos, lightPos + glm::vec3(-1,0,0), glm::vec3(0,-1,0));
+    m_OmniFaceMatrices[2] = proj * glm::lookAt(lightPos, lightPos + glm::vec3(0, 1,0), glm::vec3(0,0, 1));
+    m_OmniFaceMatrices[3] = proj * glm::lookAt(lightPos, lightPos + glm::vec3(0,-1,0), glm::vec3(0,0,-1));
+    m_OmniFaceMatrices[4] = proj * glm::lookAt(lightPos, lightPos + glm::vec3(0,0, 1), glm::vec3(0,-1,0));
+    m_OmniFaceMatrices[5] = proj * glm::lookAt(lightPos, lightPos + glm::vec3(0,0,-1), glm::vec3(0,-1,0));
+}
+
+void ShadowSystem::BindOmniShadowFace(int face) {
+    int slice = m_CurrentOmniLayer * 6 + face;
+    glNamedFramebufferTextureLayer(m_OmniShadowFBO, GL_DEPTH_ATTACHMENT,
+                                   m_OmniShadowArray, 0, slice);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    omniDepthShader.setMat4("viewProj", m_OmniFaceMatrices[face]);
+}
+
+void ShadowSystem::EndOmniShadowPass() {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void ShadowSystem::BindOmniShadowAtlas(Shader& shader, int unit) {
+    glActiveTexture(GL_TEXTURE0 + unit);
+    glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, m_OmniShadowArray);
+    shader.setInt("omniShadowMaps", unit);
+    shader.setFloat("omniShadowFar", m_OmniShadowFarPlane);
+}

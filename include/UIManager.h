@@ -225,6 +225,12 @@ private:
     // Scene file dialog state
     char m_ScenePathBuffer[512];
 
+    // File -> Import Model... popup path input.
+    char m_ImportModelPathBuffer[512]{};
+
+    // Assets -> New Material... popup path input.
+    char m_NewMaterialPathBuffer[512]{};
+
     // UI state
     std::vector<std::pair<Entity, std::string>> m_EntityList;
     std::vector<std::string> m_ConsoleMessages;

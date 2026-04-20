@@ -18,6 +18,11 @@ public:
     static void Box(const glm::vec3& min, const glm::vec3& max, const glm::vec3& color = glm::vec3(0, 1, 0));
     static void AABB(const struct ::AABB& aabb, const glm::vec3& color = glm::vec3(0, 1, 0));
     static void Sphere(const glm::vec3& center, float radius, const glm::vec3& color = glm::vec3(0, 0, 1), int segments = 16);
+    // Upright capsule: cylinder of length `height` (exclusive of caps) along
+    // +axisUp, capped by two hemispheres of `radius`. Matches Bullet's
+    // btCapsuleShape convention so collision gizmos line up 1:1.
+    static void Capsule(const glm::vec3& center, const glm::vec3& axisUp, float radius, float height,
+                        const glm::vec3& color = glm::vec3(0, 1, 0.5f), int segments = 16);
     static void Frustum(const glm::mat4& viewProj, const glm::vec3& color = glm::vec3(1, 1, 0));
 
     // Render all accumulated lines and clear

@@ -5,6 +5,8 @@
 #include "Core/Logger.h"
 #include "Core/PathGuard.h"
 #include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Components/LightComponent.h"
+#include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/ScriptComponent.h"
 #include "ECS/Components/TransformComponent.h"
@@ -113,8 +115,12 @@ void LuaScriptLanguage::Init() {
 
     // spawn_cube(x, y, z) — returns new entity id or -1 on failure.
     // Uses the shared "builtin://cube" mesh from AssetRegistry so N cubes
-    // allocate exactly one Mesh, not N.
-    state["spawn_cube"] = [](float x, float y, float z) -> int {
+    // allocate exactly one Mesh, not N. Optional sx/sy/sz lets scripts
+    // make pillars / slabs without attaching a follow-up set_transform.
+    state["spawn_cube"] = [](float x, float y, float z,
+                             sol::optional<float> sx,
+                             sol::optional<float> sy,
+                             sol::optional<float> sz) -> int {
         auto& meshes = Mist::Assets::AssetRegistry::Instance().meshes();
         auto ref = LoadRef(meshes, std::string("builtin://cube"));
         if (!ref) {
@@ -124,6 +130,7 @@ void LuaScriptLanguage::Init() {
         Entity e = gCoordinator.CreateEntity();
         TransformComponent t;
         t.position = {x, y, z};
+        t.scale    = {sx.value_or(1.0f), sy.value_or(1.0f), sz.value_or(1.0f)};
         gCoordinator.AddComponent(e, t);
 
         RenderComponent r;
@@ -230,6 +237,111 @@ void LuaScriptLanguage::Init() {
         sc.instance = std::shared_ptr<IScriptInstance>(inst.release());
         gCoordinator.AddComponent(static_cast<Entity>(id), sc);
         return true;
+    };
+
+    // --- Lighting bindings (Phase D of Godot-parity lighting cycle) ---
+
+    // spawn_light(type, x, y, z, r, g, b, energy) -> entity id
+    //   type in {"directional","omni","spot"}. RGB + energy optional,
+    //   defaults to white @ 1.0. Returns new entity id, -1 on bad type.
+    state["spawn_light"] = [](const std::string& type,
+                              float x, float y, float z,
+                              sol::optional<float> r,
+                              sol::optional<float> g,
+                              sol::optional<float> b,
+                              sol::optional<float> energy) -> int {
+        MistLightType t;
+        if      (type == "directional") t = MistLightType::Directional;
+        else if (type == "omni")        t = MistLightType::Omni;
+        else if (type == "spot")        t = MistLightType::Spot;
+        else {
+            LOG_ERROR("spawn_light: unknown type '", type,
+                      "' (expected directional/omni/spot)");
+            return -1;
+        }
+
+        Entity e = gCoordinator.CreateEntity();
+        TransformComponent tr;
+        tr.position = {x, y, z};
+        gCoordinator.AddComponent(e, tr);
+        gCoordinator.AddComponent(e, HierarchyComponent{});
+
+        LightComponent lc;
+        lc.type   = t;
+        lc.color  = { r.value_or(1.0f), g.value_or(1.0f), b.value_or(1.0f) };
+        lc.energy = energy.value_or(1.0f);
+        // Sensible defaults per type — user tweaks via inspector or
+        // the set_light_* bindings below.
+        if (t == MistLightType::Directional) lc.range = 0.0f;         // unused
+        else if (t == MistLightType::Omni)   lc.range = 10.0f;
+        else                                 lc.range = 15.0f;        // spot
+        gCoordinator.AddComponent(e, lc);
+        return static_cast<int>(e);
+    };
+
+    state["set_light_color"] = [](int id, float r, float g, float f) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<LightComponent>(e)) return;
+        auto& lc = gCoordinator.GetComponent<LightComponent>(e);
+        lc.color = {r, g, f};
+    };
+    state["set_light_energy"] = [](int id, float energy) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<LightComponent>(e)) return;
+        gCoordinator.GetComponent<LightComponent>(e).energy = energy;
+    };
+    state["set_light_range"] = [](int id, float range) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<LightComponent>(e)) return;
+        gCoordinator.GetComponent<LightComponent>(e).range = range;
+    };
+
+    // --- Physics bindings (Phase D of physics-upgrade cycle) ---
+    //
+    // Every binding silently no-ops on entities without a
+    // PhysicsComponent — keeps Lua scripts tolerant of stale ids.
+    // Force / impulse / velocity apply immediately to the Bullet
+    // body; mass / kinematic mutate the component and the next
+    // EnsureBody tick picks up the change.
+
+    state["apply_force"] = [](int id, float fx, float fy, float fz) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<PhysicsComponent>(e)) return;
+        auto& pc = gCoordinator.GetComponent<PhysicsComponent>(e);
+        if (!pc.rigidBody) return;
+        pc.rigidBody->activate(true);
+        pc.rigidBody->applyCentralForce(btVector3(fx, fy, fz));
+    };
+
+    state["apply_impulse"] = [](int id, float ix, float iy, float iz) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<PhysicsComponent>(e)) return;
+        auto& pc = gCoordinator.GetComponent<PhysicsComponent>(e);
+        if (!pc.rigidBody) return;
+        pc.rigidBody->activate(true);
+        pc.rigidBody->applyCentralImpulse(btVector3(ix, iy, iz));
+    };
+
+    state["set_velocity"] = [](int id, float vx, float vy, float vz) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<PhysicsComponent>(e)) return;
+        auto& pc = gCoordinator.GetComponent<PhysicsComponent>(e);
+        if (!pc.rigidBody) return;
+        pc.rigidBody->activate(true);
+        pc.rigidBody->setLinearVelocity(btVector3(vx, vy, vz));
+    };
+
+    state["set_mass"] = [](int id, float mass) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<PhysicsComponent>(e)) return;
+        // Mass is a shape-hash input — next EnsureBody call rebuilds.
+        gCoordinator.GetComponent<PhysicsComponent>(e).mass = mass;
+    };
+
+    state["set_kinematic"] = [](int id, bool on) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<PhysicsComponent>(e)) return;
+        gCoordinator.GetComponent<PhysicsComponent>(e).kinematic = on;
     };
 
     LOG_INFO("LuaScriptLanguage initialized (Lua 5.4 + sol2)");

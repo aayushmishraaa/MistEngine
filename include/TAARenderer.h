@@ -27,8 +27,10 @@ public:
     void BeginVelocityPass();
     void EndVelocityPass();
 
-    // Resolve TAA: blend current + history using velocity
-    void Resolve(GLuint currentFrameTexture, GLuint fullscreenVAO);
+    // Resolve TAA: blend current + history using velocity. `depthTex`
+    // feeds the closest-depth 3x3 velocity picker — pass the prepass
+    // depth here. Zero (fallback) keeps the old central-pixel fetch.
+    void Resolve(GLuint currentFrameTexture, GLuint depthTex, GLuint fullscreenVAO);
 
     // Get the resolved (anti-aliased) output texture
     GLuint GetResolvedTexture() const;

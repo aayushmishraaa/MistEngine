@@ -98,19 +98,20 @@ void InputManager::Update(float deltaTime) {
         m_LastMouseY = currentY;
     }
     
-    // Check if ImGui wants to capture input
+    // Only switch to UI_FOCUSED when the user is actively typing
+    // into an ImGui text field. The old gate (`WantCaptureMouse
+    // || WantCaptureKeyboard`) was too aggressive — the viewport is
+    // itself an ImGui dockable window, so moving the mouse over it
+    // set `WantCaptureMouse = true` and killed WASD. `WantTextInput`
+    // is only true while an InputText / InputFloat / search box has
+    // focus, which is the only case where WASD legitimately shouldn't
+    // fire (user is typing "w").
     ImGuiIO& io = ImGui::GetIO();
-    if (io.WantCaptureMouse || io.WantCaptureKeyboard) {
+    if (io.WantTextInput) {
         SetInputContext(InputContext::UI_FOCUSED);
-    } else {
-        // Restore previous context if UI was focused
-        if (m_CurrentContext == InputContext::UI_FOCUSED) {
-            if (m_SceneEditorMode) {
-                SetInputContext(InputContext::SCENE_EDITOR);
-            } else {
-                SetInputContext(InputContext::GAME_PLAY);
-            }
-        }
+    } else if (m_CurrentContext == InputContext::UI_FOCUSED) {
+        SetInputContext(m_SceneEditorMode ? InputContext::SCENE_EDITOR
+                                          : InputContext::GAME_PLAY);
     }
     
     // Handle F3 toggle between scene editor and gameplay
