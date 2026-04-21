@@ -36,6 +36,15 @@ public:
     GLuint GetHDRTexture() const { return m_HDRFramebuffer.GetColorTexture(); }
     GLuint GetDepthTexture() const { return m_HDRFramebuffer.GetDepthTexture(); }
 
+    // Final post-tonemap LDR texture. This is what the editor's Scene
+    // View panel samples and what the fullscreen present path blits.
+    // GetHDRTexture() returns the *pre-post-process* linear scene —
+    // do not use it for presentation or you'll show raw HDR and every
+    // post-effect (FXAA, bloom, DOF, motion blur, tonemap) becomes
+    // invisible.
+    GLuint GetPresentedTexture() const { return m_PresentFBO.GetColorTexture(); }
+    const Framebuffer& GetPresentFramebuffer() const { return m_PresentFBO; }
+
     // Exposed so the Renderer's fullscreen-present path can glBlitFramebuffer
     // from the HDR FBO to the default framebuffer when the Scene View panel
     // is hidden.
@@ -78,6 +87,7 @@ public:
 private:
     Framebuffer m_HDRFramebuffer;
     Framebuffer m_IntermediateFBO;   // bloom ping-pong + tonemap-to-LDR slot
+    Framebuffer m_PresentFBO;        // tonemap output (LDR) — what editor Scene View + fullscreen present read
     Framebuffer m_FXAAIntermediate;  // FXAA-in-HDR output (pre-tonemap)
     Framebuffer m_MotionBlurFBO;     // motion blur output (HDR)
     Framebuffer m_DOFCoCFBO;         // full-res R16F CoC

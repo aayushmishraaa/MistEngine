@@ -151,6 +151,34 @@ void PhysicsSystem::EnsureBody(const glm::vec3& position, PhysicsComponent& pc) 
     }
 }
 
+PhysicsSystem::RayHit
+PhysicsSystem::Raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist) const {
+    RayHit out;
+    glm::vec3 n = glm::normalize(dir);
+    if (maxDist <= 0.0f || glm::dot(n, n) <= 0.0f) return out;
+
+    btVector3 from(origin.x, origin.y, origin.z);
+    btVector3 to = from + btVector3(n.x, n.y, n.z) * maxDist;
+
+    btCollisionWorld::ClosestRayResultCallback cb(from, to);
+    m_DynamicsWorld->rayTest(from, to, cb);
+    if (!cb.hasHit()) return out;
+
+    out.hit      = true;
+    out.point    = {cb.m_hitPointWorld.x(),  cb.m_hitPointWorld.y(),  cb.m_hitPointWorld.z()};
+    out.normal   = {cb.m_hitNormalWorld.x(), cb.m_hitNormalWorld.y(), cb.m_hitNormalWorld.z()};
+    out.fraction = cb.m_closestHitFraction;
+
+    // User-pointer encodes the ECS Entity id (set by EnsureBody via
+    // setUserIndex). Unpack via reinterpret-cast of the int index —
+    // entity ids fit in 32 bits, so we round-trip losslessly.
+    if (cb.m_collisionObject) {
+        int idx = cb.m_collisionObject->getUserIndex();
+        if (idx >= 0) out.entity = static_cast<std::uint32_t>(idx);
+    }
+    return out;
+}
+
 btRigidBody* PhysicsSystem::CreateGroundPlane(const glm::vec3& position) {
     ScopedCollisionShape shape(CreateShape(CollisionShape::StaticPlane, {}, 0.0f, 0.0f));
     return addBody(std::move(shape), position, 0.0f);

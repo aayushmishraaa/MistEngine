@@ -4,7 +4,10 @@
 
 #include "Core/Logger.h"
 #include "Core/PathGuard.h"
+#include "Core/ServiceLocator.h"
+#include "PhysicsSystem.h"
 #include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Components/AnimationComponent.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/RenderComponent.h"
@@ -342,6 +345,61 @@ void LuaScriptLanguage::Init() {
         Entity e = static_cast<Entity>(id);
         if (!gCoordinator.HasComponent<PhysicsComponent>(e)) return;
         gCoordinator.GetComponent<PhysicsComponent>(e).kinematic = on;
+    };
+
+    // --- Animation bindings (Phase D of assets cycle) ---
+    //
+    // Silently no-op on entities without AnimationComponent — same
+    // "tolerant-of-stale-ids" contract the physics / light bindings
+    // use. Clip lookup is O(N) in availableClips, but N is tiny (one
+    // per aiAnimation in the source file).
+
+    state["play_animation"] = [](int id, const std::string& name) -> bool {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<AnimationComponent>(e)) return false;
+        return gCoordinator.GetComponent<AnimationComponent>(e).PlayByName(name);
+    };
+
+    state["stop_animation"] = [](int id) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<AnimationComponent>(e)) return;
+        gCoordinator.GetComponent<AnimationComponent>(e).Stop();
+    };
+
+    state["set_anim_speed"] = [](int id, float v) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<AnimationComponent>(e)) return;
+        gCoordinator.GetComponent<AnimationComponent>(e).playbackSpeed = v;
+    };
+
+    state["set_anim_loop"] = [](int id, bool loop) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.HasComponent<AnimationComponent>(e)) return;
+        gCoordinator.GetComponent<AnimationComponent>(e).loop = loop;
+    };
+
+    // --- Physics raycast (Phase G.3 of assets cycle) ---
+    //
+    //   hit, id, px, py, pz, nx, ny, nz = raycast(ox,oy,oz, dx,dy,dz, maxDist)
+    //
+    // Returns 8 values; if `hit` is false the rest are zero. `id` is
+    // the ECS entity of the body that was struck, tagged via
+    // Bullet user-index by ECSPhysicsSystem. Direction is auto-
+    // normalised; maxDist is in world units.
+    state["raycast"] = [](float ox, float oy, float oz,
+                          float dx, float dy, float dz,
+                          float maxDist) {
+        auto* phys = ServiceLocator::Instance().GetPhysicsSystem();
+        if (!phys) {
+            return std::make_tuple(false, -1,
+                                   0.0f, 0.0f, 0.0f,
+                                   0.0f, 0.0f, 0.0f);
+        }
+        auto h = phys->Raycast({ox, oy, oz}, {dx, dy, dz}, maxDist);
+        return std::make_tuple(h.hit,
+                               h.hit ? static_cast<int>(h.entity) : -1,
+                               h.point.x,  h.point.y,  h.point.z,
+                               h.normal.x, h.normal.y, h.normal.z);
     };
 
     LOG_INFO("LuaScriptLanguage initialized (Lua 5.4 + sol2)");

@@ -509,9 +509,77 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         mainShader.setInt("shadowMap", 0);
     }
 
-    // Render ECS entities
+    // Render ECS entities (static, non-skinned path)
     renderSystem->Update(mainShader);
     m_Profiler.IncrementDrawCalls(1); // Approximate
+
+    // === SKINNED PASS ===
+    // Rigged meshes use skinned_pbr.vert (bone matrix multiply on
+    // the positions + normals) + the same pbr_fragment.glsl. Fragment
+    // uniforms are per-program so we re-push them onto the skinned
+    // program. SSBO + texture-unit bindings persist across shader
+    // switches, so most GL state is already in place.
+    if (m_UsePBR) {
+        skinnedPBRShader.use();
+        skinnedPBRShader.setMat4("projection", projection);
+        skinnedPBRShader.setMat4("view", view);
+        skinnedPBRShader.setVec3("viewPos", camera.Position);
+        skinnedPBRShader.setVec3("lightDir",   glm::normalize(lightDir));
+        skinnedPBRShader.setVec3("lightColor", lightColor);
+        skinnedPBRShader.setFloat("lightEnergy", 2.5f);
+
+        m_ShadowSystem.BindCascadeShadowMaps(skinnedPBRShader, 7);
+        {
+            GLint loc = glGetUniformLocation(skinnedPBRShader.ID, "numCascades");
+            if (loc >= 0) glUniform1i(loc, ShadowSystem::NUM_CASCADES);
+        }
+        skinnedPBRShader.setFloat("shadowBias",       0.005f);
+        skinnedPBRShader.setFloat("shadowNormalBias", 1.0f);
+        skinnedPBRShader.setFloat("shadowSoftness", m_PostProcess.shadowSoftness);
+        {
+            GLint locQ = glGetUniformLocation(skinnedPBRShader.ID, "shadowQuality");
+            if (locQ >= 0) glUniform1i(locQ, m_PostProcess.shadowQuality);
+        }
+        skinnedPBRShader.setVec2("screenSize",
+            glm::vec2((float)screenWidth, (float)screenHeight));
+        skinnedPBRShader.setFloat("nearPlane", 0.1f);
+        skinnedPBRShader.setFloat("farPlane",  100.0f);
+        skinnedPBRShader.setBool("useClusteredLights", true);
+
+        m_ShadowSystem.BindOmniShadowAtlas(skinnedPBRShader, 8);
+
+        if (m_IBL.IsLoaded()) {
+            m_IBL.Bind(skinnedPBRShader, 10, 11, 12);
+            skinnedPBRShader.setBool("useIBL", true);
+        } else {
+            skinnedPBRShader.setBool("useIBL", false);
+            glActiveTexture(GL_TEXTURE10);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, m_DummyTexCube);
+            skinnedPBRShader.setInt("irradianceMap", 10);
+            glActiveTexture(GL_TEXTURE11);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, m_DummyTexCube);
+            skinnedPBRShader.setInt("prefilterMap", 11);
+            glActiveTexture(GL_TEXTURE12);
+            glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
+            skinnedPBRShader.setInt("brdfLUT", 12);
+        }
+        skinnedPBRShader.setBool("useSSAO", m_PostProcess.enableSSAO);
+        if (!m_PostProcess.enableSSAO) {
+            glActiveTexture(GL_TEXTURE13);
+            glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
+            skinnedPBRShader.setInt("ssaoTexture", 13);
+        }
+
+        // lightSpaceMatrix for the skinned_pbr.vert FragPosLightSpace
+        // output (single-cascade legacy — CSM array sampled in fragment).
+        skinnedPBRShader.setMat4("lightSpaceMatrix",
+            m_ShadowSystem.GetLightSpaceMatrix(0));
+
+        renderSystem->UpdateSkinned(skinnedPBRShader, deltaTime);
+
+        // Restore mainShader for the legacy draws that follow.
+        mainShader.use();
+    }
 
     // Render legacy scene objects
     for (auto& obj : scene.getPhysicsRenderables()) {
@@ -694,22 +762,35 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // texture; the naming is a legacy of the earlier HDR-only pipeline.
     m_PrimaryViewport.width         = static_cast<int>(screenWidth);
     m_PrimaryViewport.height        = static_cast<int>(screenHeight);
-    m_PrimaryViewport.outputTexture = m_PostProcess.GetHDRTexture();
+    // The *presented* LDR texture — post-tonemap, post-FXAA, post-bloom,
+    // post-DOF, post-motion-blur. Using GetHDRTexture() here would show
+    // the raw linear scene and every post-effect would be invisible.
+    m_PrimaryViewport.outputTexture = m_PostProcess.GetPresentedTexture();
 
     // === UI RENDERING (after tone mapping, directly to screen) ===
     if (uiManager && !m_PrimaryViewport.presentFullscreen) {
-        // Editor mode — hand the viewport's output to the Scene View panel.
+        // Editor mode — clear the default framebuffer (ImGui paints
+        // on top), then hand the viewport's output texture to the
+        // Scene View / Viewport panels. Clearing prevents last-frame
+        // blit artefacts from the fullscreen-present path showing
+        // through transparent ImGui regions when the user toggles
+        // Scene View visibility.
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, static_cast<int>(screenWidth), static_cast<int>(screenHeight));
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
         uiManager->SetViewportTexture(m_PrimaryViewport.outputTexture,
                                       m_PrimaryViewport.width,
                                       m_PrimaryViewport.height);
         uiManager->NewFrame();
         uiManager->Render();
     } else if (m_PrimaryViewport.presentFullscreen) {
-        // No editor UI — blit the viewport texture straight to the default
-        // framebuffer. Before this path existed, closing the Scene View
-        // panel showed ImGui's empty background (the "blue screen" bug):
-        // the viewport was rendered but had nowhere to go.
-        GLuint readFBO = m_PostProcess.GetHDRFramebuffer().GetFBO();
+        // No editor UI — blit the *presented* (tonemapped LDR) texture
+        // to the default framebuffer. Reading from the raw HDR
+        // framebuffer here would skip every post-effect; the present
+        // FBO is the output of the full tonemap chain.
+        GLuint readFBO = m_PostProcess.GetPresentFramebuffer().GetFBO();
         glBindFramebuffer(GL_READ_FRAMEBUFFER, readFBO);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
         glBlitFramebuffer(0, 0, m_PrimaryViewport.width, m_PrimaryViewport.height,

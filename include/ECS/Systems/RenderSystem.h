@@ -33,6 +33,16 @@ public:
     // not a transform one).
     void UpdateVelocity(Shader& shader);
 
+    // Skinned-pass variant. Iterates the same entity set as Update()
+    // but only processes entities that carry an AnimationComponent
+    // (rigged imports). Advances each entity's Animator by dt,
+    // uploads its bone matrices to the bone SSBO (binding 6), then
+    // draws through `shader` — which must be a program that binds
+    // `skinned_pbr.vert` so the per-vertex bone attributes are
+    // consumed. `Update(shader)` skips these entities to avoid
+    // double-rendering.
+    void UpdateSkinned(Shader& shader, float dt);
+
 private:
     std::unordered_map<Entity, glm::mat4> m_PrevModels;
 };

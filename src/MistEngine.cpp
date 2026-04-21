@@ -25,6 +25,7 @@
 
 // ECS
 #include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Components/AnimationComponent.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/RenderComponent.h"
@@ -123,6 +124,7 @@ int main() {
     gCoordinator.RegisterComponent<PhysicsComponent>();
     gCoordinator.RegisterComponent<HierarchyComponent>();
     gCoordinator.RegisterComponent<LightComponent>();
+    gCoordinator.RegisterComponent<AnimationComponent>();
 #if MIST_ENABLE_SCRIPTING
     gCoordinator.RegisterComponent<ScriptComponent>();
 #endif

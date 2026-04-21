@@ -37,6 +37,13 @@ void ECSPhysicsSystem::Update(float deltaTime) {
             auto& pc        = gCoordinator.GetComponent<PhysicsComponent>(entity);
             physics->EnsureBody(transform.position, pc);
             m_OwnedBodies[entity] = pc.rigidBody;
+            // Tag the Bullet body with its owning ECS entity so
+            // raycast hits can be resolved back to the scene. Stored
+            // as an int via Bullet's user-index slot — entity ids fit
+            // in 32 bits so the round-trip is lossless.
+            if (pc.rigidBody) {
+                pc.rigidBody->setUserIndex(static_cast<int>(entity));
+            }
         }
     }
 

@@ -15,6 +15,7 @@
 #include "Animation.h"
 #include "Animator.h"
 #include "Material.h"
+#include "Renderable.h"
 #include "Shader.h"
 #include "Texture.h"
 
@@ -45,16 +46,22 @@ struct BoneNode {
     std::vector<int> children;
 };
 
-class AnimatedModel {
+class AnimatedModel : public Renderable {
 public:
     AnimatedModel() = default;
-    ~AnimatedModel();
+    ~AnimatedModel() override;
 
     bool Load(const std::string& path);
-    void Draw(Shader& shader);
+    void Draw(Shader& shader) override;
 
     std::shared_ptr<Animation> ExtractAnimation(int index = 0);
     std::vector<std::shared_ptr<Animation>> ExtractAllAnimations();
+
+    // Clips extracted at Load() time — Assimp's `aiScene->mAnimations`
+    // array converted to engine `Animation` objects. Populated once
+    // per Load so callers don't re-parse the file. Empty if the model
+    // has no embedded animations (most static meshes).
+    const std::vector<std::shared_ptr<Animation>>& GetClips() const { return m_Clips; }
 
     const std::map<std::string, BoneInfo>& GetBoneMap() const { return m_BoneInfoMap; }
     int GetBoneCount() const { return m_BoneCounter; }
@@ -73,6 +80,9 @@ private:
     glm::mat4 m_GlobalInverseTransform = glm::mat4(1.0f);
 
     std::map<std::string, std::shared_ptr<Texture>> m_TextureCache;
+
+    // Cached clip assets built from aiScene->mAnimations during Load.
+    std::vector<std::shared_ptr<Animation>> m_Clips;
 
     void processNode(aiNode* node, const aiScene* scene);
     SkinnedMesh processMesh(aiMesh* mesh, const aiScene* scene);

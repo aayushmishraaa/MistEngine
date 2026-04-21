@@ -7,11 +7,17 @@
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/LightComponent.h"
+#include "ECS/Components/AnimationComponent.h"
 #if MIST_ENABLE_SCRIPTING
 #include "ECS/Components/ScriptComponent.h"
 #endif
 #include "ECS/Systems/HierarchySystem.h"
 #include "Assets/MaterialSerializer.h"
+#include "Assets/PackageIO.h"
+#if MIST_ENABLE_SCRIPTING
+#include "Script/LuaScriptLanguage.h"
+#include "Script/ScriptRegistry.h"
+#endif
 #include "Import/SceneImporter.h"
 #include "Material.h"
 #include "Scene.h"
@@ -90,7 +96,7 @@ UIManager::UIManager()
     // Initialize export settings with defaults
     strncpy(m_GameNameBuffer, "MistFPS", sizeof(m_GameNameBuffer) - 1); m_GameNameBuffer[sizeof(m_GameNameBuffer) - 1] = '\0';
     strncpy(m_OutputPathBuffer, "exports", sizeof(m_OutputPathBuffer) - 1); m_OutputPathBuffer[sizeof(m_OutputPathBuffer) - 1] = '\0';
-    strncpy(m_ScenePathBuffer, "scene.json", sizeof(m_ScenePathBuffer) - 1); m_ScenePathBuffer[sizeof(m_ScenePathBuffer) - 1] = '\0';
+    strncpy(m_ScenePathBuffer, "scenes/scene.mist", sizeof(m_ScenePathBuffer) - 1); m_ScenePathBuffer[sizeof(m_ScenePathBuffer) - 1] = '\0';
     m_NumLevels = 5;
     m_EnemiesPerLevel = 10;
     m_IncludeAssets = true;
@@ -186,15 +192,29 @@ bool UIManager::Initialize(GLFWwindow* window) {
     // Set up asset browser root directory
     m_AssetBrowser->SetRootDirectory(".");
 
+    // Lua fallback: any input that isn't a registered command gets
+    // compiled + run as Lua. Makes the console panel double as a REPL
+    // without a second window. `apply_force(20, 0, 50, 0)` runs; so
+    // do `spawn_cube(0,5,0)`, `raycast(...)`, `print(...)`. Explicit
+    // commands (save / load / clear / echo / help) stay intact.
+#if MIST_ENABLE_SCRIPTING
+    m_ConsoleSystem->SetFallback([](const std::string& raw) -> std::string {
+        auto lang = Mist::Script::ScriptRegistry::Instance().Get(".lua");
+        if (!lang) return "[error] Lua not registered";
+        auto inst = lang->Compile(raw);
+        return inst ? std::string() : std::string("[error] compile failed");
+    });
+#endif
+
     // Register console commands
     m_ConsoleSystem->RegisterCommand("save", [this](const std::vector<std::string>& args) {
-        std::string path = args.empty() ? "scene.json" : args[0];
+        std::string path = args.empty() ? "scenes/scene.mist" : args[0];
         SaveScene(path);
         return "Scene saved to " + path;
     }, "Save scene to file");
 
     m_ConsoleSystem->RegisterCommand("load", [this](const std::vector<std::string>& args) {
-        std::string path = args.empty() ? "scene.json" : args[0];
+        std::string path = args.empty() ? "scenes/scene.mist" : args[0];
         LoadScene(path);
         return "Scene loaded from " + path;
     }, "Load scene from file");
@@ -334,6 +354,13 @@ void UIManager::DrawMainMenuBar() {
                 ImGui::OpenPopup("ImportModel");
             }
             ImGui::Separator();
+            if (ImGui::MenuItem("Export Package (.mistpkg)...")) {
+                ImGui::OpenPopup("ExportPackage");
+            }
+            if (ImGui::MenuItem("Import Package (.mistpkg)...")) {
+                ImGui::OpenPopup("ImportPackage");
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Export Game...")) {
                 m_ShowExportDialog = true;
             }
@@ -444,6 +471,50 @@ void UIManager::DrawMainMenuBar() {
         ImGui::Separator();
         if (ImGui::Button("Import", ImVec2(120, 0))) {
             HandleAssetDrop(m_ImportModelPathBuffer);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    // File -> Export Package popup. Bundles the current scene + its
+    // referenced materials & textures into a single .mistpkg JSON.
+    if (ImGui::BeginPopupModal("ExportPackage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Scene source path (.mist)");
+        ImGui::SetNextItemWidth(420);
+        ImGui::InputText("##PkgScene", m_PkgScenePathBuffer, sizeof(m_PkgScenePathBuffer));
+        ImGui::Text("Output package path (.mistpkg)");
+        ImGui::SetNextItemWidth(420);
+        ImGui::InputText("##PkgOut", m_PkgOutPathBuffer, sizeof(m_PkgOutPathBuffer));
+        ImGui::Separator();
+        if (ImGui::Button("Export", ImVec2(120, 0))) {
+            bool ok = Mist::Assets::PackageIO::Export(m_PkgScenePathBuffer, m_PkgOutPathBuffer);
+            m_ConsoleMessages.push_back(ok
+                ? std::string("Package exported: ") + m_PkgOutPathBuffer
+                : std::string("Package export failed"));
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    // File -> Import Package popup. Extracts assets to a temp dir,
+    // then loads the contained scene from there.
+    if (ImGui::BeginPopupModal("ImportPackage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Package path (.mistpkg)");
+        ImGui::SetNextItemWidth(420);
+        ImGui::InputText("##PkgIn", m_PkgInPathBuffer, sizeof(m_PkgInPathBuffer));
+        ImGui::Separator();
+        if (ImGui::Button("Import", ImVec2(120, 0))) {
+            std::string out;
+            if (Mist::Assets::PackageIO::Import(m_PkgInPathBuffer, out)) {
+                LoadScene(out);
+                m_ConsoleMessages.push_back("Package imported: " + std::string(m_PkgInPathBuffer));
+            } else {
+                m_ConsoleMessages.push_back("Package import failed");
+            }
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -567,8 +638,13 @@ void UIManager::HandleAssetDrop(const std::string& path) {
 
     if (ext == ".obj" || ext == ".fbx" || ext == ".gltf" || ext == ".glb") {
         SpawnMeshEntity(path);
-    } else if (ext == ".scene" || ext == ".json" || ext == ".mscene") {
+    } else if (ext == ".scene" || ext == ".json" || ext == ".mscene" || ext == ".mist") {
         LoadScene(path);
+    } else if (ext == ".mistpkg") {
+        std::string scenePath;
+        if (Mist::Assets::PackageIO::Import(path, scenePath)) {
+            LoadScene(scenePath);
+        }
     } else {
         Mist::Editor::Toaster::Instance().Push(
             Mist::Editor::ToastLevel::Warn,
@@ -966,6 +1042,48 @@ void UIManager::DrawInspector() {
                 }
             });
 
+        // Animation — clip picker + playback controls. `availableClips`
+        // is populated by SceneImporter when a rigged model is loaded;
+        // the combo lists whatever the Assimp aiScene had. No clips
+        // means the entity was added manually (no rig attached) — we
+        // still show the scalar controls so the user can spot that.
+        drawComponent("Animation",
+            [&] { return coord->HasComponent<AnimationComponent>(sel); },
+            [=] { coord->RemoveComponent<AnimationComponent>(sel); },
+            [=] { coord->AddComponent(sel, AnimationComponent{}); },
+            [&] {
+                auto& ac = coord->GetComponent<AnimationComponent>(sel);
+
+                // Clip combo. BuildPreview first so ImGui can show the
+                // currently-active clip name even if it's not in the
+                // list (e.g. right after a runtime swap).
+                std::string preview = ac.currentAnimName.empty()
+                                      ? std::string("(none)") : ac.currentAnimName;
+                if (ImGui::BeginCombo("Clip", preview.c_str())) {
+                    for (const auto& clip : ac.availableClips) {
+                        if (!clip) continue;
+                        bool selected = (clip->name == ac.currentAnimName);
+                        if (ImGui::Selectable(clip->name.c_str(), selected)) {
+                            ac.Play(clip, clip->name);
+                        }
+                        if (selected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
+                }
+
+                if (ImGui::Button(ac.playing ? "Pause" : "Play")) {
+                    ac.playing = !ac.playing;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Stop")) ac.Stop();
+
+                ImGui::SliderFloat("Speed", &ac.playbackSpeed, 0.0f, 3.0f);
+                ImGui::Checkbox("Loop", &ac.loop);
+
+                ImGui::TextDisabled("Available clips: %zu",
+                                     ac.availableClips.size());
+            });
+
         // Hierarchy — read-only status display. Parent/children fields
         // are excluded from the reflected property list (hierarchy is
         // edited graphically via the scene tree, not typed).
@@ -1036,6 +1154,9 @@ void UIManager::DrawInspector() {
             tryAdd("Light",
                    [&] { return coord->HasComponent<LightComponent>(sel); },
                    [&] { coord->AddComponent(sel, LightComponent{}); });
+            tryAdd("Animation",
+                   [&] { return coord->HasComponent<AnimationComponent>(sel); },
+                   [&] { coord->AddComponent(sel, AnimationComponent{}); });
             tryAdd("Hierarchy",
                    [&] { return coord->HasComponent<HierarchyComponent>(sel); },
                    [&] { coord->AddComponent(sel, HierarchyComponent{}); });
@@ -1186,19 +1307,13 @@ void UIManager::DrawAssetBrowser() {
 }
 
 void UIManager::DrawConsole() {
-    ImGui::Begin("Console", &m_ShowConsole);
-    
-    // Display console messages
-    for (const auto& message : m_ConsoleMessages) {
-        ImGui::TextUnformatted(message.c_str());
-    }
-    
-    // Auto-scroll to bottom
-    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
-        ImGui::SetScrollHereY(1.0f);
-    }
-    
-    ImGui::End();
+    // Thin wrapper. The visible Console panel with its input line is
+    // rendered by RenderConsoleWindow in EditorUI.cpp — Lua execution
+    // is plumbed through the ConsoleSystem fallback installed in
+    // Initialize(). This method only keeps m_ShowConsole as a
+    // togglable flag so the View menu's "Console" checkbox still
+    // works; actual rendering happens elsewhere.
+    (void)m_ShowConsole;
 }
 
 void UIManager::CreateEntity(const std::string& name) {
@@ -2601,14 +2716,43 @@ void UIManager::DrawEditorLayout() {
         if (ImGui::BeginTabBar("BottomTabs")) {
             if (ImGui::BeginTabItem("Console")) {
                 m_BottomTabIndex = 0;
-                // Embedded console content
-                ImGui::BeginChild("ConsoleScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+
+                // Scrolling log region above the REPL input line.
+                // Reserve one frame+spacing at the bottom so the
+                // InputText below stays visible while the log scrolls.
+                const float inputH = ImGui::GetFrameHeightWithSpacing();
+                ImGui::BeginChild("ConsoleScroll",
+                                  ImVec2(0, -inputH), false,
+                                  ImGuiWindowFlags_HorizontalScrollbar);
                 for (const auto& msg : m_ConsoleMessages) {
                     ImGui::TextUnformatted(msg.c_str());
                 }
                 if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
                     ImGui::SetScrollHereY(1.0f);
                 ImGui::EndChild();
+
+                // REPL input. Delegates to ConsoleSystem::Execute
+                // which runs built-in commands (save / load / help /
+                // clear / echo) or falls through to Lua via the
+                // SetFallback handler installed in Initialize().
+                ImGui::TextUnformatted(">");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(-1.0f);
+                const ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue;
+                if (ImGui::InputText("##ConsoleInput",
+                                     m_ConsoleInputBuffer,
+                                     sizeof(m_ConsoleInputBuffer), flags)) {
+                    std::string src = m_ConsoleInputBuffer;
+                    if (!src.empty() && m_ConsoleSystem) {
+                        m_ConsoleMessages.push_back("> " + src);
+                        std::string result = m_ConsoleSystem->Execute(src);
+                        if (!result.empty()) {
+                            m_ConsoleMessages.push_back(result);
+                        }
+                        m_ConsoleInputBuffer[0] = '\0';
+                    }
+                    ImGui::SetKeyboardFocusHere(-1);  // keep cursor
+                }
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Asset Browser")) {
@@ -2704,14 +2848,31 @@ void UIManager::SaveScene(const std::string& path) {
         return;
     }
 
+    // Resolve the final path under the sandbox before calling the
+    // serializer. Passing a relative path like "scene.mist" into
+    // SceneSerializer::Save would resolve against CWD (outside the
+    // sandbox) and trip the PathGuard; prepending `scenes/` and
+    // materialising the directory up-front avoids both.
+    std::filesystem::path p = path;
+    if (p.is_relative()) {
+        std::string pstr = p.generic_string();
+        if (pstr.rfind("scenes/", 0) != 0 && pstr.rfind("scenes\\", 0) != 0) {
+            p = std::filesystem::path("scenes") / p;
+        }
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(
+        (std::filesystem::current_path() / p).parent_path(), ec);
+
+    std::string finalPath = p.generic_string();
+
     extern Coordinator gCoordinator;
-    if (SceneSerializer::Save(path, gCoordinator, m_EntityCounter)) {
-        m_ConsoleMessages.push_back("Scene saved to: " + path);
-        // Clean the dirty marker so the title's `*` clears on next
-        // frame. Load does the same via Clear() below.
+    if (SceneSerializer::Save(finalPath, gCoordinator, m_EntityCounter)) {
+        m_ConsoleMessages.push_back("Scene saved to: " + finalPath);
         m_UndoStack.MarkSaved();
     } else {
-        m_ConsoleMessages.push_back("Failed to save scene to: " + path);
+        m_ConsoleMessages.push_back("Failed to save scene to: " + finalPath
+            + " (check terminal log for sandbox details)");
     }
 }
 

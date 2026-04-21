@@ -16,6 +16,13 @@ public:
         m_Commands[name] = {handler, help};
     }
 
+    // When Execute receives a command that isn't registered, it
+    // delegates to this optional fallback. Lets the console double as
+    // a Lua REPL without this class depending on the scripting runtime
+    // directly — UIManager installs a Lua-compiling handler at init.
+    using FallbackHandler = std::function<std::string(const std::string& raw)>;
+    void SetFallback(FallbackHandler fb) { m_Fallback = std::move(fb); }
+
     std::string Execute(const std::string& cmdLine) {
         auto tokens = tokenize(cmdLine);
         if (tokens.empty()) return "";
@@ -25,7 +32,15 @@ public:
 
         auto it = m_Commands.find(cmd);
         if (it == m_Commands.end()) {
-            return "Unknown command: " + cmd;
+            m_History.push_back("> " + cmdLine);
+            if (m_Fallback) {
+                std::string r = m_Fallback(cmdLine);
+                if (!r.empty()) m_History.push_back(r);
+                return r;
+            }
+            std::string msg = "Unknown command: " + cmd;
+            m_History.push_back(msg);
+            return msg;
         }
 
         std::string result = it->second.handler(tokens);
@@ -83,6 +98,7 @@ private:
     std::unordered_map<std::string, CommandEntry> m_Commands;
     std::vector<std::string> m_History;
     size_t m_MaxHistory = 1000;
+    FallbackHandler m_Fallback;
 
     std::vector<std::string> tokenize(const std::string& line) {
         std::vector<std::string> tokens;

@@ -31,6 +31,9 @@ add_executable(MistEngineTests
     test_audio_clip.cpp
     test_physics_component.cpp
     test_physics_bindings.cpp
+    test_material_asset.cpp
+    test_mistpkg.cpp
+    test_physical_units.cpp
     test_version.cpp
 )
 

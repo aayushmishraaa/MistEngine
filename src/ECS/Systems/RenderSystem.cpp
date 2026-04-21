@@ -1,4 +1,5 @@
 #include "ECS/Systems/RenderSystem.h"
+#include "ECS/Components/AnimationComponent.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/RenderComponent.h"
 
@@ -14,6 +15,11 @@ void RenderSystem::Update(Shader& shader) {
         auto& render = gCoordinator.GetComponent<RenderComponent>(entity);
 
         if (!(render.visible && render.renderable)) continue;
+
+        // Skinned entities are routed through UpdateSkinned(shader)
+        // under a different vertex program. Skip them here so they
+        // don't draw twice with the wrong vertex layout.
+        if (gCoordinator.HasComponent<AnimationComponent>(entity)) continue;
 
         glm::mat4 model = transform.GetModelMatrix();
         shader.setMat4("model", model);
@@ -37,6 +43,26 @@ void RenderSystem::Update(Shader& shader) {
             }
         }
 
+        render.renderable->Draw(shader);
+    }
+}
+
+void RenderSystem::UpdateSkinned(Shader& shader, float dt) {
+    for (auto const& entity : m_Entities) {
+        if (!gCoordinator.HasComponent<AnimationComponent>(entity)) continue;
+
+        auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
+        auto& render    = gCoordinator.GetComponent<RenderComponent>(entity);
+        auto& anim      = gCoordinator.GetComponent<AnimationComponent>(entity);
+
+        if (!(render.visible && render.renderable)) continue;
+
+        // Step the clip forward + upload bone matrices to the SSBO
+        // the skinned vertex shader reads from (binding = 6).
+        anim.Update(dt);
+        anim.animator.BindBoneSSBO(6);
+
+        shader.setMat4("model", transform.GetModelMatrix());
         render.renderable->Draw(shader);
     }
 }

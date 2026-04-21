@@ -231,6 +231,14 @@ private:
     // Assets -> New Material... popup path input.
     char m_NewMaterialPathBuffer[512]{};
 
+    // File -> Export/Import Package... popup inputs.
+    char m_PkgScenePathBuffer[512]{};
+    char m_PkgOutPathBuffer[512]{};
+    char m_PkgInPathBuffer[512]{};
+
+    // Console REPL input line. Hit Enter to run as Lua.
+    char m_ConsoleInputBuffer[512]{};
+
     // UI state
     std::vector<std::pair<Entity, std::string>> m_EntityList;
     std::vector<std::string> m_ConsoleMessages;

@@ -81,7 +81,17 @@ void LightSystem::Update(Coordinator& coord, LightManager& lights) {
         L.color.x = c.x;
         L.color.y = c.y;
         L.color.z = c.z;
-        L.color.w = lc.energy;
+
+        // Physical photometric override — Godot-parity conversion to
+        // the engine's radiometric `energy`. 683 lm/W is the D65
+        // luminous efficacy; dividing by it maps lumens->watts (omni),
+        // candela->watts/sr (spot), or lux->watts/m2 (directional).
+        // The scale is arbitrary-but-stable for the PBR shader.
+        float effEnergy = lc.energy;
+        if      (lc.type == MistLightType::Omni        && lc.lumens  > 0.0f) effEnergy = lc.lumens  / 683.0f;
+        else if (lc.type == MistLightType::Spot        && lc.candela > 0.0f) effEnergy = lc.candela / 683.0f;
+        else if (lc.type == MistLightType::Directional && lc.lux     > 0.0f) effEnergy = lc.lux     / 683.0f;
+        L.color.w = effEnergy;
 
         L.params.x = lc.range;
         L.params.y = std::cos(glm::radians(lc.outerCone));

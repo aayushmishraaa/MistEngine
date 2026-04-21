@@ -94,8 +94,61 @@ bool AnimatedModel::Load(const std::string& path) {
 
     m_Animator.Init();
 
+    // Parse embedded aiAnimations into engine Animation objects. Done
+    // here (while the aiScene is live) so ExtractAllAnimations doesn't
+    // need to re-parse the file. Each bone animation maps back to its
+    // bone via the name -> m_BoneInfoMap id lookup; keys come straight
+    // from Assimp channel data.
+    m_Clips.clear();
+    m_Clips.reserve(scene->mNumAnimations);
+    for (unsigned int a = 0; a < scene->mNumAnimations; ++a) {
+        const aiAnimation* ai = scene->mAnimations[a];
+        auto clip = std::make_shared<Animation>();
+        clip->name = ai->mName.length > 0 ? ai->mName.C_Str()
+                                           : ("clip_" + std::to_string(a));
+        clip->duration       = static_cast<float>(ai->mDuration);
+        clip->ticksPerSecond = ai->mTicksPerSecond != 0.0
+                                ? static_cast<float>(ai->mTicksPerSecond) : 25.0f;
+
+        clip->boneAnimations.reserve(ai->mNumChannels);
+        for (unsigned int c = 0; c < ai->mNumChannels; ++c) {
+            const aiNodeAnim* ch = ai->mChannels[c];
+            BoneAnimation ba;
+            ba.name = ch->mNodeName.C_Str();
+
+            auto bi = m_BoneInfoMap.find(ba.name);
+            ba.boneID = (bi != m_BoneInfoMap.end()) ? bi->second.id : -1;
+
+            ba.positions.reserve(ch->mNumPositionKeys);
+            for (unsigned int k = 0; k < ch->mNumPositionKeys; ++k) {
+                const auto& key = ch->mPositionKeys[k];
+                ba.positions.push_back(KeyPosition{
+                    static_cast<float>(key.mTime),
+                    glm::vec3(key.mValue.x, key.mValue.y, key.mValue.z)});
+            }
+            ba.rotations.reserve(ch->mNumRotationKeys);
+            for (unsigned int k = 0; k < ch->mNumRotationKeys; ++k) {
+                const auto& key = ch->mRotationKeys[k];
+                ba.rotations.push_back(KeyRotation{
+                    static_cast<float>(key.mTime),
+                    glm::quat(key.mValue.w, key.mValue.x, key.mValue.y, key.mValue.z)});
+            }
+            ba.scales.reserve(ch->mNumScalingKeys);
+            for (unsigned int k = 0; k < ch->mNumScalingKeys; ++k) {
+                const auto& key = ch->mScalingKeys[k];
+                ba.scales.push_back(KeyScale{
+                    static_cast<float>(key.mTime),
+                    glm::vec3(key.mValue.x, key.mValue.y, key.mValue.z)});
+            }
+
+            clip->boneNameToIndex[ba.name] = static_cast<int>(clip->boneAnimations.size());
+            clip->boneAnimations.push_back(std::move(ba));
+        }
+        m_Clips.push_back(std::move(clip));
+    }
+
     LOG_INFO("AnimatedModel loaded: ", path, " (", m_Meshes.size(), " meshes, ",
-             m_BoneCounter, " bones)");
+             m_BoneCounter, " bones, ", m_Clips.size(), " clips)");
     return true;
 }
 
@@ -215,19 +268,14 @@ int AnimatedModel::buildNodeHierarchy(aiNode* node) {
 }
 
 std::shared_ptr<Animation> AnimatedModel::ExtractAnimation(int index) {
-    // Animation extraction requires re-reading the file with Assimp
-    // For now, create animations from bone info
-    auto anim = std::make_shared<Animation>();
-    anim->name = "default";
-    anim->duration = 0.0f;
-    anim->ticksPerSecond = 25.0f;
-    return anim;
+    if (index >= 0 && index < static_cast<int>(m_Clips.size())) {
+        return m_Clips[index];
+    }
+    return nullptr;
 }
 
 std::vector<std::shared_ptr<Animation>> AnimatedModel::ExtractAllAnimations() {
-    std::vector<std::shared_ptr<Animation>> anims;
-    // Placeholder - real implementation would re-parse with Assimp
-    return anims;
+    return m_Clips;
 }
 
 std::shared_ptr<Texture> AnimatedModel::loadTexture(aiMaterial* mat, aiTextureType type, bool sRGB) {

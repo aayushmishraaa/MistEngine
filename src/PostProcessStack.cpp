@@ -14,6 +14,13 @@ void PostProcessStack::Init(int width, int height) {
 
     m_HDRFramebuffer.Create(width, height, GL_RGBA16F, true, 1);
     m_IntermediateFBO.Create(width, height, GL_RGBA16F, false, 1);
+    // Final presentation target. Tonemap writes here in LDR; editor
+    // Scene View panel + fullscreen blit both read this texture so
+    // every post-effect (bloom, FXAA, DOF, motion blur, tonemap) is
+    // visible on screen. Before this FBO existed, tonemap wrote to
+    // the default framebuffer and callers read m_HDRFramebuffer (the
+    // pre-post-process scene) — every post-effect was silently dropped.
+    m_PresentFBO.Create(width, height, GL_RGBA8, false, 1);
     // FXAA runs on HDR (pre-tonemap) now, so its output needs to be
     // RGBA16F too. Separate FBO so we don't ping-pong over the same
     // buffer bloom is compositing into.
@@ -60,6 +67,7 @@ void PostProcessStack::Resize(int width, int height) {
     m_Height = height;
     m_HDRFramebuffer.Resize(width, height);
     m_IntermediateFBO.Resize(width, height);
+    m_PresentFBO.Resize(width, height);
     m_FXAAIntermediate.Resize(width, height);
     m_MotionBlurFBO.Resize(width, height);
     m_DOFCoCFBO.Resize(width, height);
@@ -268,10 +276,14 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
         currentTexture = m_FXAAIntermediate.GetColorTexture();
     }
 
-    // 6. Tone mapping + gamma -> screen. Reads FXAA-smoothed HDR if
-    //    FXAA ran, otherwise reads post-bloom/TAA HDR directly.
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // 6. Tone mapping + gamma -> presentation FBO. Reads FXAA-smoothed
+    //    HDR if FXAA ran, otherwise reads post-bloom/TAA HDR directly.
+    //    Writes to m_PresentFBO (LDR RGBA8), which the Renderer then
+    //    hands to the editor Scene View panel or blits to the default
+    //    framebuffer for fullscreen display.
+    m_PresentFBO.Bind();
     glViewport(0, 0, m_Width, m_Height);
+    glClear(GL_COLOR_BUFFER_BIT);
 
     m_ToneMapShader.use();
     glActiveTexture(GL_TEXTURE0);
@@ -286,6 +298,11 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     }
     glDrawArrays(GL_TRIANGLES, 0, 3);
 
+    m_PresentFBO.Unbind();
+    // Restore the default framebuffer's viewport to the window size
+    // so ImGui renders across the full window, not the Present FBO's
+    // (which might differ on resize races or fullscreen toggles).
+    glViewport(0, 0, m_Width, m_Height);
     glEnable(GL_DEPTH_TEST);
     glBindVertexArray(0);
 }

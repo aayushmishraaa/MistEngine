@@ -1,6 +1,8 @@
 #include "Import/SceneImporter.h"
 
+#include "AnimatedModel.h"
 #include "Core/Logger.h"
+#include "ECS/Components/AnimationComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/TransformComponent.h"
@@ -29,15 +31,17 @@ namespace Mist::Import {
 namespace {
 
 // Process-wide owner. RenderComponent holds a non-owning `Renderable*`
-// so the Mesh has to live somewhere. Keyed by source path so repeated
-// imports of the same .glb don't rebuild the geometry — we just append
-// once and reference the same shared_ptrs. Textures are pinned here
-// too since PBRMaterial holds shared_ptr<Texture> and those need to
-// survive material rebinding.
+// so whatever the Renderable is has to live somewhere. Keyed by
+// source path so repeated imports of the same .glb don't rebuild the
+// geometry — we just append once and reference the same shared_ptrs.
+// Textures are pinned here too since PBRMaterial holds
+// shared_ptr<Texture> and those need to survive material rebinding.
+// AnimatedModel follows the same lifetime rule: one entry per import.
 struct ImportStore {
     std::mutex mu;
-    std::vector<std::shared_ptr<Mesh>>    meshes;
-    std::vector<std::shared_ptr<Texture>> textures;
+    std::vector<std::shared_ptr<Mesh>>           meshes;
+    std::vector<std::shared_ptr<Texture>>        textures;
+    std::vector<std::shared_ptr<AnimatedModel>>  animatedModels;
 };
 ImportStore& store() {
     static ImportStore s;
@@ -235,6 +239,61 @@ Entity SceneImporter::ImportToScene(const std::string& path,
     if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
         LOG_ERROR("SceneImporter: ", imp.GetErrorString(), " (path=", path, ")");
         return static_cast<Entity>(-1);
+    }
+
+    // Detect rigged content. If any mesh has bones, treat the whole
+    // file as a single animated asset (Godot's SkeletonImport shape):
+    // one AnimatedModel that owns all skinned submeshes + the shared
+    // skeleton, attached to a single entity with an
+    // AnimationComponent pre-populated with every clip from the file.
+    // Static node tree import is skipped for skinned files — the
+    // skeleton hierarchy IS the effective scene graph.
+    bool hasBones = false;
+    for (unsigned int i = 0; i < scene->mNumMeshes && !hasBones; ++i) {
+        if (scene->mMeshes[i]->HasBones()) hasBones = true;
+    }
+
+    if (hasBones) {
+        auto am = std::make_shared<AnimatedModel>();
+        // AnimatedModel re-parses the file today. Acceptable small
+        // inefficiency; a future cycle can refactor it to consume
+        // an aiScene directly.
+        if (!am->Load(path)) {
+            LOG_ERROR("SceneImporter: AnimatedModel load failed: ", path);
+            return static_cast<Entity>(-1);
+        }
+
+        Entity e = coord.CreateEntity();
+        coord.AddComponent(e, TransformComponent{});
+        coord.AddComponent(e, HierarchyComponent{});
+        RenderComponent r;
+        r.renderable = am.get();
+        r.visible    = true;
+        coord.AddComponent(e, r);
+
+        AnimationComponent ac;
+        ac.availableClips = am->ExtractAllAnimations();
+        // Auto-play the first clip so the user sees motion immediately
+        // on drop — matches Godot's default "play on load" behaviour
+        // for imported rigs.
+        if (!ac.availableClips.empty() && ac.availableClips[0]) {
+            ac.Play(ac.availableClips[0], ac.availableClips[0]->name);
+        }
+        coord.AddComponent(e, ac);
+
+        if (outNames) {
+            std::string nm = std::filesystem::path(path).stem().string();
+            (*outNames)[e] = nm.empty() ? "AnimatedModel" : nm;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(store().mu);
+            store().animatedModels.push_back(am);
+        }
+        LOG_INFO("SceneImporter: imported '", path,
+                 "' as animated asset -> entity ", static_cast<int>(e),
+                 ", clips: ", ac.availableClips.size());
+        return e;
     }
 
     std::filesystem::path baseDir = std::filesystem::path(path).parent_path();

@@ -1,0 +1,129 @@
+name: Release
+
+# Triggered by pushing a tag of the form `vX.Y.Z(-suffix)`. Builds Linux
+# and Windows Release artefacts, packages each with the runtime asset
+# folders (shaders, scripts, models), and publishes everything as a
+# GitHub Release attached to the tag.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write     # softprops/action-gh-release needs this to publish
+
+jobs:
+  linux:
+    name: Linux Release
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            ninja-build \
+            libglfw3-dev \
+            libglm-dev \
+            libassimp-dev \
+            libbullet-dev \
+            libfreetype-dev \
+            libcurl4-openssl-dev \
+            xvfb
+
+      - name: Configure
+        run: cmake --preset linux-release
+
+      - name: Build
+        run: cmake --build --preset linux-release -j
+
+      - name: Stage runtime
+        run: |
+          mkdir -p stage/MistEngine-linux
+          cp build-linux-release/MistEngine stage/MistEngine-linux/
+          # Strip debug info for a slimmer archive — still leaves a
+          # usable binary; debug symbols live in the build tree.
+          strip --strip-unneeded stage/MistEngine-linux/MistEngine || true
+          cp -r shaders scripts models stage/MistEngine-linux/
+          # README + LICENSE so users have a starting point.
+          cp README.md LICENSE stage/MistEngine-linux/
+          # ai_config example + layout default, no personal JSON.
+          cp ai_config.example.json stage/MistEngine-linux/ || true
+
+      - name: Package
+        run: |
+          cd stage
+          tar -czf MistEngine-${{ github.ref_name }}-linux-x64.tar.gz MistEngine-linux
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-archive
+          path: stage/MistEngine-${{ github.ref_name }}-linux-x64.tar.gz
+
+  windows:
+    name: Windows Release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: c8696863d371ab7f46e213d8f5ca923c4aef2a00
+
+      - name: Configure
+        shell: bash
+        env:
+          VCPKG_ROOT: ${{ runner.workspace }}/vcpkg
+        run: cmake --preset windows-release
+
+      - name: Build
+        run: cmake --build --preset windows-release --config Release
+
+      - name: Stage runtime
+        shell: bash
+        run: |
+          mkdir -p stage/MistEngine-windows
+          # The Windows build drops MistEngine.exe in build-windows-release/Release
+          cp build-windows-release/Release/MistEngine.exe stage/MistEngine-windows/
+          # DLLs are picked up by vcpkg's applocal step — copy whatever
+          # ended up next to the exe.
+          cp build-windows-release/Release/*.dll stage/MistEngine-windows/ 2>/dev/null || true
+          cp -r shaders scripts models stage/MistEngine-windows/
+          cp README.md LICENSE stage/MistEngine-windows/
+          cp ai_config.example.json stage/MistEngine-windows/ 2>/dev/null || true
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path stage/MistEngine-windows/* -DestinationPath stage/MistEngine-${{ github.ref_name }}-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-archive
+          path: stage/MistEngine-${{ github.ref_name }}-windows-x64.zip
+
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-22.04
+    needs: [linux, windows]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: List artefacts
+        run: find dist -type f
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: MistEngine ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'pre') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          files: |
+            dist/linux-archive/*.tar.gz
+            dist/windows-archive/*.zip
+          generate_release_notes: true

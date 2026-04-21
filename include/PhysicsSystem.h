@@ -56,6 +56,19 @@ public:
     // function, exposed so tests can verify the rebuild trigger.
     static std::uint64_t ComputeShapeHash(const PhysicsComponent& pc);
 
+    // Closest-hit ray query against the dynamics world. `entity` is
+    // the ECS entity tagged onto the body's user-pointer by
+    // EnsureBody; `hit` is false if the ray missed. Used by the Lua
+    // `raycast()` binding.
+    struct RayHit {
+        bool         hit    = false;
+        std::uint32_t entity = 0xFFFFFFFFu;
+        glm::vec3    point  { 0.0f };
+        glm::vec3    normal { 0.0f };
+        float        fraction = 1.0f;  // 0..1 along (origin, origin+dir*maxDist)
+    };
+    RayHit Raycast(const glm::vec3& origin, const glm::vec3& dir, float maxDist) const;
+
 private:
     // Destruction order matters — see implementation note.
     std::unique_ptr<btDefaultCollisionConfiguration>     m_CollisionConfiguration;

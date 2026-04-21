@@ -42,6 +42,15 @@ struct LightComponent {
     // Color temperature in Kelvin (1000..15000). 0 disables the tint
     // and uses `color` as-is. Applied CPU-side before upload.
     float temperatureK = 0.0f;
+
+    // Physical photometric units (Godot parity). When non-zero, the
+    // LightSystem converts to `energy` using the D65 luminous efficacy
+    // (683 lm/W) so the shader path stays in linear radiometric units.
+    // Only one of these should be non-zero at a time — spot/omni use
+    // candela or lumens, directional uses lux. 0 = use `energy` as-is.
+    float lumens  = 0.0f;   // omni
+    float candela = 0.0f;   // spot
+    float lux     = 0.0f;   // directional
 };
 
 MIST_REFLECT(LightComponent)
@@ -56,6 +65,9 @@ MIST_REFLECT(LightComponent)
     MIST_FIELD(LightComponent, shadowBlur,      ::Mist::PropertyHint::Range, "0,5")
     MIST_FIELD(LightComponent, shadowOpacity,   ::Mist::PropertyHint::Range, "0,1")
     MIST_FIELD(LightComponent, temperatureK,    ::Mist::PropertyHint::Range, "0,15000")
+    MIST_FIELD(LightComponent, lumens,          ::Mist::PropertyHint::Range, "0,5000")
+    MIST_FIELD(LightComponent, candela,         ::Mist::PropertyHint::Range, "0,5000")
+    MIST_FIELD(LightComponent, lux,             ::Mist::PropertyHint::Range, "0,200000")
 MIST_REFLECT_END(LightComponent)
 
 #endif // LIGHTCOMPONENT_H
