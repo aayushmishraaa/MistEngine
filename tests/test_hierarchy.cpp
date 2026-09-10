@@ -135,3 +135,76 @@ TEST_CASE("HierarchySystem OnReady fires post-order", "[hierarchy][signal]") {
 
     HierarchySystem::OnReady().Disconnect(id);
 }
+
+// --- World-matrix contract -------------------------------------------------
+//
+// These lock down the gap that let the scene graph sit broken for a whole
+// release cycle. HierarchySystem was correctly composing parent chains into
+// `cachedGlobal`, and the tests above proved it — but nothing in the render
+// path ever read that value. Every draw, shadow, light-sync and gizmo call
+// site used the LOCAL `GetModelMatrix()` instead, so parenting had no visible
+// effect and imported model node trees collapsed onto the origin.
+//
+// Asserting on `cachedGlobal` directly could never catch that. The contract
+// worth testing is the one the renderer actually consumes: WorldMatrix().
+
+TEST_CASE("WorldMatrix returns the composed transform for a parented entity",
+          "[hierarchy][worldmatrix]") {
+    HierarchyFixture fx;
+    Entity parent = fx.MakeEntity({10, 0, 0});
+    Entity child  = fx.MakeEntity({0, 5, 0});
+    REQUIRE(HierarchySystem::Attach(fx.coord, parent, child));
+    fx.sys->UpdateTransforms(fx.coord);
+
+    const auto& ct = fx.coord.GetComponent<TransformComponent>(child);
+
+    // The composed position, which is what a draw call must receive.
+    const glm::mat4 world = ct.WorldMatrix();
+    REQUIRE(world[3][0] == Catch::Approx(10.0f));
+    REQUIRE(world[3][1] == Catch::Approx(5.0f));
+
+    // And it must differ from the local matrix — otherwise this test would
+    // still pass against the old, broken call sites.
+    const glm::mat4 local = ct.GetModelMatrix();
+    REQUIRE(local[3][0] == Catch::Approx(0.0f));
+    REQUIRE(world[3][0] != Catch::Approx(local[3][0]));
+}
+
+TEST_CASE("WorldMatrix falls back to the local matrix without a hierarchy",
+          "[hierarchy][worldmatrix]") {
+    // Entities spawned without a HierarchyComponent (Lua spawn_cube, the
+    // AssetRegistry path, older scene files) are never visited by
+    // HierarchySystem, so `cachedGlobal` stays identity forever. WorldMatrix
+    // must fall through to the local transform for them, or they would all
+    // render at the origin.
+    TransformComponent t;
+    t.position = {3.0f, -2.0f, 7.0f};
+    REQUIRE(t.dirty);  // never resolved by HierarchySystem
+
+    const glm::mat4 world = t.WorldMatrix();
+    REQUIRE(world[3][0] == Catch::Approx(3.0f));
+    REQUIRE(world[3][1] == Catch::Approx(-2.0f));
+    REQUIRE(world[3][2] == Catch::Approx(7.0f));
+}
+
+TEST_CASE("WorldForward follows the parent's rotation", "[hierarchy][worldmatrix]") {
+    // LightSystem and the light gizmos derive a direction from the transform.
+    // They used to rebuild it from the entity's own euler angles, so a light
+    // parented under a rotated rig pointed the wrong way. WorldForward reads
+    // the composed basis instead.
+    HierarchyFixture fx;
+    Entity parent = fx.MakeEntity({0, 0, 0});
+    Entity child  = fx.MakeEntity({0, 0, 0});
+
+    // Yaw the parent 90° about +Y. A child with no local rotation should end
+    // up facing the parent's forward, not its own unrotated -Z.
+    fx.coord.GetComponent<TransformComponent>(parent).rotation = {0.0f, 90.0f, 0.0f};
+    REQUIRE(HierarchySystem::Attach(fx.coord, parent, child));
+    fx.sys->UpdateTransforms(fx.coord);
+
+    const glm::vec3 fwd = fx.coord.GetComponent<TransformComponent>(child).WorldForward();
+    // Rotating -Z by +90° about Y gives -X.
+    REQUIRE(fwd.x == Catch::Approx(-1.0f).margin(1e-4));
+    REQUIRE(fwd.y == Catch::Approx(0.0f).margin(1e-4));
+    REQUIRE(fwd.z == Catch::Approx(0.0f).margin(1e-4));
+}

@@ -208,10 +208,23 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.BeginFrame();
 
     glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
-        (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
+        (float)screenWidth / (float)screenHeight, kNearPlane, kFarPlane);
     glm::mat4 view = camera.GetViewMatrix();
 
-    // TAA: Apply sub-pixel jitter to projection matrix
+    // TAA sub-pixel jitter.
+    //
+    // `jitteredProjection` is what every geometry pass whose output TAA
+    // resolves must render with — prepass, skybox, glow, main PBR, skinned
+    // PBR — plus the post-process chain, which unprojects the depth those
+    // passes wrote. Previously it was computed here and then used *only* to
+    // form `viewProjection` for the velocity pass, so the colour passes all
+    // rendered unjittered: TAA accumulated the same sample position every
+    // frame and delivered temporal blur with none of the anti-aliasing.
+    //
+    // `projection` stays unjittered on purpose, for the two consumers where
+    // jitter is wrong or counterproductive: CSM cascade splits (light space,
+    // jitter is meaningless) and the cluster grid (jitter changes every frame
+    // and would defeat the rebuild cache for a sub-pixel shift).
     glm::mat4 jitteredProjection = projection;
     if (m_PostProcess.enableTAA && m_PostProcess.taa.enabled) {
         glm::vec2 jitter = m_PostProcess.taa.GetJitter();
@@ -236,12 +249,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
             if (lc.type != MistLightType::Directional) continue;
 
             const auto& t = gCoordinator.GetComponent<TransformComponent>(e);
-            glm::mat4 R(1.0f);
-            R = glm::rotate(R, glm::radians(t.rotation.x), glm::vec3(1,0,0));
-            R = glm::rotate(R, glm::radians(t.rotation.y), glm::vec3(0,1,0));
-            R = glm::rotate(R, glm::radians(t.rotation.z), glm::vec3(0,0,1));
-            glm::vec3 dir = glm::normalize(glm::vec3(R * glm::vec4(0,0,-1,0)));
-            lightDir   = dir;
+            lightDir   = t.WorldForward();
             lightColor = lc.color * lc.energy;
             break;  // first directional wins — matches Godot
         }
@@ -254,17 +262,34 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // Update UBOs
     PerFrameUBO perFrame;
     perFrame.view = view;
-    perFrame.projection = projection;
+    perFrame.projection = jitteredProjection;  // matches what geometry rendered with
     perFrame.viewPos = glm::vec4(camera.Position, 1.0f);
     perFrame.lightDir = glm::vec4(lightDir, 0.0f);
     perFrame.lightColor = glm::vec4(lightColor, 1.0f);
     perFrame.time = currentFrame;
     perFrame.deltaTime = deltaTime;
-    perFrame.nearPlane = 0.1f;
-    perFrame.farPlane = 100.0f;
+    perFrame.nearPlane = kNearPlane;
+    perFrame.farPlane = kFarPlane;
     m_UBOManager.UpdatePerFrame(perFrame);
 
     // Update light manager
+    // Cluster grid. Purely a function of projection + screen size, so it is
+    // rebuilt on first frame and whenever either changes — not per frame.
+    // Until this cycle BuildClusters had no callers anywhere, which left the
+    // AABB buffer uninitialised and made the whole clustered-light path
+    // (every point and spot light) read garbage.
+    if (!m_LightManager.AreClustersBuilt()
+        || screenWidth  != m_ClusterGridWidth
+        || screenHeight != m_ClusterGridHeight
+        || camera.Zoom  != m_ClusterGridZoom) {
+        m_LightManager.BuildClusters(projection, kNearPlane, kFarPlane,
+                                     static_cast<int>(screenWidth),
+                                     static_cast<int>(screenHeight));
+        m_ClusterGridWidth  = screenWidth;
+        m_ClusterGridHeight = screenHeight;
+        m_ClusterGridZoom   = camera.Zoom;
+    }
+
     m_LightManager.UploadToGPU();
     m_LightManager.CullLights(view, projection);
 
@@ -273,7 +298,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.BeginGPUSection("Shadows");
 
     // Cascaded shadow maps
-    m_ShadowSystem.CalculateCascades(camera, glm::normalize(lightDir), 0.1f, 100.0f);
+    m_ShadowSystem.CalculateCascades(camera, glm::normalize(lightDir), kNearPlane, kFarPlane);
 
     Shader& csmDepthShader = depthShader; // Reuse depth shader for CSM
     for (int cascade = 0; cascade < ShadowSystem::NUM_CASCADES; cascade++) {
@@ -316,7 +341,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
             if (!lc.shadowEnabled)                  continue;
 
             const auto& t = gCoordinator.GetComponent<TransformComponent>(e);
-            m_ShadowSystem.BeginOmniShadowPass(layer, t.position, lc.range);
+            m_ShadowSystem.BeginOmniShadowPass(layer, t.WorldPosition(), lc.range);
             for (int face = 0; face < 6; ++face) {
                 m_ShadowSystem.BindOmniShadowFace(face);
                 renderSystem->Update(m_ShadowSystem.omniDepthShader);
@@ -341,7 +366,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.BeginGPUSection("Prepass");
     m_PostProcess.BeginPrepass();
     depthPrepassShader.use();
-    depthPrepassShader.setMat4("projection", projection);
+    depthPrepassShader.setMat4("projection", jitteredProjection);
     depthPrepassShader.setMat4("view", view);
     depthPrepassShader.setFloat("roughnessValue", 0.5f);
     depthPrepassShader.setBool("hasRoughnessMap", false);
@@ -392,12 +417,12 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     // Skybox
     m_Profiler.BeginGPUSection("Skybox");
-    m_Skybox.Render(view, projection);
+    m_Skybox.Render(view, jitteredProjection);
     m_Profiler.EndGPUSection("Skybox");
 
     // Draw glowing orbs (legacy)
     glowShader.use();
-    glowShader.setMat4("projection", projection);
+    glowShader.setMat4("projection", jitteredProjection);
     glowShader.setMat4("view", view);
     for (Orb* orb : scene.getOrbs()) {
         orb->Draw(glowShader);
@@ -407,12 +432,15 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.BeginCPUSection("Scene");
     m_Profiler.BeginGPUSection("Scene");
 
-    // Disable face culling so inside-of-room geometry (back faces) renders
+    // Disable face culling so inside-of-room geometry (back faces) renders.
+    // Scoped: re-enabled at the end of the scene pass below. Previously this
+    // was a one-way switch — nothing turned culling back on, so every
+    // subsequent pass in every subsequent frame shaded back faces too.
     glDisable(GL_CULL_FACE);
 
     Shader& mainShader = m_UsePBR ? pbrShader : objectShader;
     mainShader.use();
-    mainShader.setMat4("projection", projection);
+    mainShader.setMat4("projection", jitteredProjection);
     mainShader.setMat4("view", view);
     mainShader.setVec3("viewPos", camera.Position);
 
@@ -459,8 +487,8 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         // depth slicing.
         mainShader.setVec2("screenSize",
             glm::vec2((float)screenWidth, (float)screenHeight));
-        mainShader.setFloat("nearPlane", 0.1f);
-        mainShader.setFloat("farPlane",  100.0f);
+        mainShader.setFloat("nearPlane", kNearPlane);
+        mainShader.setFloat("farPlane",  kFarPlane);
         mainShader.setBool("useClusteredLights", true);
 
         // Omni shadow atlas on texture unit 8. Uniform is a
@@ -487,13 +515,25 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
             mainShader.setInt("brdfLUT", 12);
         }
 
-        // SSAO texture
+        // SSAO on unit 13.
+        //
+        // The guard used to be inverted: the dummy was bound only when SSAO
+        // was *disabled*, and `enableSSAO` defaults to true — so in the
+        // default configuration unit 13 was never bound at all. Sampling an
+        // unbound 2D sampler returns 0, and pbr_fragment.glsl does
+        // `ao *= texture(ssaoTexture, …).r`, so the ambient term was
+        // multiplied by zero on every fragment. Ambient light was simply
+        // absent until you turned SSAO off.
+        //
+        // Note the result is one frame stale: SSAO is computed in
+        // PostProcessStack::Execute, which runs after this pass. That's the
+        // standard trade-off for screen-space AO in a forward renderer.
         mainShader.setBool("useSSAO", m_PostProcess.enableSSAO);
-        if (!m_PostProcess.enableSSAO) {
-            glActiveTexture(GL_TEXTURE13);
-            glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
-            mainShader.setInt("ssaoTexture", 13);
-        }
+        glActiveTexture(GL_TEXTURE13);
+        glBindTexture(GL_TEXTURE_2D, m_PostProcess.enableSSAO
+                                         ? m_PostProcess.ssao.GetSSAOTexture()
+                                         : m_DummyTex2D);
+        mainShader.setInt("ssaoTexture", 13);
 
         // Bind light SSBOs (bindings 2-5 set by LightManager)
         m_LightManager.BindForRendering();
@@ -521,7 +561,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // switches, so most GL state is already in place.
     if (m_UsePBR) {
         skinnedPBRShader.use();
-        skinnedPBRShader.setMat4("projection", projection);
+        skinnedPBRShader.setMat4("projection", jitteredProjection);
         skinnedPBRShader.setMat4("view", view);
         skinnedPBRShader.setVec3("viewPos", camera.Position);
         skinnedPBRShader.setVec3("lightDir",   glm::normalize(lightDir));
@@ -542,8 +582,8 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         }
         skinnedPBRShader.setVec2("screenSize",
             glm::vec2((float)screenWidth, (float)screenHeight));
-        skinnedPBRShader.setFloat("nearPlane", 0.1f);
-        skinnedPBRShader.setFloat("farPlane",  100.0f);
+        skinnedPBRShader.setFloat("nearPlane", kNearPlane);
+        skinnedPBRShader.setFloat("farPlane",  kFarPlane);
         skinnedPBRShader.setBool("useClusteredLights", true);
 
         m_ShadowSystem.BindOmniShadowAtlas(skinnedPBRShader, 8);
@@ -563,12 +603,13 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
             glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
             skinnedPBRShader.setInt("brdfLUT", 12);
         }
+        // Same inverted-guard fix as the main pass above.
         skinnedPBRShader.setBool("useSSAO", m_PostProcess.enableSSAO);
-        if (!m_PostProcess.enableSSAO) {
-            glActiveTexture(GL_TEXTURE13);
-            glBindTexture(GL_TEXTURE_2D, m_DummyTex2D);
-            skinnedPBRShader.setInt("ssaoTexture", 13);
-        }
+        glActiveTexture(GL_TEXTURE13);
+        glBindTexture(GL_TEXTURE_2D, m_PostProcess.enableSSAO
+                                         ? m_PostProcess.ssao.GetSSAOTexture()
+                                         : m_DummyTex2D);
+        skinnedPBRShader.setInt("ssaoTexture", 13);
 
         // lightSpaceMatrix for the skinned_pbr.vert FragPosLightSpace
         // output (single-cascade legacy — CSM array sampled in fragment).
@@ -593,6 +634,11 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         object->Draw(mainShader);
         m_Profiler.IncrementDrawCalls();
     }
+
+    // Restore the culling state the pass above turned off, so later passes
+    // (particles, debug draw, post-process, the next frame's shadow passes)
+    // get the default state rather than inheriting this one.
+    glEnable(GL_CULL_FACE);
 
     m_Profiler.EndGPUSection("Scene");
     m_Profiler.EndCPUSection("Scene");
@@ -640,18 +686,13 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
             const auto& t  = gCoordinator.GetComponent<TransformComponent>(e);
             const auto& lc = gCoordinator.GetComponent<LightComponent>(e);
             glm::vec3 C  = lc.color;
-            glm::vec3 P  = t.position;
-
-            // Forward from entity rotation — matches LightSystem's
-            // directionFromEuler helper (rotate -Z). Kept inline
-            // here to avoid cross-module header churn.
-            glm::mat4 R(1.0f);
-            R = glm::rotate(R, glm::radians(t.rotation.x), glm::vec3(1,0,0));
-            R = glm::rotate(R, glm::radians(t.rotation.y), glm::vec3(0,1,0));
-            R = glm::rotate(R, glm::radians(t.rotation.z), glm::vec3(0,0,1));
-            glm::vec3 F = glm::normalize(glm::vec3(R * glm::vec4(0,0,-1,0)));
-            glm::vec3 U = glm::normalize(glm::vec3(R * glm::vec4(0,1,0,0)));
-            glm::vec3 Rt= glm::normalize(glm::cross(F, U));
+            // World space so a gizmo on a parented light draws where the
+            // light actually is. Basis comes from TransformComponent's
+            // shared accessors rather than a fourth copy of the euler block.
+            glm::vec3 P  = t.WorldPosition();
+            glm::vec3 F  = t.WorldForward();
+            glm::vec3 U  = t.WorldUp();
+            glm::vec3 Rt = glm::normalize(glm::cross(F, U));
 
             switch (lc.type) {
                 case MistLightType::Directional: {
@@ -711,7 +752,10 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
             const auto& t  = gCoordinator.GetComponent<TransformComponent>(e);
             const auto& pc = gCoordinator.GetComponent<PhysicsComponent>(e);
-            glm::vec3 P = t.position;
+            // World space. Note the wireframes below are axis-aligned and
+            // ignore rotation — they show the shape's extents, not its
+            // orientation. Oriented gizmos need DebugDraw to take a matrix.
+            glm::vec3 P = t.WorldPosition();
             glm::vec3 C = (pc.mass <= 0.0f) ? glm::vec3(1.0f, 0.25f, 0.25f)
                                              : glm::vec3(0.1f, 1.0f, 0.3f);
 
@@ -752,7 +796,9 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     // === POST-PROCESSING (tone map + bloom + SSAO + FXAA → default framebuffer) ===
     m_Profiler.BeginGPUSection("PostProcess");
-    m_PostProcess.Execute(m_Exposure, projection, view, m_HiZ.GetTexture());
+    // Jittered: the post chain unprojects the depth the geometry passes
+    // wrote, so it has to use the same matrix they rendered with.
+    m_PostProcess.Execute(m_Exposure, jitteredProjection, view, m_HiZ.GetTexture());
     m_Profiler.EndGPUSection("PostProcess");
 
     // === VIEWPORT OUTPUT ===
@@ -848,7 +894,7 @@ void Renderer::Render(Scene& scene) {
 
     renderSkybox();
 
-    glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
+    glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, kNearPlane, kFarPlane);
     glm::mat4 view = camera.GetViewMatrix();
 
     glowShader.use();
@@ -1006,7 +1052,7 @@ void Renderer::renderSkybox() {
     glDepthFunc(GL_LEQUAL);
     skyboxShader.use();
     glm::mat4 view = glm::mat4(glm::mat3(camera.GetViewMatrix()));
-    glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, 0.1f, 100.0f);
+    glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)screenWidth / (float)screenHeight, kNearPlane, kFarPlane);
     skyboxShader.setMat4("view", view);
     skyboxShader.setMat4("projection", projection);
     glBindVertexArray(skyboxVAO);
@@ -1023,6 +1069,10 @@ void Renderer::framebuffer_size_callback(GLFWwindow* window, int width, int heig
         g_renderer->screenHeight = height;
         if (width > 0 && height > 0) {
             g_renderer->m_PostProcess.Resize(width, height);
+            // The Hi-Z pyramid samples the prepass depth texture, which
+            // PostProcess just resized. Leaving it at the old dimensions made
+            // SSR read a mismatched resolution after the first window resize.
+            g_renderer->m_HiZ.Resize(width, height);
         }
     }
 }

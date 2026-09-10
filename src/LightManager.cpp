@@ -57,21 +57,39 @@ void LightManager::UploadToGPU() {
     m_LightsDirty = false;
 }
 
-void LightManager::BuildClusters(float nearPlane, float farPlane, int screenW, int screenH) {
+void LightManager::BuildClusters(const glm::mat4& projection, float nearPlane,
+                                 float farPlane, int screenW, int screenH) {
     if (!m_Initialized || !m_ClusterBuildShader.isValid()) return;
 
     m_ClusterBuildShader.use();
     m_ClusterBuildShader.setFloat("nearPlane", nearPlane);
     m_ClusterBuildShader.setFloat("farPlane", farPlane);
     m_ClusterBuildShader.setVec2("screenSize", glm::vec2(screenW, screenH));
+    // Needed to unproject each tile's corners into view space — see the
+    // comment on `invProjection` in cluster_build.comp.
+    m_ClusterBuildShader.setMat4("invProjection", glm::inverse(projection));
 
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, m_ClusterAABBSSBO);
     glDispatchCompute(CLUSTER_X, CLUSTER_Y, CLUSTER_Z);
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+    m_ClustersBuilt = true;
 }
 
 void LightManager::CullLights(const glm::mat4& view, const glm::mat4& projection) {
     if (!m_Initialized || !m_ClusterCullShader.isValid() || m_Lights.empty()) return;
+
+    // Refuse to cull against an unpopulated cluster buffer. Before this guard
+    // the AABB SSBO was allocated with nullptr and never written — BuildClusters
+    // had no callers at all — so this shader intersected every light against
+    // uninitialised VRAM and produced a garbage light grid. Silently doing
+    // nothing is bad, but silently doing it *wrong* for every point and spot
+    // light in the scene was worse.
+    if (!m_ClustersBuilt) {
+        LOG_WARN("LightManager::CullLights called before BuildClusters — "
+                 "skipping cull (cluster AABBs are unpopulated)");
+        return;
+    }
 
     m_ClusterCullShader.use();
     m_ClusterCullShader.setMat4("viewMatrix", view);

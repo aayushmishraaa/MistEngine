@@ -329,16 +329,27 @@ int main() {
             physicsAccumulator -= kPhysicsStep;
         }
 
-        // Resolve parent→child transform chains into cachedGlobal, then
-        // fire any pending OnReady callbacks, before rendering picks them up.
-        hierarchySystem->UpdateTransforms(gCoordinator);
+        // Order matters here, and it changed in this cycle.
+        //
+        // _ready fires first (once per entity), then _process runs and is free
+        // to mutate transforms, and only THEN do we resolve parent→child
+        // chains into cachedGlobal — which is the value the renderer now
+        // actually reads. Previously UpdateTransforms ran *before* the
+        // scripts, so anything a script moved was composed one frame late;
+        // harmless while nothing consumed cachedGlobal, visible as a frame of
+        // lag on parented entities now that the render path does.
+        //
+        // _ready reading transforms is unaffected: the Lua get_transform /
+        // set_transform bindings operate on the local position/rotation/scale
+        // fields, not on the composed matrix.
         hierarchySystem->FireReadyCallbacks(gCoordinator);
 
 #if MIST_ENABLE_SCRIPTING
-        // _process runs after _ready-via-OnReady so first-frame scripts
-        // see a live transform. deltaTime is already clamped above.
+        // deltaTime is already clamped above.
         scriptSystem->Update(gCoordinator, deltaTime);
 #endif
+
+        hierarchySystem->UpdateTransforms(gCoordinator);
 
         // Sync ECS lights -> LightManager BEFORE the renderer's
         // UploadToGPU/CullLights runs. LightSystem iterates every

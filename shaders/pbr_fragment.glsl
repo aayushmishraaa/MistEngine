@@ -85,11 +85,16 @@ uniform bool  useClusteredLights;
 
 // Omni shadow atlas — cubemap-array, one cube per shadowing light.
 // Light's `params.z` picks the layer; sampling direction is
-// (fragPos - lightPos) normalized. Shader compares the raw distance
-// (normalized by omniShadowFar) against the atlas depth written by
-// the omni depth pass.
+// (fragPos - lightPos) normalized.
+//
+// Distance is normalised by the light's OWN range (`params.x`), which is
+// exactly the farPlane ShadowSystem::BeginOmniShadowPass rendered that cube
+// with — so each of the four atlas layers reconstructs correctly even when the
+// lights have different ranges. There used to be a `uniform float
+// omniShadowFar` here carrying only the last-rendered light's far plane; it
+// was never actually read, and normalising by it would have been wrong for
+// every light but one. Removed rather than wired up.
 uniform samplerCubeArray omniShadowMaps;
-uniform float            omniShadowFar;
 
 // IBL (Phase 7)
 uniform samplerCube irradianceMap;

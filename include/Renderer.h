@@ -33,6 +33,15 @@ class UIManager;
 
 class Renderer {
 public:
+    // Camera depth range. Named because these two numbers have to agree in
+    // four places — the projection matrix, the PBR shader's nearPlane/farPlane
+    // uniforms, the CSM cascade split computation, and the cluster grid's
+    // log-z slicing. When they were eight separate literals, any edit to one
+    // silently desynchronised the clustered-light lookup from the grid it was
+    // indexing into.
+    static constexpr float kNearPlane = 0.1f;
+    static constexpr float kFarPlane  = 100.0f;
+
     Renderer(unsigned int width, unsigned int height);
     ~Renderer();
 
@@ -146,6 +155,12 @@ private:
 
     // TAA previous frame state
     glm::mat4 m_PrevViewProjection = glm::mat4(1.0f);
+
+    // Cluster-grid cache keys. The grid is a pure function of projection +
+    // screen size, so it only needs rebuilding when one of these changes.
+    unsigned int m_ClusterGridWidth  = 0;
+    unsigned int m_ClusterGridHeight = 0;
+    float        m_ClusterGridZoom   = 0.0f;
 
     // G2 viewport descriptor. Kept in sync with screenWidth/screenHeight and
     // the post-process output texture inside RenderWithECSAndUI. A future

@@ -14,6 +14,10 @@ ShadowSystem::~ShadowSystem() {
     if (m_CSMFBO) glDeleteFramebuffers(1, &m_CSMFBO);
     if (m_PointShadowCubemap) glDeleteTextures(1, &m_PointShadowCubemap);
     if (m_PointShadowFBO) glDeleteFramebuffers(1, &m_PointShadowFBO);
+    // The omni atlas was allocated in InitOmniShadowAtlas and never freed —
+    // a 4x6x512x512 depth cubemap array plus its FBO leaked on every shutdown.
+    if (m_OmniShadowArray) glDeleteTextures(1, &m_OmniShadowArray);
+    if (m_OmniShadowFBO) glDeleteFramebuffers(1, &m_OmniShadowFBO);
 }
 
 void ShadowSystem::Init() {
@@ -38,8 +42,15 @@ void ShadowSystem::Init() {
     glTextureParameteri(m_CSMArrayTexture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
     float borderColor[] = {1.0f, 1.0f, 1.0f, 1.0f};
     glTextureParameterfv(m_CSMArrayTexture, GL_TEXTURE_BORDER_COLOR, borderColor);
-    glTextureParameteri(m_CSMArrayTexture, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-    glTextureParameteri(m_CSMArrayTexture, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    // Deliberately NO GL_TEXTURE_COMPARE_MODE here.
+    //
+    // pbr_fragment.glsl declares this as a plain `sampler2DArray` and runs its
+    // own depth comparison (the PCSS blocker search needs the raw depth value,
+    // not a 0/1 comparison result). Sampling a depth texture that has
+    // GL_COMPARE_REF_TO_TEXTURE set through a non-shadow sampler is undefined
+    // per the GL spec — it happened to work on some drivers and produced
+    // garbage shadows on others. If hardware PCF is ever wanted, the sampler
+    // in the shader has to become `sampler2DArrayShadow` at the same time.
 
     // Create FBO
     glCreateFramebuffers(1, &m_CSMFBO);
@@ -253,5 +264,7 @@ void ShadowSystem::BindOmniShadowAtlas(Shader& shader, int unit) {
     glActiveTexture(GL_TEXTURE0 + unit);
     glBindTexture(GL_TEXTURE_CUBE_MAP_ARRAY, m_OmniShadowArray);
     shader.setInt("omniShadowMaps", unit);
-    shader.setFloat("omniShadowFar", m_OmniShadowFarPlane);
+    // No far-plane uniform: the shader normalises by each light's own range,
+    // which is the same value BeginOmniShadowPass used as that cube's far
+    // plane. See the comment on omniShadowMaps in pbr_fragment.glsl.
 }

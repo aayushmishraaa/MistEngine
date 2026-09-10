@@ -12,33 +12,71 @@ layout(std430, binding = 5) buffer ClusterAABBBuffer {
 
 uniform float nearPlane;
 uniform float farPlane;
-uniform vec2 screenSize;
+uniform vec2  screenSize;
+// Inverse of the camera projection. Required: the cluster AABBs must be in
+// VIEW space because cluster_cull.comp tests them against a view-space light
+// position. The previous version stored raw NDC x/y next to a view-space z,
+// so the intersection test compared two different coordinate spaces and the
+// light grid it produced was meaningless.
+uniform mat4  invProjection;
 
 const uint CLUSTER_X = 16;
 const uint CLUSTER_Y = 9;
 const uint CLUSTER_Z = 24;
+
+// Unproject a point on the near plane in NDC to view space.
+vec3 ndcToView(vec2 ndc) {
+    vec4 v = invProjection * vec4(ndc, -1.0, 1.0);
+    return v.xyz / v.w;
+}
+
+// Walk the ray from the eye through `viewPoint` until it reaches depth
+// `zDist` (a positive distance in front of the camera; view-space z is -zDist
+// under GLM's right-handed convention).
+vec3 rayAtDepth(vec3 viewPoint, float zDist) {
+    // Eye is the origin in view space, so the ray is simply t * viewPoint.
+    float t = -zDist / viewPoint.z;
+    return viewPoint * t;
+}
 
 void main() {
     uint clusterIdx = gl_WorkGroupID.x +
                       gl_WorkGroupID.y * CLUSTER_X +
                       gl_WorkGroupID.z * CLUSTER_X * CLUSTER_Y;
 
-    // Tile size in screen space
-    vec2 tileSize = screenSize / vec2(CLUSTER_X, CLUSTER_Y);
-
-    // Screen space bounds for this cluster
+    // Screen-space bounds of this tile, then to NDC [-1, 1].
+    vec2 tileSize  = screenSize / vec2(CLUSTER_X, CLUSTER_Y);
     vec2 minScreen = vec2(gl_WorkGroupID.x, gl_WorkGroupID.y) * tileSize;
     vec2 maxScreen = minScreen + tileSize;
-
-    // Convert to NDC [-1, 1]
     vec2 minNDC = (minScreen / screenSize) * 2.0 - 1.0;
     vec2 maxNDC = (maxScreen / screenSize) * 2.0 - 1.0;
 
-    // Depth slice (logarithmic)
-    float sliceNear = nearPlane * pow(farPlane / nearPlane, float(gl_WorkGroupID.z) / float(CLUSTER_Z));
-    float sliceFar  = nearPlane * pow(farPlane / nearPlane, float(gl_WorkGroupID.z + 1) / float(CLUSTER_Z));
+    // Logarithmic depth slice, matching the inverse used by
+    // pbr_fragment.glsl's clusterIndex().
+    float sliceNear = nearPlane * pow(farPlane / nearPlane,
+                                      float(gl_WorkGroupID.z) / float(CLUSTER_Z));
+    float sliceFar  = nearPlane * pow(farPlane / nearPlane,
+                                      float(gl_WorkGroupID.z + 1) / float(CLUSTER_Z));
 
-    // Store view-space AABB
-    clusters[clusterIdx].minPoint = vec4(minNDC, -sliceFar, 0.0);
-    clusters[clusterIdx].maxPoint = vec4(maxNDC, -sliceNear, 0.0);
+    // The tile's four corners as view-space directions, then the eight
+    // corners of the frustum slab they sweep out between the two depths.
+    vec3 c00 = ndcToView(vec2(minNDC.x, minNDC.y));
+    vec3 c10 = ndcToView(vec2(maxNDC.x, minNDC.y));
+    vec3 c01 = ndcToView(vec2(minNDC.x, maxNDC.y));
+    vec3 c11 = ndcToView(vec2(maxNDC.x, maxNDC.y));
+
+    vec3 nearPts[4] = vec3[4](rayAtDepth(c00, sliceNear), rayAtDepth(c10, sliceNear),
+                              rayAtDepth(c01, sliceNear), rayAtDepth(c11, sliceNear));
+    vec3 farPts[4]  = vec3[4](rayAtDepth(c00, sliceFar),  rayAtDepth(c10, sliceFar),
+                              rayAtDepth(c01, sliceFar),  rayAtDepth(c11, sliceFar));
+
+    vec3 lo = min(min(nearPts[0], nearPts[1]), min(nearPts[2], nearPts[3]));
+    vec3 hi = max(max(nearPts[0], nearPts[1]), max(nearPts[2], nearPts[3]));
+    for (int i = 0; i < 4; ++i) {
+        lo = min(lo, farPts[i]);
+        hi = max(hi, farPts[i]);
+    }
+
+    clusters[clusterIdx].minPoint = vec4(lo, 0.0);
+    clusters[clusterIdx].maxPoint = vec4(hi, 0.0);
 }

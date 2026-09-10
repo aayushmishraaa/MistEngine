@@ -21,7 +21,7 @@ void RenderSystem::Update(Shader& shader) {
         // don't draw twice with the wrong vertex layout.
         if (gCoordinator.HasComponent<AnimationComponent>(entity)) continue;
 
-        glm::mat4 model = transform.GetModelMatrix();
+        glm::mat4 model = transform.WorldMatrix();
         shader.setMat4("model", model);
 
         // Material override. If the component points at a .mistmat
@@ -62,7 +62,7 @@ void RenderSystem::UpdateSkinned(Shader& shader, float dt) {
         anim.Update(dt);
         anim.animator.BindBoneSSBO(6);
 
-        shader.setMat4("model", transform.GetModelMatrix());
+        shader.setMat4("model", transform.WorldMatrix());
         render.renderable->Draw(shader);
     }
 }
@@ -75,7 +75,7 @@ void RenderSystem::UpdateVelocity(Shader& shader) {
         auto& render    = gCoordinator.GetComponent<RenderComponent>(entity);
         if (!render.visible || !render.renderable) continue;
 
-        glm::mat4 model = transform.GetModelMatrix();
+        glm::mat4 model = transform.WorldMatrix();
         auto it = m_PrevModels.find(entity);
         // First-seen entities: prevModel == model -> zero velocity on
         // spawn. No smear on a just-created cube.
@@ -93,7 +93,7 @@ void RenderSystem::UpdateVelocity(Shader& shader) {
     std::unordered_map<Entity, glm::mat4> next;
     next.reserve(m_Entities.size());
     for (auto const& entity : m_Entities) {
-        next[entity] = gCoordinator.GetComponent<TransformComponent>(entity).GetModelMatrix();
+        next[entity] = gCoordinator.GetComponent<TransformComponent>(entity).WorldMatrix();
     }
     m_PrevModels = std::move(next);
 }
@@ -110,7 +110,7 @@ void RenderSystem::UpdateDepthOnly(Shader& shader) {
         auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
         auto& render    = gCoordinator.GetComponent<RenderComponent>(entity);
         if (render.visible && render.renderable) {
-            shader.setMat4("model", transform.GetModelMatrix());
+            shader.setMat4("model", transform.WorldMatrix());
             render.renderable->Draw(shader);
         }
     }

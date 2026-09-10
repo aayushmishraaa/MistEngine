@@ -35,7 +35,18 @@ void ECSPhysicsSystem::Update(float deltaTime) {
         for (auto const& entity : m_Entities) {
             auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
             auto& pc        = gCoordinator.GetComponent<PhysicsComponent>(entity);
-            physics->EnsureBody(transform.position, pc);
+            // Bullet simulates in world space, so a body must be *born* at
+            // the entity's world position — otherwise a parented entity
+            // spawns its collider at its parent-relative offset.
+            //
+            // The write-back below still targets `transform.position`, which
+            // is the LOCAL field. For a parentless entity those are the same
+            // and everything is consistent. A parented *dynamic* body is
+            // genuinely unsupported: Bullet owns its world transform and the
+            // hierarchy would fight it every tick. Godot resolves this by
+            // having RigidBody3D ignore its parent while simulating; doing
+            // the same here is a follow-up, not part of this fix.
+            physics->EnsureBody(transform.WorldPosition(), pc);
             m_OwnedBodies[entity] = pc.rigidBody;
             // Tag the Bullet body with its owning ECS entity so
             // raycast hits can be resolved back to the scene. Stored
@@ -61,12 +72,23 @@ void ECSPhysicsSystem::Update(float deltaTime) {
             btVector3 origin = trans.getOrigin();
             transform.position = glm::vec3(origin.getX(), origin.getY(), origin.getZ());
 
+            // Decompose the orientation using the SAME convention
+            // TransformComponent::GetModelMatrix composes with, which is
+            // Rx * Ry * Rz (glm::eulerAngleXYZ).
+            //
+            // The previous code called btQuaternion::getEulerZYX and then
+            // assigned its outputs in the wrong slots as well: that function
+            // yields (yawZ, pitchY, rollX), and they were written to
+            // (x, y, z) = (pitch, yaw, roll) — so the Y rotation landed on X
+            // and the Z rotation landed on Y. Two bugs compounding: a
+            // convention mismatch on top of a transposed mapping. Rotating
+            // bodies visibly drifted and tumbled on the wrong axes.
             btQuaternion rotation = trans.getRotation();
-            btScalar yaw, pitch, roll;
-            rotation.getEulerZYX(yaw, pitch, roll);
-            transform.rotation = glm::vec3(glm::degrees(pitch),
-                                            glm::degrees(yaw),
-                                            glm::degrees(roll));
+            const glm::quat q(rotation.getW(), rotation.getX(),
+                              rotation.getY(), rotation.getZ());
+            float rx = 0.0f, ry = 0.0f, rz = 0.0f;
+            glm::extractEulerAngleXYZ(glm::mat4_cast(q), rx, ry, rz);
+            transform.rotation = glm::degrees(glm::vec3(rx, ry, rz));
         }
     }
 }

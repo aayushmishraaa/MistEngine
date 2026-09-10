@@ -32,17 +32,6 @@ glm::vec3 kelvinToRGB(float K) {
         glm::clamp(b / 255.0f, 0.0f, 1.0f));
 }
 
-// Build a forward direction from euler rotations stored in degrees.
-// Same convention as `TransformComponent::GetModelMatrix`.
-glm::vec3 directionFromEuler(const glm::vec3& eulerDeg) {
-    glm::mat4 R = glm::mat4(1.0f);
-    R = glm::rotate(R, glm::radians(eulerDeg.x), glm::vec3(1, 0, 0));
-    R = glm::rotate(R, glm::radians(eulerDeg.y), glm::vec3(0, 1, 0));
-    R = glm::rotate(R, glm::radians(eulerDeg.z), glm::vec3(0, 0, 1));
-    // Light shines "forward" along -Z in local space, same as Godot.
-    return glm::normalize(glm::vec3(R * glm::vec4(0, 0, -1, 0)));
-}
-
 } // namespace
 
 void LightSystem::Update(Coordinator& coord, LightManager& lights) {
@@ -65,12 +54,17 @@ void LightSystem::Update(Coordinator& coord, LightManager& lights) {
         auto& lc = coord.GetComponent<LightComponent>(e);
 
         Light L;
-        L.position.x = t.position.x;
-        L.position.y = t.position.y;
-        L.position.z = t.position.z;
+        // World space, not local — a light parented under a moving rig has to
+        // travel with it. WorldPosition/WorldForward fall back to the local
+        // transform for parentless entities, so unparented lights are
+        // unaffected.
+        const glm::vec3 wpos = t.WorldPosition();
+        L.position.x = wpos.x;
+        L.position.y = wpos.y;
+        L.position.z = wpos.z;
         L.position.w = static_cast<float>(static_cast<int>(lc.type));
 
-        glm::vec3 dir = directionFromEuler(t.rotation);
+        glm::vec3 dir = t.WorldForward();
         L.direction.x = dir.x;
         L.direction.y = dir.y;
         L.direction.z = dir.z;

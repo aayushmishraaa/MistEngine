@@ -30,8 +30,7 @@ public:
     static constexpr int MIP_COUNT = 5;
 
 private:
-    GLuint m_Texture    = 0;   // R32F, 5 mips
-    GLuint m_CopyFBO    = 0;   // framebuffer for copying prepass depth -> mip 0
+    GLuint m_Texture    = 0;   // R32F; levels 1..4 are written, level 0 is unused
     Shader m_ReduceShader;
     int    m_Width      = 0;
     int    m_Height     = 0;

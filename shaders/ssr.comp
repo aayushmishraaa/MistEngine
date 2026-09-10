@@ -81,8 +81,14 @@ bool hiZTrace(vec3 originVS, vec3 dirVS, out vec2 hitUV, out float hitDepth) {
     vec2  deltaUV = endUV - originUV;
     float deltaZ  = endZ  - originZ;
 
-    // Bail out if ray is going backwards or degenerate.
-    if (deltaZ <= 0.0) return false;
+    // Bail out only on a degenerate screen-space ray.
+    //
+    // This used to be `if (deltaZ <= 0.0) return false;`, which rejected every
+    // ray whose depth decreases — i.e. every reflection travelling toward the
+    // camera, which is roughly half of them and includes most of what you
+    // actually want to see reflected in a floor. The march below handles both
+    // signs fine; what it cannot handle is a ray with no screen-space extent.
+    if (dot(deltaUV, deltaUV) < 1e-12 && abs(deltaZ) < 1e-7) return false;
 
     int   lod     = 0;
     float tMin    = 0.0;

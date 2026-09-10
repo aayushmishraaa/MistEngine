@@ -34,7 +34,14 @@ public:
 
     // Per-frame operations
     void UploadToGPU();
-    void BuildClusters(float nearPlane, float farPlane, int screenW, int screenH);
+
+    // Populate the cluster AABB grid. Depends only on the projection and the
+    // screen size, so callers rebuild on init and on resize rather than every
+    // frame. CullLights refuses to run until this has happened at least once.
+    void BuildClusters(const glm::mat4& projection, float nearPlane,
+                       float farPlane, int screenW, int screenH);
+    bool AreClustersBuilt() const { return m_ClustersBuilt; }
+
     void CullLights(const glm::mat4& view, const glm::mat4& projection);
 
     // Bind SSBOs for shaders
@@ -55,6 +62,7 @@ private:
 
     bool m_Initialized = false;
     bool m_LightsDirty = true; // Force initial upload.
+    bool m_ClustersBuilt = false; // Set by BuildClusters; gates CullLights.
 };
 
 #endif

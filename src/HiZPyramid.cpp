@@ -20,7 +20,6 @@ void HiZPyramid::Init(int width, int height) {
         return;
     }
 
-    glCreateFramebuffers(1, &m_CopyFBO);
     m_Initialized = true;
     LOG_INFO("HiZPyramid initialized: ", width, "x", height,
              " (", MIP_COUNT, " mips)");
@@ -51,40 +50,22 @@ void HiZPyramid::allocateTexture() {
 
 void HiZPyramid::destroyTexture() {
     if (m_Texture) { glDeleteTextures(1, &m_Texture); m_Texture = 0; }
-    if (m_CopyFBO) { glDeleteFramebuffers(1, &m_CopyFBO); m_CopyFBO = 0; }
     m_Initialized = false;
 }
 
 void HiZPyramid::Build(GLuint prepassDepthTexture) {
     if (!m_Initialized || prepassDepthTexture == 0) return;
 
-    // Copy depth buffer -> mip 0 via blit. The source is a depth
-    // texture (GL_DEPTH_COMPONENT*) and the dest is R32F — blit
-    // does the format conversion for us on supported drivers.
-    // Mesa + AMD + NVIDIA all handle GL_DEPTH -> GL_RED via blit.
-    glNamedFramebufferTexture(m_CopyFBO, GL_COLOR_ATTACHMENT0, m_Texture, 0);
-    GLenum draw = GL_COLOR_ATTACHMENT0;
-    glNamedFramebufferDrawBuffers(m_CopyFBO, 1, &draw);
-
-    // Source framebuffer for the blit — create a temporary binding
-    // with the prepass depth. We can't blit from a raw texture
-    // directly; wrap it in an FBO.
-    GLuint srcFBO = 0;
-    glCreateFramebuffers(1, &srcFBO);
-    glNamedFramebufferTexture(srcFBO, GL_DEPTH_ATTACHMENT, prepassDepthTexture, 0);
-
-    // A depth-to-color blit isn't legal in core GL. Instead, do a
-    // fullscreen-triangle "copy depth as R32F" pass. Simpler: run
-    // a tiny compute shader that reads the depth texture and writes
-    // mip 0. Defer that to a follow-up for simplicity — for now we
-    // treat mip 0 as the prepass depth *itself* by sampling it in
-    // the compute dispatch for mip 1. This means the Hi-Z texture
-    // only owns mips 1..4; mip 0 is the source.
+    // Split-ownership contract: mip 0 of this pyramid is NOT written. Consumers
+    // read the full-resolution level straight from the prepass depth texture
+    // and levels 1..4 from here — see `sampleHiZ` in ssr.comp, which branches
+    // on `lod <= 0` for exactly this reason.
     //
-    // That's a correct and simpler contract: consumers read mip 0
-    // from the prepass depth, mips 1..4 from the Hi-Z texture. The
-    // follow-up can unify into a single resource.
-    glDeleteFramebuffers(1, &srcFBO);
+    // Previously this function created an FBO, attached the prepass depth to
+    // it, and deleted it again on every single frame — leftovers from an
+    // abandoned depth-to-colour blit (which isn't legal in core GL anyway).
+    // It produced nothing and cost two driver round-trips per frame. The
+    // `m_CopyFBO` member it was paired with is gone too.
 
     // Compute the 4 reduction mips: mip 1 reads prepass depth (via
     // the passed texture), mip N reads mip N-1 of m_Texture.
