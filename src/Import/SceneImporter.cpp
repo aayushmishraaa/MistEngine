@@ -160,6 +160,7 @@ std::shared_ptr<Mesh> buildMesh(aiMesh* aim,
 Entity importNodeTree(aiNode* node,
                       const aiScene* scene,
                       const std::filesystem::path& baseDir,
+                      const std::string& sourcePath,
                       Coordinator& coord,
                       std::vector<std::shared_ptr<Mesh>>& outMeshes,
                       std::unordered_map<Entity, std::string>* outNames) {
@@ -185,6 +186,7 @@ Entity importNodeTree(aiNode* node,
         RenderComponent r;
         r.renderable = m.get();
         r.visible    = true;
+        r.meshPath   = sourcePath;
         coord.AddComponent(e, r);
     } else {
         for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
@@ -198,6 +200,7 @@ Entity importNodeTree(aiNode* node,
             RenderComponent r;
             r.renderable = m.get();
             r.visible    = true;
+            r.meshPath   = sourcePath;
             coord.AddComponent(me, r);
             if (outNames) {
                 std::string nm = aim->mName.C_Str();
@@ -209,7 +212,7 @@ Entity importNodeTree(aiNode* node,
 
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
         Entity childE = importNodeTree(node->mChildren[i], scene, baseDir,
-                                       coord, outMeshes, outNames);
+                                       sourcePath, coord, outMeshes, outNames);
         HierarchySystem::Attach(coord, e, childE);
     }
     return e;
@@ -269,6 +272,7 @@ Entity SceneImporter::ImportToScene(const std::string& path,
         RenderComponent r;
         r.renderable = am.get();
         r.visible    = true;
+        r.meshPath   = path;
         coord.AddComponent(e, r);
 
         AnimationComponent ac;
@@ -300,7 +304,7 @@ Entity SceneImporter::ImportToScene(const std::string& path,
 
     std::vector<std::shared_ptr<Mesh>> imported;
     Entity root = importNodeTree(scene->mRootNode, scene, baseDir,
-                                 coord, imported, outNames);
+                                 path, coord, imported, outNames);
 
     {
         std::lock_guard<std::mutex> lk(store().mu);

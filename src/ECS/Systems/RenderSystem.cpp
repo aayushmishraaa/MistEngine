@@ -57,10 +57,30 @@ void RenderSystem::UpdateSkinned(Shader& shader, float dt) {
 
         if (!(render.visible && render.renderable)) continue;
 
-        // Step the clip forward + upload bone matrices to the SSBO
-        // the skinned vertex shader reads from (binding = 6).
+        // Advance the clip clock.
+        //
+        // TODO(C5): skinning is NOT functional yet and this is the honest
+        // minimum that stops it corrupting the frame. Three separate things are
+        // still wrong, tracked together:
+        //   1. `AnimationComponent::animator` is default-constructed and
+        //      nothing calls Init() on it, so its SSBO handle is 0. The
+        //      `BindBoneSSBO(6)` that used to sit here bound buffer name 0 —
+        //      unbinding the slot the skinned vertex shader reads — and
+        //      Animator::Update's glNamedBufferSubData(0, ...) raised a GL
+        //      error every frame for every animated entity. Removed; the
+        //      AnimatedModel's own initialised Animator owns binding 6, and
+        //      AnimatedModel::Draw binds it.
+        //   2. Animator::calculateBoneTransforms writes each bone's LOCAL
+        //      transform and never walks the skeleton hierarchy.
+        //   3. BoneInfo::offset — the inverse bind matrix, stored in
+        //      AnimatedModel.cpp — is never applied, and
+        //      AnimatedModel::calculateBoneTransformsHierarchy is declared but
+        //      has no definition at all.
+        // Net effect today: rigs import, clips populate the Inspector, the
+        // clock advances, and the mesh renders in its bind pose. Fixing it
+        // needs the hierarchy walk written and a rigged asset to verify
+        // against, neither of which belongs in a bug-fix pass.
         anim.Update(dt);
-        anim.animator.BindBoneSSBO(6);
 
         shader.setMat4("model", transform.WorldMatrix());
         render.renderable->Draw(shader);

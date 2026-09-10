@@ -120,7 +120,13 @@ void InputManager::Update(float deltaTime) {
     
     if (f3IsPressed && !f3WasPressed) {
         EnableSceneEditorMode(!m_SceneEditorMode);
-        std::cout << "Switched to " << (m_SceneEditorMode ? "Scene Editor" : "Gameplay") << " mode" << std::endl;
+        if (m_SceneEditorMode) {
+            std::cout << "=== SCENE EDITOR MODE === WASD/QE to fly, "
+                         "right-click + drag to look" << std::endl;
+        } else {
+            std::cout << "=== GAMEPLAY MODE === WASD/QE + mouse look, "
+                         "cursor locked" << std::endl;
+        }
     }
     f3WasPressed = f3IsPressed;
     
@@ -410,23 +416,13 @@ void InputManager::UpdateKeyStatesFromPolling() {
         movementDetected = true;
     }
     
-    // Handle F3 toggle manually since we're not using callbacks
-    static bool lastF3State = false;
-    bool currentF3State = m_KeyStates[GLFW_KEY_F3];
-    if (currentF3State && !lastF3State) {
-        // F3 just pressed
-        EnableSceneEditorMode(!m_SceneEditorMode);
-        if (m_SceneEditorMode) {
-            std::cout << "=== SCENE EDITOR MODE ===" << std::endl;
-            std::cout << "Camera: WASD/QE for movement (always active)" << std::endl;
-            std::cout << "Mouse: Right-click + drag for look around" << std::endl;
-        } else {
-            std::cout << "=== GAMEPLAY MODE ===" << std::endl;
-            std::cout << "Camera: WASD/QE + mouse look" << std::endl;
-            std::cout << "Mouse: Locked for immersive play" << std::endl;
-        }
-    }
-    lastF3State = currentF3State;
+    // NOTE: F3 is handled in Update(), not here.
+    //
+    // There used to be a second static edge detector at this point, and since
+    // Update() calls this function *before* running its own F3 check, a single
+    // keypress toggled m_SceneEditorMode twice — back to where it started. The
+    // documented editor/gameplay mode switch silently did nothing. One
+    // detector, one toggle.
 }
 
 void InputManager::UpdateMouseStatesFromPolling() {

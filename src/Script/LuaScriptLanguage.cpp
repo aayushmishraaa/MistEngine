@@ -139,6 +139,7 @@ void LuaScriptLanguage::Init() {
         RenderComponent r;
         r.renderable = ref.get();   // non-owning; registry keeps it alive
         r.visible    = true;
+        r.meshPath   = "builtin://cube";  // so the scene serializer can round-trip it
         gCoordinator.AddComponent(e, r);
 
         gCoordinator.AddComponent(e, HierarchyComponent{});
@@ -167,6 +168,7 @@ void LuaScriptLanguage::Init() {
         RenderComponent r;
         r.renderable = ref.get();
         r.visible    = true;
+        r.meshPath   = "builtin://plane";
         gCoordinator.AddComponent(e, r);
 
         gCoordinator.AddComponent(e, HierarchyComponent{});

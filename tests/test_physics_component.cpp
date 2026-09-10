@@ -60,9 +60,9 @@ TEST_CASE("PhysicsComponent reflects all authoring fields", "[physics][reflectio
 }
 
 TEST_CASE("PhysicsSystem::ComputeShapeHash reacts to geometry only", "[physics][hash]") {
-    // The hash feeds the rebuild-trigger path: geometry changes (shape
-    // kind, halfExtents, radius, height, mass) force a body rebuild;
-    // material changes do not.
+    // The hash feeds the rebuild-trigger path: geometry changes (shape kind,
+    // halfExtents, radius, height) force a body rebuild; material changes do
+    // not. Mass is a special case — see the two mass sections below.
     PhysicsComponent base;
     const auto h0 = PhysicsSystem::ComputeShapeHash(base);
 
@@ -83,10 +83,23 @@ TEST_CASE("PhysicsSystem::ComputeShapeHash reacts to geometry only", "[physics][
         REQUIRE(PhysicsSystem::ComputeShapeHash(pc) != h0);
     }
 
-    SECTION("Mass change changes hash (Bullet inertia depends on mass)") {
-        PhysicsComponent pc = base;
-        pc.mass = 0.0f;
+    SECTION("Static/dynamic transition changes hash") {
+        // Bullet sorts static and dynamic bodies into different broadphase
+        // groups when they are added to the world, so crossing zero really does
+        // need the body rebuilt.
+        PhysicsComponent pc = base;   // base.mass == 1.0f, i.e. dynamic
+        pc.mass = 0.0f;               // -> static
         REQUIRE(PhysicsSystem::ComputeShapeHash(pc) != h0);
+    }
+
+    SECTION("Mass magnitude change does NOT change hash") {
+        // Regression guard. Hashing the mass value meant every frame of an
+        // Inspector mass-slider drag rebuilt the rigid body and reset the
+        // object's position and velocity. Magnitude is applied live via
+        // setMassProps instead; only the static/dynamic flag forces a rebuild.
+        PhysicsComponent pc = base;
+        pc.mass = 25.0f;              // still dynamic
+        REQUIRE(PhysicsSystem::ComputeShapeHash(pc) == h0);
     }
 
     SECTION("Friction / restitution / damping do NOT change hash") {

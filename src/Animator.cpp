@@ -102,8 +102,18 @@ void Animator::Update(float dt) {
         }
     }
 
-    // Upload to GPU
-    glNamedBufferSubData(m_BoneSSBO, 0, m_BoneMatrices.size() * sizeof(glm::mat4), m_BoneMatrices.data());
+    // Upload to GPU — only if this Animator actually owns a buffer.
+    //
+    // AnimationComponent holds an Animator by value and nothing calls Init()
+    // on it, so m_BoneSSBO is 0 there; glNamedBufferSubData(0, ...) is a GL
+    // error, raised once per animated entity per frame. Guarding here keeps
+    // the clip clock usable (the Inspector reads playback state) without
+    // spamming the driver. See the TODO(C5) in RenderSystem::UpdateSkinned.
+    if (m_BoneSSBO != 0) {
+        glNamedBufferSubData(m_BoneSSBO, 0,
+                             m_BoneMatrices.size() * sizeof(glm::mat4),
+                             m_BoneMatrices.data());
+    }
 }
 
 void Animator::PlayAnimation(std::shared_ptr<Animation> animation) {

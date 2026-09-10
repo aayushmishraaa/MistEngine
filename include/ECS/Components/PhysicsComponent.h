@@ -42,7 +42,7 @@ struct PhysicsComponent {
 };
 
 MIST_REFLECT(PhysicsComponent)
-    MIST_FIELD(PhysicsComponent, shape,          ::Mist::PropertyHint::None,  "")
+    MIST_FIELD(PhysicsComponent, shape,          ::Mist::PropertyHint::Enum,  "Box,Sphere,Capsule,StaticPlane")
     MIST_FIELD(PhysicsComponent, halfExtents,    ::Mist::PropertyHint::None,  "")
     MIST_FIELD(PhysicsComponent, radius,         ::Mist::PropertyHint::Range, "0.05,10.0")
     MIST_FIELD(PhysicsComponent, height,         ::Mist::PropertyHint::Range, "0.05,10.0")

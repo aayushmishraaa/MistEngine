@@ -31,9 +31,22 @@ public:
 
     void DestroyEntity(Entity entity) {
         assert(entity < MAX_ENTITIES && "Entity out of range");
+
+        // Ignore a destroy of something that isn't alive. Without this guard a
+        // double-destroy pushed the same id onto the free queue twice, so two
+        // subsequent CreateEntity calls handed out the SAME id — two logical
+        // entities sharing one set of components. It also drove
+        // m_LivingEntityCount negative (it's unsigned, so it wrapped).
+        //
+        // Reachable in practice: the Lua `destroy_entity` binding is documented
+        // as tolerant of stale ids, and the editor's delete-undo-redo path can
+        // re-issue a destroy for an id it already released.
+        if (m_LivingEntities.erase(entity) == 0) {
+            return;
+        }
+
         m_Signatures[entity].reset();
         m_AvailableEntities.push(entity);
-        m_LivingEntities.erase(entity);
         --m_LivingEntityCount;
     }
 

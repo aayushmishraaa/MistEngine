@@ -99,6 +99,21 @@ void PhysicsSystem::DestroyBody(btRigidBody* body) {
 
 void PhysicsSystem::ApplyMaterial(btRigidBody* body, const PhysicsComponent& pc) {
     if (!body) return;
+
+    // Mass is live now that it is out of the shape hash. Inertia has to be
+    // recomputed from the shape for the new mass, and Bullet needs the body
+    // re-added for the static/dynamic transition to take effect in the
+    // broadphase — so only touch it when it actually differs.
+    if (body->getMass() != pc.mass) {
+        btVector3 inertia(0, 0, 0);
+        if (pc.mass > 0.0f && body->getCollisionShape()) {
+            body->getCollisionShape()->calculateLocalInertia(pc.mass, inertia);
+        }
+        body->setMassProps(pc.mass, inertia);
+        body->updateInertiaTensor();
+        body->activate(true);
+    }
+
     body->setFriction(pc.friction);
     body->setRestitution(pc.restitution);
     body->setDamping(pc.linearDamping, pc.angularDamping);
@@ -130,7 +145,22 @@ std::uint64_t PhysicsSystem::ComputeShapeHash(const PhysicsComponent& pc) {
     mix(&pc.halfExtents, sizeof(pc.halfExtents));
     mix(&pc.radius, sizeof(pc.radius));
     mix(&pc.height, sizeof(pc.height));
-    mix(&pc.mass, sizeof(pc.mass));
+
+    // Mass participates only as a STATIC/DYNAMIC flag, not as a value.
+    //
+    // Hashing the mass itself (the previous behaviour) meant dragging the
+    // Inspector's mass slider produced a new hash every frame, rebuilding the
+    // rigid body and resetting the object's position and velocity on each
+    // increment. A magnitude change needs no rebuild at all — ApplyMaterial
+    // calls setMassProps + updateInertiaTensor live.
+    //
+    // Crossing zero is different, and is why this isn't simply dropped:
+    // Bullet sorts static and dynamic bodies into different broadphase
+    // groups at add-time, so a 0 <-> nonzero transition does require the body
+    // to be rebuilt (or removed and re-added). That transition is exactly what
+    // this bool captures.
+    const bool isStatic = (pc.mass <= 0.0f);
+    mix(&isStatic, sizeof(isStatic));
     return h;
 }
 

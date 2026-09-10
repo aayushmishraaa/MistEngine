@@ -54,6 +54,7 @@ struct LightComponent {
 };
 
 MIST_REFLECT(LightComponent)
+    MIST_FIELD(LightComponent, type,     ::Mist::PropertyHint::Enum, "Directional,Omni,Spot")
     MIST_FIELD(LightComponent, color,    ::Mist::PropertyHint::Color, "")
     MIST_FIELD(LightComponent, energy,   ::Mist::PropertyHint::Range, "0.0,20.0")
     MIST_FIELD(LightComponent, range,    ::Mist::PropertyHint::Range, "0.1,200.0")

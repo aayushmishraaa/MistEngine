@@ -48,6 +48,9 @@
 #include "Scene/SceneSerializer.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/euler_angles.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include <iostream>
 #include <sstream>
 #include <set>
@@ -590,6 +593,7 @@ Entity UIManager::SpawnMeshEntity(const std::string& path) {
     RenderComponent r;
     r.renderable = ref.get();   // non-owning; registry keeps it alive
     r.visible    = true;
+    r.meshPath   = path;
     m_Coordinator->AddComponent(e, r);
 
     m_Coordinator->AddComponent(e, HierarchyComponent{});
@@ -662,9 +666,11 @@ UIManager::EntitySnapshot UIManager::SnapshotEntity(Entity e) const {
     }
     if (m_Coordinator->HasComponent<RenderComponent>(e)) {
         const auto& r = m_Coordinator->GetComponent<RenderComponent>(e);
-        s.hasRender = true;
-        s.renderable = r.renderable;
-        s.visible    = r.visible;
+        s.hasRender    = true;
+        s.renderable   = r.renderable;
+        s.visible      = r.visible;
+        s.meshPath     = r.meshPath;
+        s.materialPath = r.materialPath;
     }
     if (m_Coordinator->HasComponent<HierarchyComponent>(e)) {
         const auto& h = m_Coordinator->GetComponent<HierarchyComponent>(e);
@@ -686,8 +692,10 @@ Entity UIManager::RespawnFromSnapshot(const EntitySnapshot& snap) {
     }
     if (snap.hasRender) {
         RenderComponent r;
-        r.renderable = static_cast<Renderable*>(snap.renderable);
-        r.visible    = snap.visible;
+        r.renderable   = static_cast<Renderable*>(snap.renderable);
+        r.visible      = snap.visible;
+        r.meshPath     = snap.meshPath;
+        r.materialPath = snap.materialPath;
         m_Coordinator->AddComponent(e, r);
     }
     if (snap.hasHierarchy) {
@@ -1005,8 +1013,10 @@ void UIManager::DrawInspector() {
             [=] { coord->RemoveComponent<RenderComponent>(sel); },
             [=, snap = SnapshotEntity(sel)] {
                 RenderComponent r;
-                r.renderable = static_cast<Renderable*>(snap.renderable);
-                r.visible    = snap.visible;
+                r.renderable   = static_cast<Renderable*>(snap.renderable);
+                r.visible      = snap.visible;
+                r.meshPath     = snap.meshPath;
+                r.materialPath = snap.materialPath;
                 coord->AddComponent(sel, r);
             },
             [&] { DrawRenderComponent(coord->GetComponent<RenderComponent>(sel)); });
@@ -1030,13 +1040,9 @@ void UIManager::DrawInspector() {
             [=] { coord->AddComponent(sel, LightComponent{}); },
             [&] {
                 auto& lc = coord->GetComponent<LightComponent>(sel);
-                // Dedicated type picker — reflected draw handles
-                // primitives but not enums cleanly yet.
-                const char* typeNames[] = {"Directional", "Omni", "Spot"};
-                int t = static_cast<int>(lc.type);
-                if (ImGui::Combo("Type", &t, typeNames, IM_ARRAYSIZE(typeNames))) {
-                    lc.type = static_cast<MistLightType>(t);
-                }
+                // The hand-written type combo that used to sit here is gone:
+                // `type` is reflected with PropertyHint::Enum now, so the
+                // generic drawer renders it along with everything else.
                 if (auto* props = Mist::TypeRegistry::Instance().Get("LightComponent")) {
                     DrawReflectedProperties(&lc, props);
                 }
@@ -1403,143 +1409,100 @@ void UIManager::SelectEntity(Entity entity) {
     m_HasSelectedEntity = true;
 }
 
-void UIManager::CreateCube() {
-    if (m_Coordinator && m_PhysicsSystem) {
-        Entity entity = m_Coordinator->CreateEntity();
-        m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
-        
-        m_ConsoleMessages.push_back("Creating cube entity " + std::to_string(entity));
-        
-        // Transform
-        TransformComponent transform;
-        transform.position = glm::vec3(0.0f, 2.0f, 0.0f);  // Spawn higher up
-        transform.scale = glm::vec3(1.0f);
-        m_Coordinator->AddComponent(entity, transform);
-        m_ConsoleMessages.push_back("Added transform component");
-        
-        // Create mesh
-        std::vector<Vertex> vertices;
-        std::vector<unsigned int> indices;
-        generateCubeMesh(vertices, indices);
-        std::vector<Texture> textures;
-        Mesh* mesh = new Mesh(vertices, indices, textures);
-        
-        // Render
-        RenderComponent render;
-        render.renderable = mesh;
-        render.visible = true;
-        m_Coordinator->AddComponent(entity, render);
-        m_ConsoleMessages.push_back("Added render component");
-        
-        // Physics — body is built by ECSPhysicsSystem on next tick
-        // from the component's shape/mass params. No direct Bullet
-        // call here; Inspector can now flip the shape freely.
-        PhysicsComponent physics;
-        physics.shape       = CollisionShape::Box;
-        physics.halfExtents = glm::vec3(0.5f);
-        physics.mass        = 1.0f;
-        m_Coordinator->AddComponent(entity, physics);
-        m_ConsoleMessages.push_back("Added physics component");
-        
-        m_Coordinator->AddComponent(entity, HierarchyComponent{});
-
-        m_EntityNames[entity] = "Cube";
-        m_ConsoleMessages.push_back("Cube entity created successfully with " + std::to_string(vertices.size()) + " vertices");
-        SelectEntity(entity);
-    } else {
-        m_ConsoleMessages.push_back("ERROR: Cannot create cube - missing coordinator or physics system");
+// Shared implementation for the three primitive builders.
+//
+// Each of them used to do `Mesh* mesh = new Mesh(...)` and hand the raw
+// pointer to a non-owning RenderComponent. Nothing owned it, so every cube,
+// sphere and plane the editor created leaked its vertex data plus a
+// VAO/VBO/EBO triple — permanently, since deleting the entity only dropped
+// the component. They also pushed no undo command, unlike CreateEntity.
+//
+// Routing through AssetRegistry fixes both: the three `builtin://` primitives
+// are cached, so N cubes share one Mesh (which is what the Lua spawners
+// already did), and `meshPath` comes out correct for free so the scene
+// serializer can round-trip the entity.
+void UIManager::CreatePrimitive(const char* meshPath,
+                                const char* displayName,
+                                const glm::vec3& position,
+                                const glm::vec3& scale,
+                                const PhysicsComponent& physicsProto) {
+    if (!m_Coordinator) {
+        m_ConsoleMessages.push_back("ERROR: Cannot create primitive - no coordinator");
+        return;
     }
+
+    auto& registry = Mist::Assets::AssetRegistry::Instance();
+    auto  ref      = LoadRef(registry.meshes(), std::string(meshPath));
+    if (!ref) {
+        m_ConsoleMessages.push_back(std::string("ERROR: failed to load ") + meshPath);
+        return;
+    }
+
+    Entity entity = m_Coordinator->CreateEntity();
+    m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
+
+    TransformComponent transform;
+    transform.position = position;
+    transform.scale    = scale;
+    m_Coordinator->AddComponent(entity, transform);
+
+    RenderComponent render;
+    render.renderable = ref.get();   // non-owning; the registry keeps it alive
+    render.visible    = true;
+    render.meshPath   = meshPath;
+    m_Coordinator->AddComponent(entity, render);
+
+    // Body is built by ECSPhysicsSystem on the next tick from these params.
+    m_Coordinator->AddComponent(entity, physicsProto);
+    m_Coordinator->AddComponent(entity, HierarchyComponent{});
+
+    m_EntityNames[entity] = displayName;
+    m_ConsoleMessages.push_back(std::string("Created ") + displayName);
+    SelectEntity(entity);
+
+    // Undo parity with CreateEntity — Ctrl+Z covers primitives now.
+    EntitySnapshot snap = SnapshotEntity(entity);
+    auto idRef = std::make_shared<Entity>(entity);
+    Mist::Editor::Command c;
+    c.label     = std::string("Create ") + displayName;
+    c.merge_key = 0;
+    c.redo = [this, snap, idRef]() { *idRef = RespawnFromSnapshot(snap); };
+    c.undo = [this, idRef]() {
+        if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*idRef)) {
+            m_Coordinator->DestroyEntity(*idRef);
+            m_EntityNames.erase(*idRef);
+            if (m_HasSelectedEntity && m_SelectedEntity == *idRef) {
+                m_HasSelectedEntity = false;
+            }
+        }
+    };
+    m_UndoStack.Push(std::move(c));
+}
+
+void UIManager::CreateCube() {
+    PhysicsComponent p;
+    p.shape       = CollisionShape::Box;
+    p.halfExtents = glm::vec3(0.5f);
+    p.mass        = 1.0f;
+    CreatePrimitive("builtin://cube", "Cube",
+                    glm::vec3(0.0f, 2.0f, 0.0f), glm::vec3(1.0f), p);
 }
 
 void UIManager::CreateSphere() {
-    if (m_Coordinator && m_PhysicsSystem) {
-        Entity entity = m_Coordinator->CreateEntity();
-        m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
-        
-        m_ConsoleMessages.push_back("Creating sphere entity " + std::to_string(entity));
-        
-        // Transform
-        TransformComponent transform;
-        transform.position = glm::vec3(2.0f, 3.0f, 0.0f);  // Spawn to the side and higher up
-        transform.scale = glm::vec3(1.0f);
-        m_Coordinator->AddComponent(entity, transform);
-        m_ConsoleMessages.push_back("Added transform component");
-        
-        // Create sphere mesh
-        std::vector<Vertex> vertices;
-        std::vector<unsigned int> indices;
-        generateSphereMesh(vertices, indices, 1.0f, 36, 18); // radius, sectors, stacks
-        std::vector<Texture> textures;
-        Mesh* mesh = new Mesh(vertices, indices, textures);
-        
-        // Render
-        RenderComponent render;
-        render.renderable = mesh;
-        render.visible = true;
-        m_Coordinator->AddComponent(entity, render);
-        m_ConsoleMessages.push_back("Added render component");
-        
-        // Physics — sphere shape, built next tick by ECSPhysicsSystem.
-        PhysicsComponent physics;
-        physics.shape  = CollisionShape::Sphere;
-        physics.radius = 1.0f;
-        physics.mass   = 1.0f;
-        m_Coordinator->AddComponent(entity, physics);
-        m_ConsoleMessages.push_back("Added physics component");
-        
-        m_Coordinator->AddComponent(entity, HierarchyComponent{});
-
-        m_EntityNames[entity] = "Sphere";
-        m_ConsoleMessages.push_back("Sphere entity created successfully with " + std::to_string(vertices.size()) + " vertices");
-        SelectEntity(entity);
-    } else {
-        m_ConsoleMessages.push_back("ERROR: Cannot create sphere - missing coordinator or physics system");
-    }
+    PhysicsComponent p;
+    p.shape  = CollisionShape::Sphere;
+    p.radius = 1.0f;
+    p.mass   = 1.0f;
+    CreatePrimitive("builtin://sphere", "Sphere",
+                    glm::vec3(2.0f, 3.0f, 0.0f), glm::vec3(1.0f), p);
 }
 
 void UIManager::CreatePlane() {
-    if (m_Coordinator && m_PhysicsSystem) {
-        Entity entity = m_Coordinator->CreateEntity();
-        m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
-        
-        m_ConsoleMessages.push_back("Creating plane entity " + std::to_string(entity));
-        
-        // Transform
-        TransformComponent transform;
-        transform.position = glm::vec3(0.0f, -1.0f, 0.0f);  // Place below origin
-        transform.scale = glm::vec3(10.0f, 1.0f, 10.0f);
-        m_Coordinator->AddComponent(entity, transform);
-        m_ConsoleMessages.push_back("Added transform component");
-        
-        // Create mesh
-        std::vector<Vertex> vertices;
-        std::vector<unsigned int> indices;
-        generatePlaneMesh(vertices, indices);
-        std::vector<Texture> textures;
-        Mesh* mesh = new Mesh(vertices, indices, textures);
-        
-        // Render
-        RenderComponent render;
-        render.renderable = mesh;
-        render.visible = true;
-        m_Coordinator->AddComponent(entity, render);
-        m_ConsoleMessages.push_back("Added render component");
-        
-        // Physics — infinite static ground plane, built next tick.
-        PhysicsComponent physics;
-        physics.shape = CollisionShape::StaticPlane;
-        physics.mass  = 0.0f;  // static
-        m_Coordinator->AddComponent(entity, physics);
-        m_ConsoleMessages.push_back("Added physics component");
-        
-        m_Coordinator->AddComponent(entity, HierarchyComponent{});
-
-        m_EntityNames[entity] = "Plane";
-        m_ConsoleMessages.push_back("Plane entity created successfully with " + std::to_string(vertices.size()) + " vertices");
-        SelectEntity(entity);
-    } else {
-        m_ConsoleMessages.push_back("ERROR: Cannot create plane - missing coordinator or physics system");
-    }
+    PhysicsComponent p;
+    p.shape = CollisionShape::StaticPlane;
+    p.mass  = 0.0f;  // static
+    CreatePrimitive("builtin://plane", "Plane",
+                    glm::vec3(0.0f, -1.0f, 0.0f), glm::vec3(10.0f, 1.0f, 10.0f), p);
 }
 
 void UIManager::DrawTransformComponent(TransformComponent& transform) {
@@ -1590,29 +1553,46 @@ void UIManager::DrawTransformComponent(TransformComponent& transform) {
         }
 
         if (transformChanged) {
-            try {
-                auto& physics = m_Coordinator->GetComponent<PhysicsComponent>(m_SelectedEntity);
-                if (physics.rigidBody && physics.syncTransform) {
-                    // Update physics body position to match transform
-                    btTransform physicsTransform;
-                    physicsTransform.setOrigin(btVector3(transform.position.x, transform.position.y, transform.position.z));
-                    
-                    // Convert rotation from degrees to radians for physics
-                    btQuaternion rotation;
-                    rotation.setEulerZYX(glm::radians(transform.rotation.y), 
-                                       glm::radians(transform.rotation.x), 
-                                       glm::radians(transform.rotation.z));
-                    physicsTransform.setRotation(rotation);
-                    
-                    physics.rigidBody->setWorldTransform(physicsTransform);
-                    physics.rigidBody->getMotionState()->setWorldTransform(physicsTransform);
-                    physics.rigidBody->activate(true); // Wake up the physics body
-                }
-            } catch (...) {
-                // No physics component, that's okay
-            }
+            SyncPhysicsTransform(m_SelectedEntity, transform);
         }
     }
+}
+
+void UIManager::SyncPhysicsTransform(Entity entity, const TransformComponent& transform) {
+    // Push an editor-authored transform onto the Bullet body, so the next
+    // Bullet->ECS sync doesn't immediately undo the edit.
+    //
+    // Extracted from DrawTransformComponent so the gizmo drag path shares it —
+    // the gizmo used to write the transform and not touch the body, which made
+    // dragging a physics object look like it did nothing.
+    if (!m_Coordinator) return;
+    if (!m_Coordinator->HasComponent<PhysicsComponent>(entity)) return;
+
+    auto& physics = m_Coordinator->GetComponent<PhysicsComponent>(entity);
+    if (!physics.rigidBody || !physics.syncTransform) return;
+
+    // World space: Bullet simulates in world coordinates.
+    const glm::mat4 world = transform.WorldMatrix();
+    const glm::vec3 pos(world[3]);
+
+    btTransform physicsTransform;
+    physicsTransform.setOrigin(btVector3(pos.x, pos.y, pos.z));
+
+    // Build the orientation from the same Rx*Ry*Rz composition
+    // TransformComponent uses, rather than btQuaternion::setEulerZYX — which is
+    // a different convention and was additionally being fed its arguments in
+    // the wrong order here (y, x, z into a (yaw, pitch, roll) signature).
+    const glm::quat q = glm::quat_cast(glm::mat3(
+        glm::eulerAngleXYZ(glm::radians(transform.rotation.x),
+                           glm::radians(transform.rotation.y),
+                           glm::radians(transform.rotation.z))));
+    physicsTransform.setRotation(btQuaternion(q.x, q.y, q.z, q.w));
+
+    physics.rigidBody->setWorldTransform(physicsTransform);
+    if (auto* ms = physics.rigidBody->getMotionState()) {
+        ms->setWorldTransform(physicsTransform);
+    }
+    physics.rigidBody->activate(true);
 }
 
 void UIManager::DrawRenderComponent(RenderComponent& render) {
@@ -1678,6 +1658,35 @@ void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr) 
             case Mist::PropertyType::Int:
                 ImGui::DragInt(p.name, reinterpret_cast<int*>(field));
                 break;
+
+            case Mist::PropertyType::Enum: {
+                // Labelled dropdown from the hint string. Values go through
+                // enum_value/set_enum_value because the underlying type is
+                // usually uint8_t — casting the field to `int*` would stomp
+                // the three bytes after it.
+                const auto labels = Mist::parse_enum_hint(p.hintString);
+                long long cur = Mist::enum_value(field, p.size);
+                if (labels.empty()) {
+                    // Reflected as an enum but given no labels: show the raw
+                    // ordinal rather than nothing, so the omission is visible.
+                    int v = static_cast<int>(cur);
+                    if (ImGui::DragInt(p.name, &v, 1.0f, 0, 255)) {
+                        Mist::set_enum_value(field, p.size, v);
+                    }
+                    break;
+                }
+                std::vector<const char*> items;
+                items.reserve(labels.size());
+                for (const auto& l : labels) items.push_back(l.c_str());
+
+                int idx = (cur >= 0 && cur < static_cast<long long>(items.size()))
+                              ? static_cast<int>(cur) : 0;
+                if (ImGui::Combo(p.name, &idx, items.data(),
+                                 static_cast<int>(items.size()))) {
+                    Mist::set_enum_value(field, p.size, idx);
+                }
+                break;
+            }
 
             case Mist::PropertyType::Float: {
                 float* f = reinterpret_cast<float*>(field);
@@ -2625,8 +2634,17 @@ void UIManager::DrawEditorLayout() {
                 auto& t    = m_Coordinator->GetComponent<TransformComponent>(m_SelectedEntity);
                 float camAspect = displayH2 > 0 ? displayW2 / displayH2 : 16.0f / 9.0f;
                 glm::mat4 view  = cam.GetViewMatrix();
-                glm::mat4 proj  = cam.GetProjectionMatrix(camAspect);
-                glm::mat4 model = t.GetModelMatrix();
+                // Must match the matrix the scene was rendered with, or the
+                // handles sit off the object. Camera::GetProjectionMatrix uses
+                // a 500-unit far plane; the renderer uses Renderer::kFarPlane
+                // (100). Same near/far, panel aspect.
+                glm::mat4 proj  = glm::perspective(glm::radians(cam.Zoom), camAspect,
+                                                   Renderer::kNearPlane,
+                                                   Renderer::kFarPlane);
+                // Manipulate in WORLD space — that is what the user sees and
+                // what ImGuizmo draws against. The local matrix would put the
+                // handles at the parent-relative offset for a parented entity.
+                glm::mat4 model = t.WorldMatrix();
 
                 // Gizmo drag undo: capture pre-drag state at the
                 // transition from "not using" to "using". The check
@@ -2644,13 +2662,38 @@ void UIManager::DrawEditorLayout() {
                 }
 
                 if (m_GizmoSystem->Manipulate(view, proj, model)) {
+                    // `model` is now the desired WORLD transform. The component
+                    // stores a LOCAL one, so for a parented entity we have to
+                    // take the parent's world transform back out before
+                    // decomposing — otherwise dragging a child would add the
+                    // parent's offset into the child's local position and the
+                    // object would leap away from the cursor.
+                    glm::mat4 local = model;
+                    if (m_Coordinator->HasComponent<HierarchyComponent>(m_SelectedEntity)) {
+                        const auto& h =
+                            m_Coordinator->GetComponent<HierarchyComponent>(m_SelectedEntity);
+                        if (h.parent != HierarchyComponent::kNoParent
+                            && m_Coordinator->HasComponent<TransformComponent>(h.parent)) {
+                            const auto& pt =
+                                m_Coordinator->GetComponent<TransformComponent>(h.parent);
+                            local = glm::inverse(pt.WorldMatrix()) * model;
+                        }
+                    }
+
                     float tr[3], rot[3], sc[3];
                     ImGuizmo::DecomposeMatrixToComponents(
-                        glm::value_ptr(model), tr, rot, sc);
+                        glm::value_ptr(local), tr, rot, sc);
                     t.position = {tr[0],  tr[1],  tr[2]};
                     t.rotation = {rot[0], rot[1], rot[2]};
                     t.scale    = {sc[0],  sc[1],  sc[2]};
                     t.dirty    = true;
+
+                    // Push the new transform onto the rigid body, as the
+                    // Inspector's DrawTransformComponent already does. Without
+                    // this, dragging a physics object was overwritten by the
+                    // next Bullet->ECS sync and the gizmo appeared to do
+                    // nothing.
+                    SyncPhysicsTransform(m_SelectedEntity, t);
                 }
 
                 // Drag ended this frame — push the undo command.

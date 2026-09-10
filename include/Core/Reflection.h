@@ -49,6 +49,15 @@ enum class PropertyType : std::uint8_t {
     Vec3,
     Vec4,
     String,
+    // Scoped enumeration. Carried separately from Int because the underlying
+    // type is arbitrary (CollisionShape is uint8_t, MistLightType is uint8_t)
+    // so the field cannot simply be reinterpret_cast to `int*` — doing that
+    // would read three bytes past a one-byte field. Use enum_value /
+    // set_enum_value below, which respect PropertyInfo::size.
+    //
+    // Pair with PropertyHint::Enum and a comma-separated hint string to get a
+    // labelled dropdown in the Inspector.
+    Enum,
 };
 
 // Editor hints — guide the inspector widget choice and any constraints.
@@ -105,11 +114,27 @@ private:
 // "min,max" or "min,max,step". Returns false on malformed input.
 bool parse_range_hint(std::string_view hint, float& min, float& max, float& step);
 
+// Split a PropertyHint::Enum hint string ("Box,Sphere,Capsule") into labels.
+// Order is significant: index N is the label for enumerator value N.
+std::vector<std::string> parse_enum_hint(std::string_view hint);
+
+// Read / write a PropertyType::Enum field without assuming its underlying
+// width. `size` is PropertyInfo::size. Values are moved through `long long`,
+// which covers every underlying type a scoped enum can legally have.
+long long enum_value(const void* field, std::size_t size);
+void      set_enum_value(void* field, std::size_t size, long long value);
+
 // Compile-time C++ type → PropertyType mapping, used by MIST_FIELD. Kept in
 // this header so macro expansion sees it without a second include.
 template <typename T>
 constexpr PropertyType mist_type_tag() {
     if constexpr (std::is_same_v<T, bool>)               return PropertyType::Bool;
+    // Enums must be tested before is_integral_v — `std::is_integral_v<E>` is
+    // false for a scoped enum, which is precisely how PhysicsComponent::shape
+    // and LightComponent::type silently fell through to Unknown: the Inspector
+    // rendered a greyed "unreflected type" label and both serializers skipped
+    // the field entirely, so collision shape could be neither edited nor saved.
+    else if constexpr (std::is_enum_v<T>)                return PropertyType::Enum;
     else if constexpr (std::is_integral_v<T>)            return PropertyType::Int;
     else if constexpr (std::is_same_v<T, float>)         return PropertyType::Float;
     else if constexpr (std::is_same_v<T, double>)        return PropertyType::Float;

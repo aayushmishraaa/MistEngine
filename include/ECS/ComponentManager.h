@@ -6,6 +6,7 @@
 #include "Entity.h"
 #include "TypeID.h"
 
+#include <cassert>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -36,7 +37,17 @@ class ComponentManager {
     }
 
     template <typename T> bool HasComponent(Entity entity) {
-        return GetComponentArray<T>()->HasData(entity);
+        // Must tolerate an UNREGISTERED T and answer "no".
+        //
+        // GetComponentArray below indexes m_ComponentArrays with operator[],
+        // which default-inserts a null shared_ptr for a type that was never
+        // registered — so the old `GetComponentArray<T>()->HasData(entity)`
+        // dereferenced null. Any caller that probes for a component a given
+        // Coordinator doesn't know about (tests that register a subset,
+        // Coordinator::UnlinkFromHierarchy asking about HierarchyComponent)
+        // would crash rather than get `false`.
+        auto arr = TryGetComponentArray<T>();
+        return arr && arr->HasData(entity);
     }
 
     void EntityDestroyed(Entity entity) {
@@ -52,9 +63,19 @@ class ComponentManager {
     std::unordered_map<std::uint32_t, std::shared_ptr<IComponentArray>> m_ComponentArrays{};
     ComponentType m_NextComponentType{};
 
+    // Non-inserting lookup. Returns nullptr when T was never registered.
+    template <typename T> std::shared_ptr<ComponentArray<T>> TryGetComponentArray() {
+        auto it = m_ComponentArrays.find(Mist::ecs::type_id<T>());
+        if (it == m_ComponentArrays.end()) return nullptr;
+        return std::static_pointer_cast<ComponentArray<T>>(it->second);
+    }
+
+    // Registered-type accessor for the add/get/remove paths, which are a
+    // programming error on an unregistered type rather than a query.
     template <typename T> std::shared_ptr<ComponentArray<T>> GetComponentArray() {
-        return std::static_pointer_cast<ComponentArray<T>>(
-            m_ComponentArrays[Mist::ecs::type_id<T>()]);
+        auto arr = TryGetComponentArray<T>();
+        assert(arr && "Component type used before RegisterComponent<T>()");
+        return arr;
     }
 };
 

@@ -42,6 +42,45 @@ bool parse_float(std::string_view s, float& out) {
 }
 } // namespace
 
+std::vector<std::string> parse_enum_hint(std::string_view hint) {
+    std::vector<std::string> out;
+    std::size_t start = 0;
+    while (start <= hint.size()) {
+        auto comma = hint.find(',', start);
+        auto end   = (comma == std::string_view::npos) ? hint.size() : comma;
+        auto tok   = hint.substr(start, end - start);
+        // Trim surrounding spaces so "Box, Sphere" works as well as "Box,Sphere".
+        while (!tok.empty() && tok.front() == ' ') tok.remove_prefix(1);
+        while (!tok.empty() && tok.back() == ' ')  tok.remove_suffix(1);
+        if (!tok.empty()) out.emplace_back(tok);
+        if (comma == std::string_view::npos) break;
+        start = comma + 1;
+    }
+    return out;
+}
+
+long long enum_value(const void* field, std::size_t size) {
+    // Scoped enums are read through their actual width. Treating a 1-byte
+    // enum as an int would read three bytes of neighbouring members.
+    switch (size) {
+        case 1: return static_cast<long long>(*static_cast<const std::uint8_t*>(field));
+        case 2: return static_cast<long long>(*static_cast<const std::uint16_t*>(field));
+        case 4: return static_cast<long long>(*static_cast<const std::uint32_t*>(field));
+        case 8: return static_cast<long long>(*static_cast<const std::uint64_t*>(field));
+        default: return 0;
+    }
+}
+
+void set_enum_value(void* field, std::size_t size, long long value) {
+    switch (size) {
+        case 1: *static_cast<std::uint8_t*>(field)  = static_cast<std::uint8_t>(value);  break;
+        case 2: *static_cast<std::uint16_t*>(field) = static_cast<std::uint16_t>(value); break;
+        case 4: *static_cast<std::uint32_t*>(field) = static_cast<std::uint32_t>(value); break;
+        case 8: *static_cast<std::uint64_t*>(field) = static_cast<std::uint64_t>(value); break;
+        default: break;
+    }
+}
+
 bool parse_range_hint(std::string_view hint, float& min, float& max, float& step) {
     auto comma1 = hint.find(',');
     if (comma1 == std::string_view::npos) return false;

@@ -15,11 +15,22 @@ struct RenderComponent {
     Renderable*  renderable   = nullptr;
     bool         visible      = true;
     std::string  materialPath;    // "" = use the mesh's inline material
+
+    // Where `renderable` came from, so the scene serializer can round-trip it.
+    // Either a `builtin://cube|plane|sphere` primitive or an on-disk model
+    // path. Empty means "not tracked" — the renderer ignores this field
+    // entirely; it exists purely so saving a scene doesn't lose mesh identity.
+    //
+    // Without it, SceneSerializer::mesh_ref_for had no way to recover what a
+    // `Renderable*` pointed at and unconditionally emitted `builtin://cube`,
+    // so every plane, sphere and imported mesh came back as a cube on load.
+    std::string  meshPath;
 };
 
 MIST_REFLECT(RenderComponent)
     MIST_FIELD(RenderComponent, visible,      ::Mist::PropertyHint::None,        "")
     MIST_FIELD(RenderComponent, materialPath, ::Mist::PropertyHint::ResourceRef, "Material")
+    MIST_FIELD(RenderComponent, meshPath,     ::Mist::PropertyHint::ResourceRef, "Mesh")
 MIST_REFLECT_END(RenderComponent)
 
 #endif // RENDERCOMPONENT_H

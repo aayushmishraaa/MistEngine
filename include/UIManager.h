@@ -69,6 +69,8 @@ public:
         bool        hasRender    = false;
         void*       renderable   = nullptr;   // Renderable*; opaque here
         bool        visible      = true;
+        std::string meshPath;                 // so respawn round-trips mesh identity
+        std::string materialPath;
         bool        hasHierarchy = false;
         Entity      parent       = static_cast<Entity>(-1);
         std::string name;
@@ -150,11 +152,19 @@ private:
     Entity m_SelectedEntity;
     bool m_HasSelectedEntity;
 
-    // Entity creation helpers
+    // Entity creation helpers. All three delegate to CreatePrimitive, which
+    // shares a cached `builtin://` mesh rather than leaking a `new Mesh` per
+    // call and records `meshPath` so the scene serializer can round-trip it.
     void CreateCube();
     void CreateSphere();
     void CreatePlane();
-    void CreateModel();
+    void CreatePrimitive(const char* meshPath, const char* displayName,
+                         const glm::vec3& position, const glm::vec3& scale,
+                         const struct PhysicsComponent& physicsProto);
+
+    // Pushes an editor-authored transform onto the entity's Bullet body, if it
+    // has one. Shared by the Inspector's numeric fields and the gizmo drag.
+    void SyncPhysicsTransform(Entity entity, const TransformComponent& transform);
 
     // Inspector helpers
     void DrawTransformComponent(TransformComponent& transform);

@@ -29,6 +29,11 @@ void writeField(json& j, const PBRMaterial& mat, const Mist::PropertyInfo& p) {
         case Mist::PropertyType::Int:
             j[p.name] = *reinterpret_cast<const int*>(field);
             break;
+        case Mist::PropertyType::Enum:
+            // Persisted as the ordinal. Read back through set_enum_value so
+            // the field's real width is respected.
+            j[p.name] = Mist::enum_value(field, p.size);
+            break;
         case Mist::PropertyType::Float:
             j[p.name] = *reinterpret_cast<const float*>(field);
             break;
@@ -69,6 +74,9 @@ void readField(const json& j, PBRMaterial& mat, const Mist::PropertyInfo& p) {
                 break;
             case Mist::PropertyType::Int:
                 *reinterpret_cast<int*>(field) = it->get<int>();
+                break;
+            case Mist::PropertyType::Enum:
+                Mist::set_enum_value(field, p.size, it->get<long long>());
                 break;
             case Mist::PropertyType::Float:
                 *reinterpret_cast<float*>(field) = it->get<float>();

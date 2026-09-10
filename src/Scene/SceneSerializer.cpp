@@ -10,6 +10,7 @@
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Coordinator.h"
+#include "ECS/Systems/HierarchySystem.h"
 #include "Mesh.h"
 #include "Renderable.h"
 #include "Resources/AssetRegistry.h"
@@ -19,9 +20,12 @@
 
 #include <cstdint>
 #include <cstring>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 extern Coordinator gCoordinator;
 
@@ -69,6 +73,8 @@ void writeReflectedFields(json& j, const void* obj, const Mist::PropertyList& pr
                 j[p.name] = *reinterpret_cast<const bool*>(field); break;
             case Mist::PropertyType::Int:
                 j[p.name] = *reinterpret_cast<const int*>(field); break;
+            case Mist::PropertyType::Enum:
+                j[p.name] = Mist::enum_value(field, p.size); break;
             case Mist::PropertyType::Float:
                 j[p.name] = *reinterpret_cast<const float*>(field); break;
             case Mist::PropertyType::Vec2: {
@@ -103,6 +109,8 @@ void readReflectedFields(const json& j, void* obj, const Mist::PropertyList& pro
                     *reinterpret_cast<bool*>(field) = it->get<bool>(); break;
                 case Mist::PropertyType::Int:
                     *reinterpret_cast<int*>(field) = it->get<int>(); break;
+                case Mist::PropertyType::Enum:
+                    Mist::set_enum_value(field, p.size, it->get<long long>()); break;
                 case Mist::PropertyType::Float:
                     *reinterpret_cast<float*>(field) = it->get<float>(); break;
                 case Mist::PropertyType::Vec2:
@@ -139,14 +147,24 @@ void readReflectedFields(const json& j, void* obj, const Mist::PropertyList& pro
     }
 }
 
-// Mesh refs. Static meshes have no source-file tracking yet, so we
-// emit the safe default `builtin://cube` if the Renderable pointer
-// doesn't match a known mapping. Imported rigged/scene meshes round-
-// trip as an out-of-band `imports` section at the top of the scene
-// (Phase E documented limitation: we don't re-emit per-entity for
-// imports; the user re-imports the source file at load).
-json mesh_ref_for(Renderable* /*r*/) {
-    return json{{"builtin", "cube"}};
+// Mesh refs, derived from RenderComponent::meshPath.
+//
+// This used to be `json mesh_ref_for(Renderable*)` that ignored its argument
+// and unconditionally returned `{"builtin":"cube"}` — there was no way to
+// recover what a bare `Renderable*` pointed at. Every plane, sphere and
+// imported model therefore came back as a cube. `meshPath` is recorded at each
+// spawn site now, so the reference survives the round trip.
+json mesh_ref_for(const RenderComponent& r) {
+    constexpr std::string_view kBuiltin = "builtin://";
+    if (r.meshPath.empty()) {
+        // Untracked renderable (a module or plugin built one directly). Record
+        // the absence rather than lying about it with a cube.
+        return json::object();
+    }
+    if (r.meshPath.rfind(kBuiltin.data(), 0) == 0) {
+        return json{{"builtin", r.meshPath.substr(kBuiltin.size())}};
+    }
+    return json{{"ext", r.meshPath}};
 }
 
 Renderable* resolve_mesh_ref(const json& meshJson) {
@@ -158,10 +176,14 @@ Renderable* resolve_mesh_ref(const json& meshJson) {
         return ref.get();
     }
     if (meshJson.contains("ext") && meshJson["ext"].is_string()) {
+        // On-disk models are re-imported through SceneImporter, which spawns
+        // its own entity tree — so a scene cannot restore one from here
+        // without duplicating that tree. Left as a known gap, but it now
+        // reports the actual path instead of silently substituting a cube.
         const std::string& uri = meshJson["ext"].get_ref<const std::string&>();
-        LOG_WARN("SceneSerializer: ext mesh refs not yet loadable: ", uri);
-        auto ref = LoadRef(registry.meshes(), "builtin://cube");
-        return ref.get();
+        LOG_WARN("SceneSerializer: '", uri, "' is an imported model; re-import "
+                 "it via File -> Import Model. Entity will have no mesh.");
+        return nullptr;
     }
     return nullptr;
 }
@@ -169,7 +191,7 @@ Renderable* resolve_mesh_ref(const json& meshJson) {
 } // namespace
 
 bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinator*/,
-                            int entityCount) {
+                            int /*entityCount*/) {
     const auto sandbox = SceneSandboxRoot();
     std::filesystem::path resolved;
     if (!Mist::PathGuard::is_under(sandbox, filepath, &resolved)) {
@@ -190,9 +212,23 @@ bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinat
     const auto* physicsProps   = Mist::TypeRegistry::Instance().Get("PhysicsComponent");
     const auto* renderProps    = Mist::TypeRegistry::Instance().Get("RenderComponent");
 
-    for (int i = 0; i < entityCount; ++i) {
-        const Entity entity = static_cast<Entity>(i);
+    // Iterate the authoritative living-entity set, not a dense 0..entityCount
+    // range.
+    //
+    // `entityCount` is UIManager's m_EntityCounter, which only the UI creation
+    // paths and SetEntityName ever bump — Lua's spawn_cube / spawn_plane /
+    // spawn_light and SceneImporter never touched it. So saving the default
+    // showcase scene, which is entirely Lua-authored, wrote almost nothing.
+    // GetLivingEntities() is what the Hierarchy panel already uses for exactly
+    // this reason.
+    //
+    // Sorted so scene files are stable and diffable across saves (the living
+    // set is an unordered_set).
+    std::vector<Entity> living(gCoordinator.GetLivingEntities().begin(),
+                               gCoordinator.GetLivingEntities().end());
+    std::sort(living.begin(), living.end());
 
+    for (const Entity entity : living) {
         json e = json::object();
         e["id"] = static_cast<int>(entity);
 
@@ -207,7 +243,7 @@ bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinat
 
         if (gCoordinator.HasComponent<RenderComponent>(entity)) {
             const auto& r = gCoordinator.GetComponent<RenderComponent>(entity);
-            json jr = {{"mesh", mesh_ref_for(r.renderable)}};
+            json jr = {{"mesh", mesh_ref_for(r)}};
             if (renderProps) writeReflectedFields(jr, &r, *renderProps);
             e["render"] = jr;
         }
@@ -313,10 +349,31 @@ bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinat
     const auto* physicsProps   = Mist::TypeRegistry::Instance().Get("PhysicsComponent");
     const auto* renderProps    = Mist::TypeRegistry::Instance().Get("RenderComponent");
 
+    // Clear the existing world first. Load used to add on top of whatever was
+    // already there, so opening a scene duplicated the current one instead of
+    // replacing it. Snapshot the id list before destroying — DestroyEntity
+    // mutates the living set we'd otherwise be iterating.
+    {
+        std::vector<Entity> doomed(gCoordinator.GetLivingEntities().begin(),
+                                   gCoordinator.GetLivingEntities().end());
+        for (Entity e : doomed) gCoordinator.DestroyEntity(e);
+        LOG_INFO("SceneSerializer: cleared ", doomed.size(), " existing entities");
+    }
+
+    // Saved ids are not the ids CreateEntity will hand back, so hierarchy links
+    // have to be remapped. Pass 1 creates entities and records old->new; pass 2
+    // wires parents once every id is known (a child can reference a parent that
+    // appears later in the file).
+    std::unordered_map<Entity, Entity> idRemap;
+    std::vector<std::pair<Entity, Entity>> pendingParents;  // {child(new), parent(old)}
+
     entityCount = 0;
     for (const auto& e : root["entities"]) {
         Entity entity = gCoordinator.CreateEntity();
         entityCount = std::max(entityCount, static_cast<int>(entity) + 1);
+        if (e.contains("id") && e["id"].is_number_integer()) {
+            idRemap[static_cast<Entity>(e["id"].get<int>())] = entity;
+        }
 
         if (e.contains("transform") && e["transform"].is_object()) {
             TransformComponent t;
@@ -355,16 +412,16 @@ bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinat
         }
 
         if (e.contains("hierarchy") && e["hierarchy"].is_object()) {
-            HierarchyComponent h;
+            // Add an empty HierarchyComponent now; the parent link is applied
+            // in pass 2 via HierarchySystem::Attach, which keeps both sides of
+            // the relationship consistent. `children` is deliberately NOT read
+            // back from the file — it is derived from the parent links, and
+            // trusting both would let a hand-edited scene desynchronise them.
+            gCoordinator.AddComponent(entity, HierarchyComponent{});
             if (e["hierarchy"].contains("parent") && e["hierarchy"]["parent"].is_number_integer()) {
-                h.parent = static_cast<Entity>(e["hierarchy"]["parent"].get<int>());
+                pendingParents.emplace_back(
+                    entity, static_cast<Entity>(e["hierarchy"]["parent"].get<int>()));
             }
-            if (e["hierarchy"].contains("children") && e["hierarchy"]["children"].is_array()) {
-                for (const auto& cj : e["hierarchy"]["children"]) {
-                    h.children.push_back(static_cast<Entity>(cj.get<int>()));
-                }
-            }
-            gCoordinator.AddComponent(entity, h);
         }
 
         if (e.contains("animation") && e["animation"].is_object()) {
@@ -379,8 +436,23 @@ bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinat
         }
     }
 
+    // Pass 2: wire hierarchy through the id remap.
+    std::size_t attached = 0, orphaned = 0;
+    for (const auto& [child, oldParent] : pendingParents) {
+        auto it = idRemap.find(oldParent);
+        if (it == idRemap.end()) {
+            ++orphaned;  // parent id not present in the file; child stays a root
+            continue;
+        }
+        if (HierarchySystem::Attach(gCoordinator, it->second, child)) ++attached;
+    }
+    if (orphaned > 0) {
+        LOG_WARN("SceneSerializer: ", orphaned, " entity/entities referenced a "
+                 "parent id not present in the file; loaded as roots");
+    }
+
     LOG_INFO("Scene loaded from: ", resolved.string(),
              " (v", root.value("version", std::string("?")), ", ",
-             root["entities"].size(), " entities)");
+             root["entities"].size(), " entities, ", attached, " parented)");
     return true;
 }

@@ -1,10 +1,13 @@
 #ifndef COORDINATOR_H
 #define COORDINATOR_H
 
+#include <algorithm>
 #include <memory>
 #include "EntityManager.h"
 #include "ComponentManager.h"
 #include "SystemManager.h"
+#include "Components/HierarchyComponent.h"
+#include "Components/TransformComponent.h"
 
 class Coordinator {
 public:
@@ -20,6 +23,22 @@ public:
     }
 
     void DestroyEntity(Entity entity) {
+        // Unlink from the scene graph BEFORE the components go away.
+        //
+        // Destroying a parented entity used to leave its id sitting in the
+        // parent's `children` vector and leave its own children pointing at a
+        // dead parent. The Hierarchy panel then rendered a phantom row — and
+        // once the id was recycled by a later CreateEntity, that row silently
+        // became a *different* entity nested under the wrong parent.
+        //
+        // This is the single choke point every destroy path funnels through
+        // (editor delete, undo/redo, Lua destroy_entity, scene load's clear),
+        // which is why the fix lives here rather than at each caller. The cost
+        // is that the otherwise component-agnostic Coordinator has to know
+        // about HierarchyComponent; the alternative was every call site
+        // remembering to detach first, which is exactly what went wrong.
+        UnlinkFromHierarchy(entity);
+
         m_EntityManager->DestroyEntity(entity);
         m_ComponentManager->EntityDestroyed(entity);
         m_SystemManager->EntityDestroyed(entity);
@@ -84,6 +103,36 @@ public:
     }
 
 private:
+    // Detach `entity` from its parent and re-root its children, so no live
+    // HierarchyComponent is left referencing a destroyed id. Deliberately does
+    // NOT use HierarchySystem::Detach: HierarchySystem.h includes this header,
+    // so calling into it would be a cycle. The logic is small enough to inline.
+    void UnlinkFromHierarchy(Entity entity) {
+        if (!HasComponent<HierarchyComponent>(entity)) return;
+        auto& h = GetComponent<HierarchyComponent>(entity);
+
+        // Remove ourselves from our parent's child list.
+        if (h.parent != HierarchyComponent::kNoParent
+            && HasComponent<HierarchyComponent>(h.parent)) {
+            auto& siblings = GetComponent<HierarchyComponent>(h.parent).children;
+            siblings.erase(std::remove(siblings.begin(), siblings.end(), entity),
+                           siblings.end());
+        }
+
+        // Re-root our children rather than orphaning them onto a dead id, and
+        // mark them dirty so HierarchySystem recomputes them next frame.
+        for (Entity child : h.children) {
+            if (HasComponent<HierarchyComponent>(child)) {
+                GetComponent<HierarchyComponent>(child).parent =
+                    HierarchyComponent::kNoParent;
+            }
+            if (HasComponent<TransformComponent>(child)) {
+                GetComponent<TransformComponent>(child).dirty = true;
+            }
+        }
+        h.children.clear();
+    }
+
     std::unique_ptr<EntityManager> m_EntityManager;
     std::unique_ptr<ComponentManager> m_ComponentManager;
     std::unique_ptr<SystemManager> m_SystemManager;

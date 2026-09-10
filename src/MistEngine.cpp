@@ -246,6 +246,7 @@ int main() {
         RenderComponent gr;
         gr.renderable = planeMesh.get();
         gr.visible    = true;
+        gr.meshPath   = "builtin://plane";
         gCoordinator.AddComponent(ground, gr);
         uiManager.SetEntityName(ground, "Ground");
 
@@ -256,6 +257,7 @@ int main() {
         RenderComponent cr;
         cr.renderable = cubeMesh.get();
         cr.visible    = true;
+        cr.meshPath   = "builtin://cube";
         gCoordinator.AddComponent(cube, cr);
         uiManager.SetEntityName(cube, "Default Cube");
     }
