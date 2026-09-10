@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.20)
 project(MistEngine VERSION 0.5.0 LANGUAGES CXX C)
 
+# Global language floor. The per-target `target_compile_features(... cxx_std_17)`
+# calls below do NOT propagate into FetchContent subprojects, so dependencies
+# would otherwise build at their own default. That bit us concretely: Catch2
+# compiled at C++14 leaves `StringMaker<std::string_view>::convert` undefined,
+# while our C++17 test TUs reference it — an undefined-symbol link failure on
+# libc++. Setting the standard here keeps every dependency ABI-consistent with
+# the engine.
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 # ---------------------------------------------------------------------------
 # Options
 # ---------------------------------------------------------------------------
@@ -25,6 +36,15 @@ find_package(Bullet REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glm REQUIRED)
 find_package(Freetype REQUIRED)
+
+# CMake 4.0 dropped compatibility with `cmake_minimum_required(VERSION < 3.5)`.
+# Two of our FetchContent dependencies still declare one — walterschell/Lua
+# and (older tags of) ImGuizmo — so configuring with CMake 4.x aborts in the
+# dependency's own CMakeLists before we ever get a chance to patch it. This is
+# the documented escape hatch: it raises the effective policy floor for those
+# subprojects without touching their sources. Harmless on CMake 3.x, where the
+# variable is simply unused.
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 
 # nlohmann/json via FetchContent — used by SceneSerializer and any future
 # save/load path. Promoted to top-level after the AI subsystem removal;
@@ -77,11 +97,16 @@ if(MIST_ENABLE_SCRIPTING)
     )
     FetchContent_MakeAvailable(lua_cmake)
 
-    # sol2 — header-only Lua C++ wrapper. Latest stable tag.
+    # sol2 — header-only Lua C++ wrapper.
+    #
+    # Pinned to v3.5.0, not v3.3.1: the older tag's `optional<T&>::emplace`
+    # calls a `construct` member that doesn't exist on that specialisation.
+    # GCC/older Clang never instantiated it, but AppleClang 21 does and the
+    # build fails outright. v3.5.0 rewrote that path to use placement-new.
     FetchContent_Declare(
         sol2
         GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-        GIT_TAG        v3.3.1
+        GIT_TAG        v3.5.0
     )
     FetchContent_MakeAvailable(sol2)
 endif()

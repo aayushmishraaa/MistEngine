@@ -47,6 +47,19 @@
             }
         },
         {
+            "name": "mac-debug",
+            "displayName": "macOS — Debug (library + tests only)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build-mac-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "MIST_ENABLE_TESTS": "ON",
+                "MIST_ASAN": "OFF",
+                "MIST_BUILD_EDITOR": "ON",
+                "MIST_ENABLE_SCRIPTING": "ON"
+            }
+        },
+        {
             "name": "windows-release",
             "displayName": "Windows — Release (vcpkg)",
             "generator": "Visual Studio 17 2022",
@@ -67,9 +80,17 @@
         {"name": "linux-release", "configurePreset": "linux-release"},
         {"name": "linux-ci",      "configurePreset": "linux-ci"},
         {"name": "linux-runtime", "configurePreset": "linux-runtime"},
+        {"name": "mac-debug",     "configurePreset": "mac-debug"},
         {"name": "windows-release", "configurePreset": "windows-release"}
     ],
     "testPresets": [
+        {
+            "name": "mac-debug",
+            "configurePreset": "mac-debug",
+            "output": {"outputOnFailure": true},
+            "execution": {"stopOnFailure": false},
+            "filter": {"exclude": {"name": "lua-testsuite"}}
+        },
         {
             "name": "linux-ci",
             "configurePreset": "linux-ci",

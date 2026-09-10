@@ -99,9 +99,6 @@ int main() {
     std::cout << "Built with " << MIST_ENGINE_COMPILER << " on " << MIST_ENGINE_PLATFORM << std::endl;
     std::cout << "Build Type: " << MIST_ENGINE_BUILD_TYPE << std::endl;
     std::cout << "Features: ";
-#if MIST_ENGINE_HAS_AI_INTEGRATION
-    std::cout << "AI ";
-#endif
 #if MIST_ENGINE_HAS_PHYSICS
     std::cout << "Physics ";
 #endif
@@ -271,7 +268,7 @@ int main() {
     renderer.GetCamera().SetOrbitMode(true);
 
     std::cout << "=== Engine Initialization Complete ===" << std::endl;
-    std::cout << "Editor ready. F1=Demo  F2=AI panel  F3=Scene editor  F=focus on selection" << std::endl;
+    std::cout << "Editor ready. F1=Demo  F3=Scene editor  F=focus on selection" << std::endl;
 
     // Fixed-timestep physics. Decouples deterministic physics from the
     // variable-rate render frame: at 144 Hz display we still run physics at

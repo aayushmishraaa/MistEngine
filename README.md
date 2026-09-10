@@ -1,342 +1,197 @@
 # MistEngine 0.5.0
 
-[![Version](https://img.shields.io/badge/version-0.5.0--prealpha-brightgreen.svg)](https://github.com/yourusername/MistEngine)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue.svg)](https://github.com/yourusername/MistEngine)
-[![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://github.com/yourusername/MistEngine)
+[![Version](https://img.shields.io/badge/version-0.5.0--prealpha-brightgreen.svg)](https://github.com/aayushmishraaa/MistEngine)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-blue.svg)](https://github.com/aayushmishraaa/MistEngine)
+[![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://github.com/aayushmishraaa/MistEngine)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> **A modern C++17 OpenGL 4.6 engine — editor + renderer sandbox.**
+> A C++17 OpenGL 4.6 engine — editor and renderer sandbox.
 
-MistEngine is a 3D engine built with modern C++17, featuring an Entity-Component-System (ECS) architecture, a PBR renderer with CSM/SSGI/TAA/bloom/FXAA, clustered lighting, Bullet physics, Dear ImGui-based scene editor, hot-reloadable plugin modules, and an optional AI assistant (Gemini / OpenAI). Builds from a single CMake tree on Windows (via vcpkg) and Linux (via system packages). The bundled FPS demo from 0.4.x was removed in 0.5.0 — the engine's direction is now the editor + rendering sandbox.
+MistEngine is a 3D engine built around an Entity-Component-System core, a PBR forward renderer with
+cascaded shadow maps and a screen-space post-process chain, Bullet physics, a Dear ImGui editor with
+dockable panels and transform gizmos, Lua scripting via sol2, and hot-loadable plugin modules. It
+builds from one CMake tree on Linux and Windows.
 
----
-
-## ? **Key Features**
-
-### ?? **Complete FPS Game**
-- **Fully playable FPS experience** with enemy AI, weapons, and levels
-- **Real-time combat** with physics-based projectiles
-- **Intelligent enemy behaviors** including patrol, chase, and attack states
-- **Multiple weapon types** (Pistol, Rifle, Shotgun, Sniper)
-- **Health and scoring systems** with game progression
-
-### ??? **Advanced Engine Architecture**
-- **Entity-Component-System (ECS)** for maximum performance and flexibility
-- **Modular plugin system** with hot-reloadable modules
-- **Dual physics integration** (Bullet Physics + custom ECS physics)
-- **Modern OpenGL 3.3 rendering** with shadow mapping and skybox
-- **Scene editor** with transform manipulation and object creation
-
-### ?? **AI-Powered Development**
-- **Real-time AI assistance** integrated directly into the engine
-- **Google Gemini API support** for intelligent code suggestions
-- **Context-aware development help** with F2 hotkey access
-- **AI-assisted debugging** and problem-solving
-
-### ?? **Professional Editor Interface**
-- **ImGui-based editor** with hierarchy, inspector, and console
-- **Game export system** for distributing standalone games
-- **Asset browser** and scene management
-- **Multiple input modes** (Scene Editor, FPS Game, UI-focused)
-
-### ?? **Developer Experience**
-- **Hot-reloadable plugins** for rapid development
-- **Comprehensive logging** and debug console
-- **Modern C++14 practices** with RAII and smart pointers
-- **Cross-platform foundation** with Windows x64 primary support
+**Pre-alpha.** This is a working sandbox, not a shipping engine. See
+[Known limitations](#known-limitations) before starting anything that depends on it.
 
 ---
 
-## ?? **Quick Start**
+## Platform support
 
-### **Prerequisites**
-- Visual Studio 2019 or later with C++14 support
-- Windows 10/11 (x64)
-- OpenGL 3.3 compatible graphics card
-- 4GB RAM minimum, 8GB recommended
+| Platform | Builds | Tests | Editor runs |
+|---|---|---|---|
+| Linux (x86_64) | yes | yes | yes |
+| Windows (x64, vcpkg) | yes | yes | yes |
+| macOS (Apple Silicon / Intel) | yes | yes | **no** |
 
-### **Build & Run**
+macOS builds the library and runs the full headless test suite, but **cannot run the editor**.
+Apple's OpenGL implementation is deprecated and frozen at 4.1, while the renderer depends on
+OpenGL 4.3–4.6 features throughout: direct-state-access entry points (~220 call sites), compute
+shaders (clustered light culling, Hi-Z reduction, SSR, GPU particles), shader storage buffers, image
+load/store, and `#version 460 core` in all 51 shaders. Supporting it would mean a second,
+GL 4.1-compatible backend — or a Vulkan backend behind `RenderingDevice` running on MoltenVK. Neither
+exists yet. Develop the renderer on Linux or Windows; use the macOS preset for tests.
+
+---
+
+## Building
+
+### Dependencies
+
+OpenGL, GLFW 3, GLM, Assimp, Bullet 3, Freetype. Fetched automatically via CMake `FetchContent`:
+Dear ImGui (docking branch), ImGuizmo, nlohmann/json, Lua 5.4, sol2, Catch2. Every dependency is
+pinned to an exact tag or SHA.
+
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/MistEngine.git
-cd MistEngine
+# Linux
+sudo apt-get install ninja-build libglfw3-dev libglm-dev libassimp-dev \
+                     libbullet-dev libfreetype-dev
+cmake --preset linux-release && cmake --build --preset linux-release -j
+./build-linux-release/MistEngine
 
-# Open the solution file
-start MistEngine.sln
+# macOS (library + tests only)
+brew install cmake ninja glfw glm assimp bullet freetype
+cmake --preset mac-debug && cmake --build --preset mac-debug -j
+ctest --preset mac-debug --output-on-failure
 
-# Build and run in Visual Studio (Ctrl+F5)
+# Windows (needs VCPKG_ROOT)
+cmake --preset windows-release && cmake --build --preset windows-release --config Release
 ```
 
-### **First Launch**
-1. **?? Try the FPS Game**: Click the green "?? START FPS GAME" button
-2. **??? Explore the Editor**: Use GameObject menu to create cubes, spheres, planes
-3. **?? Setup AI Assistant**: Press F2 and configure your Gemini API key
-4. **?? Read Documentation**: Check the `docs/` folder for comprehensive guides
+### Presets
+
+| Preset | Notes |
+|---|---|
+| `linux-debug` | Debug + AddressSanitizer + UBSan |
+| `linux-release` | Optimised |
+| `linux-ci` | Debug, no sanitizers — what CI runs |
+| `linux-runtime` | `MIST_BUILD_EDITOR=OFF`, headless runtime |
+| `mac-debug` | Library + tests; editor will not run |
+| `windows-release` | Visual Studio 17 2022, vcpkg toolchain |
+
+### Options
+
+`MIST_BUILD_EDITOR` (ON) · `MIST_ENABLE_SCRIPTING` (ON) · `MIST_ENABLE_TESTS` (ON) ·
+`MIST_ENABLE_AUDIO` (OFF) · `MIST_ASAN` (OFF) · `MIST_TEST_GL` (OFF)
+
+Run the test suite with `ctest --preset <preset>`. It is headless by design — no window, no GL
+context, no network.
 
 ---
 
-## ?? **FPS Game Controls**
+## What's actually in here
 
-### **Scene Editor Mode**
-- `WASD` + `QE` - Camera movement
-- `Right-click + Hold` - Mouse look
-- `F3` - Toggle between Editor and FPS modes
+### Rendering
 
-### **FPS Game Mode** 
-- `WASD` - Player movement
-- `Mouse` - Look around (automatically captured)
-- `Left Click` - Shoot
-- `R` - Reload weapon
-- `1/2` - Switch weapons
-- `ESC` - Pause/Resume game
+- Forward PBR (Cook-Torrance GGX), HDR pipeline, AgX / ACES / Reinhard tonemapping
+- Cascaded shadow maps — 4 cascades at 2048², PCSS soft shadows with separated blocker bias
+- Omni shadows — cubemap array, up to 4 shadow-casting point lights
+- Clustered lighting — 16×9×24 grid, compute-shader culling, 1024-light SSBO
+- Post-process chain: bloom, SSAO, TAA (Halton jitter + variance clipping), SSR over a Hi-Z
+  pyramid, bokeh depth of field, motion blur, FXAA
+- Depth prepass writing octahedral-packed normals and roughness
+- Procedural and atmospheric skyboxes
 
-### **General**
-- `F1` - Toggle ImGui demo window
-- `F2` - Open AI Assistant
-- `F3` - Toggle input modes
+### Engine
 
----
+- ECS with signature-based system matching and a flat scene-graph component
+- Bullet physics with RAII ownership wrappers, fixed 60 Hz timestep, shape-hash body rebuild
+- Lua scripting (sol2) with per-script sandboxed environments — spawn, transform, physics, lighting,
+  animation and raycast bindings
+- Reflection (`MIST_REFLECT`) driving the Inspector, scene JSON and `.mistmat` materials from one
+  declaration
+- Assimp scene import (`.obj` / `.fbx` / `.gltf` / `.glb`) with PBR texture resolution
+- `.mist` scene format and `.mistpkg` single-file archives
+- Hot-loadable plugin modules (`.so` / `.dll` / `.dylib`) behind a sandboxed loader
 
-## ?? **Architecture Overview**
+### Editor
 
-MistEngine implements several advanced software engineering patterns:
-
-### **Entity-Component-System (ECS)**
-```cpp
-// Create entity with components
-Entity player = gCoordinator.CreateEntity();
-gCoordinator.AddComponent(player, TransformComponent{});
-gCoordinator.AddComponent(player, PlayerComponent{});
-gCoordinator.AddComponent(player, WeaponComponent{});
-```
-
-### **Modular Plugin System**
-```cpp
-// Hot-reloadable plugin development
-class MyPlugin : public Module {
-    void Initialize() override { /* Plugin initialization */ }
-    void Update(float deltaTime) override { /* Plugin logic */ }
-};
-```
-
-### **AI Integration**
-```cpp
-// Real-time development assistance
-AIResponse response = aiManager.GetCodeSuggestions(currentContext);
-```
+- Dockable ImGui layout with persisted arrangement, three themes
+- Hierarchy with drag-drop reparenting, reflection-driven Inspector, asset browser
+- ImGuizmo translate/rotate/scale handles with snapping
+- Undo/redo with Godot-style merge semantics (slider drags collapse to one step)
+- Console doubling as a Lua REPL
+- Profiler with non-blocking GPU timer queries
 
 ---
 
-## ?? **Project Highlights**
+## Controls
 
-### **?? Advanced Features**
-- **Complete FPS Game Implementation** - Playable shooter with AI enemies
-- **AI-Powered Development Environment** - Revolutionary coding assistance
-- **Professional Game Export System** - Distribute standalone games
-- **Hot-Reloadable Plugin Architecture** - Rapid development workflow
-- **Dual Physics Systems** - Both Bullet Physics and custom ECS physics
-- **Comprehensive Documentation** - Extensive user and technical guides
-
-### **?? Technical Achievements**
-- **Modern C++14 Implementation** with advanced template metaprogramming
-- **Memory-Safe Architecture** using RAII and smart pointers
-- **High-Performance ECS** with optimized component storage
-- **Cross-System Integration** between physics, rendering, and AI
-- **Professional Build System** with comprehensive error handling
-
-### **?? Academic Quality**
-- **MSc Dissertation Level Documentation** in `docs/technical/`
-- **Comprehensive Architecture Analysis** with design pattern coverage
-- **Research-Quality Implementation** suitable for academic study
-- **Extensive Problem-Solving Documentation** showing development process
+| Key | Action |
+|---|---|
+| `WASD` / `QE` | Fly camera |
+| Right-drag | Mouse look |
+| Middle-drag | Orbit · `Shift` + middle-drag to pan |
+| Scroll | Zoom |
+| `Numpad 1/3/7` | Front / right / top view |
+| `Numpad 5` | Toggle orbit mode · `Numpad 0` resets |
+| `F` | Focus selection |
+| `W` / `E` / `R` | Translate / rotate / scale gizmo |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| `F1` | ImGui demo window |
+| `Esc` | Quit |
 
 ---
 
-## ?? **Project Structure**
+## Known limitations
+
+Honest list, because several of these look like they work:
+
+- **Skeletal animation renders a static bind pose.** Rigs import and clips populate the Inspector,
+  but the bone hierarchy walk is unimplemented and the inverse bind matrix is never applied.
+- **Image-based lighting is not wired up.** `IBL::ProcessEnvironmentMap` has no caller and its
+  cubemap convolution draws without a bound VAO. Ambient falls back to a constant.
+- **GPU particles allocate but never draw.** No render program is loaded and the indirect draw count
+  is never written.
+- **Several subsystems are unreachable from `main()`** — the action-mapping `InputSystem`, the
+  `EventBus`, `SystemScheduler`, the audio stack, and the `.import` asset pipeline. They compile and
+  are unit-tested; they are not connected.
+- **Keyboard shortcuts are display-only** apart from undo/redo and the gizmo keys. Menu chords render
+  from `ShortcutRegistry` but nothing dispatches them.
+- **Play / Pause / Stop change editor state only.** No scene snapshot or restore.
+- **The backend abstraction is cosmetic.** `RenderingDevice` exists, but consumers cast to
+  `GLRenderingDevice` to reach the raw handle, so it is not yet a seam a second backend could use.
+- **`GameExporter` is vestigial**, still shaped around the FPS demo removed in 0.5.0.
+
+---
+
+## Project layout
 
 ```
 MistEngine/
-??? ??? src/                    # Source code
-?   ??? ECS/                   # Entity-Component-System
-?   ??? AI/                    # AI integration system
-?   ??? Physics/               # Physics systems
-?   ??? ...                    # Core engine systems
-??? ?? include/                # Header files
-??? ?? shaders/                # GLSL shaders
-??? ?? modules/                # Plugin modules
-??? ?? docs/                   # Comprehensive documentation
-??? ?? exports/                # Game export outputs
-??? ?? MistEngine.sln          # Visual Studio solution
+├── include/            Public headers (ECS, Renderer, Editor, Core, Script, …)
+├── src/                Implementation
+├── shaders/            51 GLSL shaders (#version 460 core)
+├── scripts/            Lua — bootstrap.lua is the opening scene
+├── tests/              Catch2 suite, headless
+├── modules/            Example hot-loadable plugin
+├── docs/               Architecture and user guides
+└── CMakeLists.txt
 ```
 
----
-
-## ?? **AI Assistant Setup**
-
-MistEngine includes revolutionary AI-powered development assistance:
-
-1. **Get API Key**: Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
-2. **Configure in Engine**: Press `F2` ? Configure API Key ? Paste key
-3. **Start Coding**: Get real-time suggestions, debugging help, and code reviews
-
-**AI Features:**
-- ?? Real-time code suggestions
-- ?? Intelligent debugging assistance  
-- ?? Context-aware documentation
-- ?? Code refactoring recommendations
+The editor's opening scene is authored in `scripts/showcase.lua` — edit that, not C++, to change
+what you see on launch.
 
 ---
 
-## ?? **System Requirements**
+## Contributing
 
-### **Minimum**
-- Windows 10 x64
-- Visual Studio 2019
-- OpenGL 3.3 GPU
-- 4GB RAM
-- 2GB disk space
+See [CONTRIBUTING.md](CONTRIBUTING.md). Enable the pre-commit hook once per clone:
 
-### **Recommended**
-- Windows 11 x64
-- Visual Studio 2022
-- Modern GPU (GTX 1060+)
-- 8GB+ RAM
-- SSD storage
-
----
-
-## ?? **Development**
-
-### **Contributing**
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
-
-### **Build Configuration**
-```cpp
-// Debug build - full debugging information
-#ifdef _DEBUG
-    #define MIST_ENGINE_BUILD_TYPE "Debug"
-#else
-    #define MIST_ENGINE_BUILD_TYPE "Release"
-#endif
+```bash
+git config core.hooksPath .githooks
 ```
 
-### **Plugin Development**
-```cpp
-// Create custom plugin
-class MyGameLogic : public Module {
-    void Initialize() override {
-        // Plugin initialization
-    }
-    
-    void Update(float deltaTime) override {
-        // Game logic updates
-    }
-};
-```
+It runs `clang-format` over staged sources and rejects trailing whitespace.
 
 ---
 
-## ?? **Academic Use**
+## License
 
-MistEngine is designed for educational and research purposes:
+MIT — see [LICENSE](LICENSE).
 
-- **?? MSc Dissertation Material** - Complete technical analysis
-- **??? Software Engineering Patterns** - Advanced design pattern implementations
-- **?? Research Applications** - Suitable for game engine research
-- **?? Educational Resource** - Comprehensive learning material
+## Acknowledgments
 
-See `docs/technical/MistEngine_Implementation_Analysis.md` for academic-quality documentation.
-
----
-
-## ?? **Version History**
-
-### **?? v0.3.0 - Release (Current)**
-- ? Complete FPS game implementation
-- ? AI-powered development assistance
-- ? Professional game export system
-- ? Hot-reloadable plugin architecture
-- ? Advanced ECS with dual physics
-- ? Comprehensive documentation
-
-### **?? Previous Versions**
-- `v0.2.1` - Pre-alpha with basic ECS
-- `v0.1.0` - Initial prototype
-
----
-
-## ?? **Showcase**
-
-### **?? FPS Game Features**
-- Multiple enemy AI types with different behaviors
-- Physics-based projectile system
-- Real-time health and scoring
-- Multiple weapon types with unique characteristics
-- Pause/resume game functionality
-
-### **??? Development Tools**
-- Real-time scene editing with transform manipulation
-- GameObject creation and component management
-- AI-powered code assistance and debugging
-- Export system for standalone game distribution
-- Hot-reloadable plugin development
-
-### **??? Architecture Achievements**
-- High-performance ECS with optimized memory layout
-- Dual physics integration (Bullet + custom ECS)
-- Advanced AI integration with context awareness
-- Professional editor interface with ImGui
-- Cross-platform foundation with Windows primary support
-
----
-
-## ?? **Support & Community**
-
-### **Documentation**
-- ?? **Complete Guides** - See `docs/` folder
-- ?? **AI Assistant** - Press F2 in engine
-- ?? **GitHub Discussions** - Community support
-- ?? **Issue Tracker** - Bug reports and feature requests
-
-### **Learning Resources**
-- ?? **Architecture Guide** - `docs/technical/MistEngine_Implementation_Analysis.md`
-- ?? **Development Setup** - `docs/user-guide/AI_README.md`
-- ?? **Game Development** - `docs/technical/IMPLEMENTATION_SUMMARY.md`
-- ?? **Plugin Creation** - `docs/technical/MODULARITY_GUIDE.md`
-
----
-
-## ?? **License**
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## ?? **Acknowledgments**
-
-- **Bullet Physics** - Physics simulation
-- **OpenGL** - Graphics rendering
-- **GLFW** - Window management
-- **GLM** - Mathematics library
-- **ImGui** - Immediate mode GUI
-- **Google Gemini** - AI assistance
-
----
-
-<div align="center">
-
-**?? Ready to build amazing games? Start with MistEngine! ??**
-
-[?? Documentation](docs/README.md) | [?? AI Setup](docs/user-guide/AI_README.md) | [??? Architecture](docs/technical/MistEngine_Implementation_Analysis.md) | [?? Plugins](docs/technical/MODULARITY_GUIDE.md)
-
----
-
-**Built with ?? using Modern C++14 � ECS Architecture � AI Integration**
-
-*MistEngine 0.3.0 - Where Games Meet Innovation*
-
-</div>
+Bullet Physics · GLFW · GLM · Dear ImGui · ImGuizmo · Assimp · Lua & sol2 · nlohmann/json · Catch2 ·
+stb_image · glad

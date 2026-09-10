@@ -29,7 +29,6 @@ jobs:
             libassimp-dev \
             libbullet-dev \
             libfreetype-dev \
-            libcurl4-openssl-dev \
             xvfb
 
       - name: Configure
@@ -48,8 +47,6 @@ jobs:
           cp -r shaders scripts models stage/MistEngine-linux/
           # README + LICENSE so users have a starting point.
           cp README.md LICENSE stage/MistEngine-linux/
-          # ai_config example + layout default, no personal JSON.
-          cp ai_config.example.json stage/MistEngine-linux/ || true
 
       - name: Package
         run: |
@@ -92,7 +89,6 @@ jobs:
           cp build-windows-release/Release/*.dll stage/MistEngine-windows/ 2>/dev/null || true
           cp -r shaders scripts models stage/MistEngine-windows/
           cp README.md LICENSE stage/MistEngine-windows/
-          cp ai_config.example.json stage/MistEngine-windows/ 2>/dev/null || true
 
       - name: Package
         shell: pwsh

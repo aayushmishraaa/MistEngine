@@ -1,8 +1,8 @@
 {
     "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
     "name": "mistengine",
-    "version-string": "0.4.2-prealpha",
-    "description": "A modern C++17 OpenGL 4.6 game engine with PBR, HDR, TAA, SSGI, PCSS and AI integration.",
+    "version-string": "0.5.0-prealpha",
+    "description": "A modern C++17 OpenGL 4.6 engine — editor + renderer sandbox with PBR, HDR, TAA, SSGI and PCSS.",
     "homepage": "https://github.com/YourUser/MistEngine",
     "dependencies": [
         "opengl",
@@ -10,11 +10,7 @@
         "glm",
         "assimp",
         "bullet3",
-        "freetype",
-        {
-            "name": "curl",
-            "features": ["ssl"]
-        }
+        "freetype"
     ],
     "builtin-baseline": "c8696863d371ab7f46e213d8f5ca923c4aef2a00"
 }

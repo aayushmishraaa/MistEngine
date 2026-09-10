@@ -25,6 +25,10 @@ ai_config_*.json
 # Packaging output
 package/
 
+# Local agent instructions + working notes (not project state)
+CLAUDE.md
+CODE_AUDIT.md
+
 # NOTE: `docs/` and `scripts/` WERE ignored but carry project content —
 # user-facing documentation (editor_controls.md, scripting.md) and
 # runtime-loaded Lua scripts (bootstrap.lua, etc.) must be tracked.

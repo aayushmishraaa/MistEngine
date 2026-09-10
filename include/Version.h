@@ -8,7 +8,7 @@
 
 #define MIST_ENGINE_VERSION_STRING "0.5.0-prealpha"
 #define MIST_ENGINE_NAME "MistEngine"
-#define MIST_ENGINE_DESCRIPTION "A Modern C++17 OpenGL 4.6 Game Engine with PBR, HDR, TAA, SSGI, PCSS, and AI Integration"
+#define MIST_ENGINE_DESCRIPTION "A Modern C++17 OpenGL 4.6 Engine — editor + renderer sandbox with PBR, HDR, TAA, SSGI and PCSS"
 
 // Build information
 #ifdef _DEBUG
@@ -44,12 +44,16 @@
     #define MIST_ENGINE_COMPILER "Unknown"
 #endif
 
-// Features available in this build
-#define MIST_ENGINE_HAS_AI_INTEGRATION 1
+// Features available in this build.
+//
+// MIST_ENGINE_HAS_AI_INTEGRATION is gone, not set to 0: the Gemini/OpenAI
+// subsystem was deleted in 0.5.0, but this flag stayed at 1, so main()'s
+// startup banner kept printing "AI" as an available feature of a build that
+// has no such code in it. MIST_ENGINE_HAS_FPS_GAME below is the same story and
+// is removed for the same reason.
 #define MIST_ENGINE_HAS_PHYSICS 1
 #define MIST_ENGINE_HAS_OPENGL 1
 #define MIST_ENGINE_HAS_IMGUI 1
-#define MIST_ENGINE_HAS_FPS_GAME 0  // removed in 0.5.0
 #define MIST_ENGINE_HAS_PBR 1
 #define MIST_ENGINE_HAS_HDR 1
 #define MIST_ENGINE_HAS_POST_PROCESSING 1

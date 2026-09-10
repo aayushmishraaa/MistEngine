@@ -27,7 +27,6 @@ jobs:
             libassimp-dev \
             libbullet-dev \
             libfreetype-dev \
-            libcurl4-openssl-dev \
             xvfb
 
       - name: Configure
@@ -38,6 +37,29 @@ jobs:
 
       - name: Test (headless)
         run: ctest --preset linux-ci --output-on-failure
+
+  macos:
+    name: macOS Debug (library + tests)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: brew install ninja glfw glm assimp bullet freetype
+
+      # The editor cannot RUN on macOS — Apple's OpenGL is frozen at 4.1 and
+      # the renderer needs 4.6 (direct-state-access, compute shaders, SSBOs).
+      # The library and the test suite build and run fine, because the tests
+      # are headless by design: nothing in them opens a GL context.
+      # This job exists so that stays true.
+      - name: Configure
+        run: cmake --preset mac-debug
+
+      - name: Build
+        run: cmake --build --preset mac-debug -j
+
+      - name: Test (headless)
+        run: ctest --preset mac-debug --output-on-failure
 
   windows:
     name: Windows Release

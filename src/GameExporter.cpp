@@ -583,21 +583,15 @@ bool GameExporter::CreateReadme(const std::string& outputPath, const ExportSetti
     readme << "- Check that all files are present in the game directory\n";
     readme << "- Run the game as administrator if needed\n\n";
     readme << "## Credits\n";
-    readme << "Built with " << MIST_ENGINE_NAME << " " << MIST_ENGINE_VERSION_STRING << " - A modern C++14 game engine\n";
+    readme << "Built with " << MIST_ENGINE_NAME << " " << MIST_ENGINE_VERSION_STRING << " - A modern C++17 OpenGL 4.6 engine\n";
     readme << "Platform: " << MIST_ENGINE_PLATFORM << "\n";
     readme << "Compiler: " << MIST_ENGINE_COMPILER << "\n";
     readme << "Features: ";
-    #if MIST_ENGINE_HAS_AI_INTEGRATION
-    readme << "AI-Integration ";
-    #endif
     #if MIST_ENGINE_HAS_PHYSICS
     readme << "Physics ";
     #endif
     #if MIST_ENGINE_HAS_OPENGL
     readme << "OpenGL ";
-    #endif
-    #if MIST_ENGINE_HAS_FPS_GAME
-    readme << "FPS-Game ";
     #endif
     readme << "\n";
     readme << "Exported on: " << MIST_ENGINE_BUILD_DATE << " at " << MIST_ENGINE_BUILD_TIME << "\n";
