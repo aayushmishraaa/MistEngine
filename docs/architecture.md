@@ -1,3 +1,15 @@
+> **SUPERSEDED — do not trust this document.**
+>
+> Written against 0.4.2 and substantially wrong as of 0.5.0. Specifically: it diagrams
+> `Core::Engine` as the composition root, but that class is never instantiated — the real root is
+> `main()` in `src/MistEngine.cpp`. It documents an `AIManager` and an `HttpClient` that were deleted
+> in 0.5.0. It references a plan file by absolute path on a machine that is not this one. And its
+> PathGuard table is incomplete: `MaterialSerializer` and `PackageIO` were unguarded until commit
+> `04b00b4`.
+>
+> For current architecture and the Godot-parity model, see [`okf/index.md`](okf/index.md).
+> For known defects, see `CODE_AUDIT.md` at the repo root (untracked).
+
 # MistEngine Architecture (post-0.4.2)
 
 This doc captures the module layout after the Phase 1–3 remediation work.
