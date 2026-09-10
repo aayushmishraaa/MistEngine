@@ -1,6 +1,7 @@
 #include "Assets/PackageIO.h"
 
 #include "Core/Logger.h"
+#include "Core/PathGuard.h"
 
 #include <nlohmann/json.hpp>
 
@@ -146,15 +147,32 @@ std::unordered_set<std::string> collectDependencies(const json& sceneJson,
     return deps;
 }
 
+// Extraction directory for an imported package.
+//
+// This used to return a directory under $TMPDIR, which made
+// PackageIO::Import structurally unable to succeed: it handed the extracted
+// scene path to UIManager::LoadScene, and SceneSerializer::Load enforces
+// `is_under(cwd/"scenes", ...)` — a condition no temp-directory path can ever
+// satisfy. So "File -> Import Package" always ended in "Refusing to load
+// outside scene sandbox". The two sandboxes were designed independently and
+// did not compose.
+//
+// Extracting under `scenes/imported/` satisfies both: the package's assets
+// land next to the scene that references them, and the scene itself is inside
+// the sandbox the loader requires.
 std::filesystem::path makeTempPkgDir() {
     std::random_device rd;
     std::mt19937_64 rng(rd());
-    auto tag = rng();
     std::stringstream ss;
-    ss << "mist-pkg-" << std::hex << tag;
-    auto p = std::filesystem::temp_directory_path() / ss.str();
+    ss << "pkg-" << std::hex << rng();
+
     std::error_code ec;
+    auto cwd = std::filesystem::current_path(ec);
+    auto base = (ec ? std::filesystem::path{"scenes"} : cwd / "scenes") / "imported";
+
+    auto p = base / ss.str();
     std::filesystem::create_directories(p, ec);
+    if (ec) return {};
     return p;
 }
 
@@ -221,19 +239,55 @@ bool PackageIO::Import(const std::string& pkgPath, std::string& outScenePath) {
     }
 
     auto tempDir = makeTempPkgDir();
+    if (tempDir.empty()) {
+        LOG_ERROR("PackageIO::Import: could not create extraction directory");
+        return false;
+    }
 
-    // Extract asset blobs. Each key is a relative path; we preserve
-    // the directory structure so the scene's `materialPath`-relative
-    // resolution works without path rewriting.
-    std::size_t extracted = 0;
+    // Extract asset blobs. Each key is a relative path; we preserve the
+    // directory structure so the scene's `materialPath`-relative resolution
+    // works without path rewriting.
+    //
+    // SECURITY: every key comes from the package file and is therefore
+    // untrusted. `tempDir / relPath` does NOT contain traversal —
+    // std::filesystem::path concatenation happily produces
+    // "/etc/cron.d/evil" from "../../../etc/cron.d/evil", and an absolute
+    // key replaces the base entirely. That made opening an untrusted
+    // .mistpkg an arbitrary-file-write primitive. Every destination now goes
+    // through PathGuard, the same boundary already applied to scenes,
+    // exports and module loading.
+    std::size_t extracted = 0, rejected = 0;
     for (const auto& [relPath, b64] : pkg["assets"].items()) {
         if (!b64.is_string()) continue;
+
+        const std::filesystem::path rel(relPath);
+        if (rel.is_absolute() || rel.has_root_name()) {
+            LOG_WARN("PackageIO::Import: rejecting absolute asset path: ", relPath);
+            ++rejected;
+            continue;
+        }
+
+        // Resolve and confirm the result is still inside tempDir after `..`
+        // and symlink resolution.
+        const auto dest = Mist::PathGuard::resolve_under(tempDir, tempDir / rel);
+        if (dest.empty()) {
+            LOG_WARN("PackageIO::Import: rejecting asset path that escapes the "
+                     "extraction directory: ", relPath);
+            ++rejected;
+            continue;
+        }
+
         auto bytes = base64Decode(b64.get<std::string>());
-        if (!writeFileBinary(tempDir / relPath, bytes)) {
+        if (!writeFileBinary(dest, bytes)) {
             LOG_WARN("PackageIO::Import: failed to write: ", relPath);
             continue;
         }
         ++extracted;
+    }
+    if (rejected > 0) {
+        LOG_ERROR("PackageIO::Import: rejected ", rejected,
+                  " asset path(s) that tried to escape the extraction "
+                  "directory — treat this package as hostile");
     }
 
     // Drop the scene alongside its assets so relative paths work.

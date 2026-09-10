@@ -106,6 +106,10 @@ ModuleLoadResult ModuleManager::LoadModule(const std::string& filePath) {
     // Check dependencies
     if (!CheckDependencies(info)) {
         result.errorMessage = "Module dependencies not satisfied: " + info.name;
+        // Drop the instance before unmapping — `module`'s deleter lives in the
+        // library we are about to unload, and it would otherwise run at scope
+        // exit, after UNLOAD_MODULE.
+        module.reset();
         UNLOAD_MODULE(handle);
         return result;
     }
@@ -122,9 +126,12 @@ ModuleLoadResult ModuleManager::LoadModule(const std::string& filePath) {
 
     m_LoadedModules[info.name] = loadedModule;
 
-    // Store timestamp for hot reload
+    // Store timestamp for hot reload, keyed on the RESOLVED path — UnloadModule
+    // erases by `loadedModule.filePath`, which is the resolved form, so keying
+    // on the raw input here leaked an entry per load/unload cycle and left
+    // CheckForModuleChanges watching a path nothing would ever clean up.
     if (m_HotReloadEnabled) {
-        m_ModuleTimestamps[filePath] = GetFileTimestamp(filePath);
+        m_ModuleTimestamps[resolvedPath] = GetFileTimestamp(resolvedPath);
     }
 
     result.success = true;
@@ -140,24 +147,37 @@ bool ModuleManager::UnloadModule(const std::string& moduleName) {
         return false;
     }
 
-    LoadedModule& loadedModule = it->second;
-    
-    // Shutdown module if initialized
+    // ORDER IS CRITICAL, and it was wrong here.
+    //
+    // `loadedModule.module` is a shared_ptr whose custom deleter is
+    // `destroyFunc` — a function pointer INTO the shared library. The previous
+    // code called UNLOAD_MODULE (dlclose / FreeLibrary) first and then
+    // `m_LoadedModules.erase(it)`, which destroyed that shared_ptr and jumped
+    // to a deleter in freshly-unmapped memory. Guaranteed crash on shutdown
+    // with any module loaded; latent only because CMake never copies
+    // `modules/` next to the binary.
+    //
+    // Correct sequence: Shutdown() -> release every reference to module code
+    // -> only then unload the image.
+    LoadedModule loadedModule = std::move(it->second);
+    m_LoadedModules.erase(it);
+
     if (loadedModule.initialized && loadedModule.module) {
         loadedModule.module->Shutdown();
     }
 
-    // Unload the library
-    if (loadedModule.handle) {
-        UNLOAD_MODULE(loadedModule.handle);
-    }
+    // Drop the instance while the library is still mapped, so the deleter is
+    // a valid address when it runs.
+    loadedModule.module.reset();
 
-    // Remove from hot reload tracking
     if (m_HotReloadEnabled) {
         m_ModuleTimestamps.erase(loadedModule.filePath);
     }
 
-    m_LoadedModules.erase(it);
+    if (loadedModule.handle) {
+        UNLOAD_MODULE(loadedModule.handle);
+    }
+
     std::cout << "Unloaded module: " << moduleName << std::endl;
     return true;
 }
@@ -165,16 +185,23 @@ bool ModuleManager::UnloadModule(const std::string& moduleName) {
 void ModuleManager::UnloadAllModules() {
     // Shutdown all modules first
     ShutdownModules();
-    
-    // Then unload them
+
+    // Same ordering hazard as UnloadModule: release every IModule instance
+    // (and therefore every deleter pointing into a library) BEFORE unmapping
+    // the libraries. The old version unloaded first and let m_LoadedModules
+    // .clear() run the deleters afterwards, against unmapped code.
+    std::vector<MODULE_HANDLE> handles;
+    handles.reserve(m_LoadedModules.size());
     for (auto& pair : m_LoadedModules) {
-        LoadedModule& loadedModule = pair.second;
-        if (loadedModule.handle) {
-            UNLOAD_MODULE(loadedModule.handle);
-        }
+        if (pair.second.handle) handles.push_back(pair.second.handle);
+        pair.second.module.reset();
     }
-    
     m_LoadedModules.clear();
+
+    for (MODULE_HANDLE h : handles) {
+        UNLOAD_MODULE(h);
+    }
+
     m_ModuleTimestamps.clear();
     std::cout << "Unloaded all modules" << std::endl;
 }

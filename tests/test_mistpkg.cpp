@@ -1,7 +1,11 @@
 #include <catch2/catch_all.hpp>
 
 #include "Assets/PackageIO.h"
+#include "Core/PathGuard.h"
 
+#include <nlohmann/json.hpp>
+
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -32,6 +36,12 @@ void writeText(const std::filesystem::path& p, const std::string& s) {
     std::filesystem::create_directories(p.parent_path());
     std::ofstream f(p, std::ios::binary | std::ios::trunc);
     f << s;
+}
+
+std::string readText(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    std::stringstream ss; ss << f.rdbuf();
+    return ss.str();
 }
 
 std::vector<std::uint8_t> readBinary(const std::filesystem::path& p) {
@@ -108,4 +118,88 @@ TEST_CASE(".mistpkg import extracts assets byte-exact to a temp dir", "[mistpkg]
     auto extractedDir = std::filesystem::path(extractedScene).parent_path();
     auto extracted = readBinary(extractedDir / "data.bin");
     REQUIRE(extracted == origBytes);
+}
+
+TEST_CASE(".mistpkg import rejects asset paths that escape the extraction dir",
+          "[mistpkg][security]") {
+    // A package's asset keys are attacker-controlled, and
+    // `std::filesystem::path` concatenation does NOT contain traversal:
+    // "/tmp/x" / "../../../etc/passwd" resolves to "/etc/passwd", and an
+    // absolute key replaces the base outright. Import fed those keys straight
+    // to writeFileBinary, which made opening an untrusted .mistpkg an
+    // arbitrary-file-write primitive.
+    //
+    // Marker files are placed where a traversing key would land, and must be
+    // untouched afterwards.
+    auto probeDir = std::filesystem::temp_directory_path() / "mist_zipslip_probe";
+    std::filesystem::create_directories(probeDir);
+    auto absTarget = probeDir / "absolute_target.txt";
+    auto relTarget = probeDir / "traversal_target.txt";
+    writeText(absTarget, "UNTOUCHED");
+    writeText(relTarget, "UNTOUCHED");
+
+    // Build a package by hand with three hostile keys plus one benign one.
+    // Payload decodes to "PWNED". The relative-escape target is uniquely named
+    // so this assertion can never be tripped by a leftover file from an
+    // unrelated run.
+    const std::string payload = "UFdORUQ=";
+    const std::string escapeName = "mist_escape_probe_" + std::to_string(
+        std::chrono::steady_clock::now().time_since_epoch().count()) + ".txt";
+    nlohmann::json pkg;
+    pkg["version"] = "1.0";
+    pkg["scene"]   = nlohmann::json::parse(R"({"version":"1.0","entities":[]})");
+    pkg["assets"] = {
+        {absTarget.string(),                                  payload},
+        {"../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../.."
+         + relTarget.string(),                                payload},
+        {"nested/../../" + escapeName,                         payload},
+        {"legit.bin",                                         payload},
+    };
+
+    auto dir = uniqueTempDir("hostile");
+    auto pkgPath = dir / "hostile.mistpkg";
+    writeText(pkgPath, pkg.dump());
+
+    std::string extractedScene;
+    // Import still succeeds — hostile entries are skipped and logged, not
+    // treated as a fatal error, so one bad key can't deny the whole package.
+    REQUIRE(Mist::Assets::PackageIO::Import(pkgPath.string(), extractedScene));
+
+    // Nothing outside the extraction directory was written.
+    REQUIRE(readText(absTarget) == "UNTOUCHED");
+    REQUIRE(readText(relTarget) == "UNTOUCHED");
+
+    auto extractedDir = std::filesystem::path(extractedScene).parent_path();
+    REQUIRE_FALSE(std::filesystem::exists(extractedDir.parent_path() / escapeName));
+
+    // The benign entry still extracted, so the guard isn't simply refusing
+    // everything.
+    REQUIRE(std::filesystem::exists(extractedDir / "legit.bin"));
+
+    std::filesystem::remove_all(probeDir);
+    std::filesystem::remove_all(extractedDir);
+}
+
+TEST_CASE(".mistpkg extracts inside the scene sandbox so LoadScene can read it",
+          "[mistpkg][security]") {
+    // Import used to extract under $TMPDIR and hand that path to LoadScene,
+    // which enforces is_under(cwd/"scenes", ...) — unsatisfiable, so
+    // "File -> Import Package" always failed with "Refusing to load outside
+    // scene sandbox". The two sandboxes have to compose.
+    nlohmann::json pkg;
+    pkg["version"] = "1.0";
+    pkg["scene"]   = nlohmann::json::parse(R"({"version":"1.0","entities":[]})");
+    pkg["assets"]  = nlohmann::json::object();
+
+    auto dir = uniqueTempDir("hostile");
+    auto pkgPath = dir / "empty.mistpkg";
+    writeText(pkgPath, pkg.dump());
+
+    std::string extractedScene;
+    REQUIRE(Mist::Assets::PackageIO::Import(pkgPath.string(), extractedScene));
+
+    auto sandbox = std::filesystem::current_path() / "scenes";
+    REQUIRE(Mist::PathGuard::is_under(sandbox, extractedScene));
+
+    std::filesystem::remove_all(std::filesystem::path(extractedScene).parent_path());
 }

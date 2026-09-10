@@ -56,7 +56,9 @@ TEST_CASE("MaterialSerializer round-trips every reflected field", "[material][se
     src.aoTex        = "res://textures/ao.png";
     src.emissiveTex  = "res://textures/emi.png";
 
-    auto tmp = std::filesystem::temp_directory_path() / "mist_test_material.mistmat";
+    // Must live under the project root: MaterialSerializer runs every path
+    // through PathGuard now, so $TMPDIR is (correctly) refused.
+    auto tmp = std::filesystem::path("mist_test_material.mistmat");
     REQUIRE(Mist::Assets::MaterialSerializer::Save(src, tmp.string()));
 
     PBRMaterial dst;
@@ -85,7 +87,7 @@ TEST_CASE("MaterialSerializer defaults fill gracefully when fields missing",
           "[material][serializer]") {
     // Hand-craft a minimal JSON missing half the fields; Load should
     // leave those at their struct defaults without throwing.
-    auto tmp = std::filesystem::temp_directory_path() / "mist_test_partial.mistmat";
+    auto tmp = std::filesystem::path("mist_test_partial.mistmat");
     {
         std::ofstream f(tmp);
         f << R"({"type":"PBRMaterial","version":"1.0","albedo":[1,0,0]})";
@@ -102,4 +104,28 @@ TEST_CASE("MaterialSerializer defaults fill gracefully when fields missing",
 
     std::error_code ec;
     std::filesystem::remove(tmp, ec);
+}
+
+TEST_CASE("MaterialSerializer refuses paths outside the project root",
+          "[material][security]") {
+    // Materials were the third unguarded path boundary in the codebase: Save
+    // and Load took a caller-supplied string straight to an fstream. Both are
+    // reachable from untrusted input — the Assets -> New Material dialog is
+    // free text, and `materialPath` on any RenderComponent inside a scene or an
+    // imported .mistpkg is resolved through here.
+    PBRMaterial mat;
+
+    const auto outside = std::filesystem::temp_directory_path()
+                       / "mist_should_not_exist.mistmat";
+    std::filesystem::remove(outside);
+
+    REQUIRE_FALSE(Mist::Assets::MaterialSerializer::Save(mat, outside.string()));
+    REQUIRE_FALSE(std::filesystem::exists(outside));
+
+    // Traversal out of the root is refused too, not just absolute paths.
+    REQUIRE_FALSE(Mist::Assets::MaterialSerializer::Save(
+        mat, "../../../mist_escape.mistmat"));
+
+    PBRMaterial sink;
+    REQUIRE_FALSE(Mist::Assets::MaterialSerializer::Load(outside.string(), sink));
 }

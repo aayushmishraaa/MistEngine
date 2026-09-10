@@ -1,16 +1,32 @@
 #include "Assets/MaterialSerializer.h"
 
 #include "Core/Logger.h"
+#include "Core/PathGuard.h"
 #include "Core/Reflection.h"
 #include "Material.h"
 
 #include <nlohmann/json.hpp>
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 
 namespace Mist::Assets {
+
+namespace {
+// Materials are project assets, so they live under the project root — the same
+// boundary PathGuard already enforces for scenes, exports and module loading.
+//
+// This was the third unguarded path boundary in the codebase: Save and Load
+// took a caller-supplied string straight to ifstream/ofstream. Both are
+// reachable from untrusted input — the Assets -> New Material dialog takes a
+// free-text path, and `materialPath` on any RenderComponent inside a scene or
+// an imported .mistpkg is resolved through here.
+std::filesystem::path ResolveMaterialPath(const std::string& path) {
+    return Mist::PathGuard::resolve_under(Mist::PathGuard::project_root(), path);
+}
+} // namespace
 
 using json = nlohmann::json;
 
@@ -135,7 +151,16 @@ std::string MaterialSerializer::ToJsonString(const PBRMaterial& mat) {
 }
 
 bool MaterialSerializer::Save(const PBRMaterial& mat, const std::string& path) {
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    const auto resolved = ResolveMaterialPath(path);
+    if (resolved.empty()) {
+        LOG_ERROR("MaterialSerializer: refusing to write outside the project "
+                  "root: ", path);
+        return false;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(resolved.parent_path(), ec);
+
+    std::ofstream out(resolved, std::ios::binary | std::ios::trunc);
     if (!out) {
         LOG_ERROR("MaterialSerializer: cannot open for write: ", path);
         return false;
@@ -145,7 +170,14 @@ bool MaterialSerializer::Save(const PBRMaterial& mat, const std::string& path) {
 }
 
 bool MaterialSerializer::Load(const std::string& path, PBRMaterial& out) {
-    std::ifstream in(path, std::ios::binary);
+    const auto resolved = ResolveMaterialPath(path);
+    if (resolved.empty()) {
+        LOG_ERROR("MaterialSerializer: refusing to read outside the project "
+                  "root: ", path);
+        out = PBRMaterial{};
+        return false;
+    }
+    std::ifstream in(resolved, std::ios::binary);
     if (!in) {
         LOG_ERROR("MaterialSerializer: cannot open for read: ", path);
         out = PBRMaterial{};
