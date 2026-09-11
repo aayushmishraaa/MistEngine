@@ -4,6 +4,8 @@
 
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Coordinator.h"
+
+#include "test_world.h"
 #include "Script/LuaScriptLanguage.h"
 #include "Script/ScriptRegistry.h"
 
@@ -31,16 +33,13 @@ std::shared_ptr<Mist::Script::LuaScriptLanguage> makeLua() {
 // which dereferences the per-type ComponentArray. If PhysicsComponent
 // was never registered, that pointer is null and we segfault. Engine
 // startup registers it; the test harness doesn't, so we do it here.
-// Idempotent: ComponentManager::RegisterComponent uses insert(), so
-// a second call is a no-op key collision.
-void ensurePhysicsRegistered() {
-    static bool initialized = false;
-    if (!initialized) {
-        gCoordinator.Init();
-        gCoordinator.RegisterComponent<PhysicsComponent>();
-        initialized = true;
-    }
-}
+// Delegates to the shared reset in tests/test_world.h.
+//
+// The latch this replaced only called Coordinator::Init() once, which made it
+// correct in isolation and wrong in company: any *other* file that re-Init'd
+// the global coordinator afterwards silently dropped this registration, and
+// whether that happened depended on Catch2's case order.
+void ensurePhysicsRegistered() { MistTest::ResetGlobalWorld(); }
 } // namespace
 
 TEST_CASE("Physics Lua bindings are all registered", "[lua][physics][bindings]") {

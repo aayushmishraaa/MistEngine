@@ -6,6 +6,8 @@
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Components/NameComponent.h"
+#include "ECS/EntityName.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/AnimationComponent.h"
 #if MIST_ENABLE_SCRIPTING
@@ -570,7 +572,7 @@ Entity UIManager::SpawnMeshEntity(const std::string& path) {
     // ResourceManager fast path below.
     if (Mist::Import::SceneImporter::IsSupportedPath(path)) {
         Entity root = Mist::Import::SceneImporter::ImportToScene(
-            path, *m_Coordinator, &m_EntityNames);
+            path, *m_Coordinator);
         if (root == static_cast<Entity>(-1)) {
             LOG_ERROR("SpawnMeshEntity: import failed: ", path);
             return static_cast<Entity>(-1);
@@ -607,7 +609,7 @@ Entity UIManager::SpawnMeshEntity(const std::string& path) {
         base = (slash == std::string::npos) ? path.substr(0, dot)
                                             : path.substr(slash + 1, dot - slash - 1);
     }
-    m_EntityNames[e] = base;
+    Mist::SetEntityName(*m_Coordinator, e, base);
     SelectEntity(e);
 
     // Push undo. Undo = destroy; redo = re-spawn via snapshot.
@@ -620,7 +622,6 @@ Entity UIManager::SpawnMeshEntity(const std::string& path) {
     c.undo = [this, idRef]() {
         if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*idRef)) {
             m_Coordinator->DestroyEntity(*idRef);
-            m_EntityNames.erase(*idRef);
             if (m_HasSelectedEntity && m_SelectedEntity == *idRef) {
                 m_HasSelectedEntity = false;
             }
@@ -677,8 +678,9 @@ UIManager::EntitySnapshot UIManager::SnapshotEntity(Entity e) const {
         s.hasHierarchy = true;
         s.parent = h.parent;
     }
-    auto it = m_EntityNames.find(e);
-    if (it != m_EntityNames.end()) s.name = it->second;
+    if (Mist::HasEntityName(*m_Coordinator, e)) {
+        s.name = Mist::EntityName(*m_Coordinator, e);
+    }
     return s;
 }
 
@@ -705,7 +707,7 @@ Entity UIManager::RespawnFromSnapshot(const EntitySnapshot& snap) {
             HierarchySystem::Attach(*m_Coordinator, snap.parent, e);
         }
     }
-    if (!snap.name.empty()) m_EntityNames[e] = snap.name;
+    if (!snap.name.empty()) Mist::SetEntityName(*m_Coordinator, e, snap.name);
     return e;
 }
 
@@ -725,13 +727,6 @@ bool UIManager::IsDescendantOf(Entity candidate, Entity entity) const {
 // DrawHierarchy below; kept at translation-unit scope to keep the
 // member function flat.
 namespace {
-std::string HierarchyEntityName(const std::unordered_map<Entity, std::string>& names,
-                                Entity e) {
-    auto it = names.find(e);
-    if (it != names.end()) return it->second;
-    return "Entity " + std::to_string(e);
-}
-
 bool HierarchyPassesFilter(const std::string& name, const std::string& filterLower) {
     if (filterLower.empty()) return true;
     std::string lower = name;
@@ -743,7 +738,7 @@ bool HierarchyPassesFilter(const std::string& name, const std::string& filterLow
 void UIManager::DrawHierarchyNode(Entity entity, const std::string& filterLower) {
     if (!m_Coordinator) return;
 
-    std::string name = HierarchyEntityName(m_EntityNames, entity);
+    std::string name = Mist::EntityName(*m_Coordinator, entity);
 
     // Collect children before building flags — a leaf vs. open-on-arrow
     // node needs different flag combinations.
@@ -837,14 +832,14 @@ void UIManager::DrawHierarchyNode(Entity entity, const std::string& filterLower)
             // Always add HierarchyComponent so the duplicate is first-class
             // in the scene graph (parent defaults to kNoParent = root).
             m_Coordinator->AddComponent(newEntity, HierarchyComponent{});
-            m_EntityNames[newEntity] = name + " (copy)";
-            m_ConsoleMessages.push_back("Duplicated: " + m_EntityNames[newEntity]);
+            const std::string copyName = name + " (copy)";
+            Mist::SetEntityName(*m_Coordinator, newEntity, copyName);
+            m_ConsoleMessages.push_back("Duplicated: " + copyName);
             SelectEntity(newEntity);
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Delete")) {
             DeleteEntity(entity);
-            m_EntityNames.erase(entity);
         }
         ImGui::EndPopup();
     }
@@ -952,13 +947,12 @@ void UIManager::DrawHierarchy() {
 void UIManager::DrawInspector() {
     if (m_HasSelectedEntity && m_Coordinator) {
         // Editable entity name at top
-        auto nameIt = m_EntityNames.find(m_SelectedEntity);
-        std::string currentName = (nameIt != m_EntityNames.end()) ? nameIt->second : ("Entity " + std::to_string(m_SelectedEntity));
+        std::string currentName = Mist::EntityName(*m_Coordinator, m_SelectedEntity);
         char nameBuf[128];
         strncpy(nameBuf, currentName.c_str(), sizeof(nameBuf) - 1); nameBuf[sizeof(nameBuf) - 1] = '\0';
         ImGui::SetNextItemWidth(-1);
         if (ImGui::InputText("##EntityName", nameBuf, sizeof(nameBuf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-            m_EntityNames[m_SelectedEntity] = nameBuf;
+            Mist::SetEntityName(*m_Coordinator, m_SelectedEntity, nameBuf);
         }
         ImGui::TextDisabled("ID: %d", m_SelectedEntity);
         ImGui::Separator();
@@ -1336,7 +1330,7 @@ void UIManager::CreateEntity(const std::string& name) {
     // script-created ones.
     m_Coordinator->AddComponent(entity, HierarchyComponent{});
 
-    m_EntityNames[entity] = name;
+    Mist::SetEntityName(*m_Coordinator, entity, name);
     m_ConsoleMessages.push_back("Created entity: " + name);
 
     SelectEntity(entity);
@@ -1355,7 +1349,6 @@ void UIManager::CreateEntity(const std::string& name) {
     c.undo = [this, idRef]() {
         if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*idRef)) {
             m_Coordinator->DestroyEntity(*idRef);
-            m_EntityNames.erase(*idRef);
             if (m_HasSelectedEntity && m_SelectedEntity == *idRef) {
                 m_HasSelectedEntity = false;
             }
@@ -1374,7 +1367,6 @@ void UIManager::DeleteEntity(Entity entity) {
     EntitySnapshot snap = SnapshotEntity(entity);
 
     m_Coordinator->DestroyEntity(entity);
-    m_EntityNames.erase(entity);
     if (m_HasSelectedEntity && m_SelectedEntity == entity) {
         m_HasSelectedEntity = false;
         m_SelectedEntity = 0;
@@ -1395,7 +1387,6 @@ void UIManager::DeleteEntity(Entity entity) {
     c.redo = [this, respawnedId]() {
         if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*respawnedId)) {
             m_Coordinator->DestroyEntity(*respawnedId);
-            m_EntityNames.erase(*respawnedId);
             if (m_HasSelectedEntity && m_SelectedEntity == *respawnedId) {
                 m_HasSelectedEntity = false;
             }
@@ -1456,7 +1447,7 @@ void UIManager::CreatePrimitive(const char* meshPath,
     m_Coordinator->AddComponent(entity, physicsProto);
     m_Coordinator->AddComponent(entity, HierarchyComponent{});
 
-    m_EntityNames[entity] = displayName;
+    Mist::SetEntityName(*m_Coordinator, entity, displayName);
     m_ConsoleMessages.push_back(std::string("Created ") + displayName);
     SelectEntity(entity);
 
@@ -1470,7 +1461,6 @@ void UIManager::CreatePrimitive(const char* meshPath,
     c.undo = [this, idRef]() {
         if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*idRef)) {
             m_Coordinator->DestroyEntity(*idRef);
-            m_EntityNames.erase(*idRef);
             if (m_HasSelectedEntity && m_SelectedEntity == *idRef) {
                 m_HasSelectedEntity = false;
             }
@@ -2459,7 +2449,8 @@ void UIManager::DrawSkyboxControls() {
 }
 
 void UIManager::SetEntityName(Entity entity, const std::string& name) {
-    m_EntityNames[entity] = name;
+    if (!m_Coordinator) return;
+    Mist::SetEntityName(*m_Coordinator, entity, name);
     m_EntityCounter = std::max(m_EntityCounter, (int)entity + 1);
 }
 

@@ -1,7 +1,7 @@
 ---
 type: Subsystem Parity
 title: Entity identity
-description: Godot nodes have names, unique paths and an owner; MistEngine entity names live in an editor-only map and are never written to disk.
+description: Godot nodes have names, unique paths and an owner; MistEngine now has a serialized NameComponent and name lookup, but no NodePath, groups or owner.
 tags: [parity, godot, scene, serialization]
 status: draft
 generated:
@@ -28,52 +28,77 @@ orthogonal to the tree.
 
 # MistEngine today
 
-Entities are bare `std::uint32_t` handles. Names exist only as
-`std::unordered_map<Entity, std::string> m_EntityNames` **inside `UIManager`** — the editor, not the
-engine. The consequences:
+Entities are bare `std::uint32_t` handles, but names are now a first-class
+engine concept rather than an editor detail.
 
-- **Names are not serialized.** `include/Scene/SceneSerializer.h:22` documents a `"name": "Ground"`
-  field in its own format example; the Save path never writes one. Save a scene, reload it, and every
-  entity is "Entity 7".
-- **Nothing can address an entity by name.** A Lua script cannot find a sibling; a prefab cannot say
-  which child to override; the console cannot refer to an object.
+`NameComponent` (`include/ECS/Components/NameComponent.h`) holds a
+`std::string`, is registered in `main()` alongside the other components, and is
+reflected — so the Inspector widget and serializer support came for free, the
+same way `RenderComponent::meshPath` did at commit `b542818`.
+
+What that changed:
+
+- **Names serialize.** `SceneSerializer` writes a `"name"` field and reads it
+  back, which makes the format example in `include/Scene/SceneSerializer.h` —
+  which had documented that field since v0.5 without ever writing it — honest.
+  Untitled entities emit nothing rather than an empty string.
+- **`UIManager::m_EntityNames` is gone.** The editor's private
+  `std::unordered_map<Entity,std::string>` has no remaining references. The
+  Hierarchy labels, the Inspector rename field, duplicate-with-" (copy)", and
+  the undo snapshot all read and write the component. Deleting an entity no
+  longer needs a paired `erase` — the name dies with the entity, which removed
+  five leak-shaped call sites.
+- **`SceneImporter` writes names into the ECS.** Its
+  `std::unordered_map<Entity,std::string>* outNames` out-param is replaced by a
+  `bool nameEntities`, so imported aiNode/aiMesh names survive a save.
+- **Lua can address other entities.** `find_entity(name)`, `entity_name(id)`
+  and `set_entity_name(id, name)` sit beside `entity_id()`. This is the seed of
+  `get_node()`.
+
+Lookup is `Mist::FindEntityByName` (`include/ECS/EntityName.h`), a linear scan.
+That is deliberate: a name index has to be invalidated on create, destroy and
+rename, and getting that wrong hands out stale entity ids — the same class of
+bug the liveness guard at `b542818` had to fix.
+
+Entity ids themselves remain non-identity: they are not stable across a
+save/load cycle, which is why the scene serializer still remaps hierarchy links
+through an old→new table. Names are now what a test — or a prefab override —
+addresses across that boundary.
+
+# Remaining delta
+
+Against Godot, still missing:
+
+- **No `NodePath` resolution.** `get_node("../Door")` needs a hierarchy walk;
+  only flat name lookup exists.
+- **No sibling-uniqueness rule.** Godot guarantees names are unique among
+  siblings. MistEngine does not, so `FindEntityByName` returns "first match in
+  iteration order". Uniqueness will be enforced where it actually matters —
+  inside a prefab, where a duplicate name makes an override ambiguous.
 - **No groups or tags.**
-- **No `owner` equivalent**, which is precisely the field a prefab system needs to distinguish
-  template content from instance-local additions.
-
-Entity ids themselves are now at least sane: `EntityManager::DestroyEntity` gained a liveness guard
-at commit `b542818`, so a double-destroy no longer hands the same id to two entities. But an id is
-not an identity — it is not stable across a save/load cycle, which is why the scene serializer has to
-remap hierarchy links through an old→new table.
-
-# Delta
-
-Identity is the quiet prerequisite under several larger features. Ranked by what it unblocks:
-
-1. **Prefab overrides** need to name the thing being overridden.
-2. **Scripting ergonomics** — Lua currently has `entity_id()` for *self* and nothing for anything
-   else. There is no `get_node("../Door")`.
-3. **Readable scene files** — a `.mist` file is currently numeric ids and component blobs.
-4. **Editor usability** — renaming is already in the UI but lost on save, which reads as a bug.
-
-Minimum viable parity is narrow and cheap: move names into a component, serialize them, and add a
-name→entity lookup. Full `NodePath` resolution can follow.
+- **No `owner` equivalent**, the field distinguishing template content from
+  instance-local additions. [Prefabs](/roadmap/phase-3-prefabs.md) introduce
+  this as a runtime membership marker rather than a general `owner`.
+- **No `unique_name_in_owner` (`%Node`) shorthand.**
 
 # Evidence
 
-- `include/UIManager.h:290` — `m_EntityNames` is a private `UIManager` member.
-- `include/Scene/SceneSerializer.h:22` — documents a `"name"` field.
-- `src/Scene/SceneSerializer.cpp` Save loop — writes `id`, `transform`, `render`, `physics`,
-  `light`, `hierarchy`, `animation`. No `name`.
-- `src/Scene/SceneSerializer.cpp` Load — builds an `idRemap` old→new table precisely because saved
-  ids are not stable identity (added at commit `b542818`).
-- `src/Script/LuaScriptLanguage.cpp` — `entity_id()` returns the current entity only; no lookup
-  binding exists.
+- `include/ECS/Components/NameComponent.h` — the component and its
+  `MIST_REFLECT` block.
+- `include/ECS/EntityName.h` — `EntityName`, `HasEntityName`, `SetEntityName`,
+  `FindEntityByName`, `kInvalidEntity`.
+- `src/MistEngine.cpp` — `RegisterComponent<NameComponent>()`.
+- `src/Scene/SceneSerializer.cpp` — the `name` block in both Save and Load.
+- `grep -rn "m_EntityNames" src include` → no results.
+- `tests/test_scene_serializer.cpp` — four identity round-trip cases, headless
+  via the new `SaveToString` / `LoadFromString` overloads.
+- `tests/test_lua_script.cpp` — `find_entity` / `set_entity_name` coverage.
 
 # Depends on / Blocks
 
-Depends on: nothing. This is the cheapest foundational item in the engine.
+Depends on: nothing. This was the cheapest foundational item in the engine.
 
-Blocks: [scene and composition](/subsystems/scene-and-composition.md),
-[scripting](/subsystems/scripting.md) ergonomics, readable scene files.
-Implementation: [phase 1](/roadmap/phase-1-identity-and-environment.md).
+Unblocked by this landing: [scene and composition](/subsystems/scene-and-composition.md)
+can now express a prefab override target, [scripting](/subsystems/scripting.md)
+can address a sibling, and scene files are readable.
+Implemented in [phase 1](/roadmap/phase-1-identity-and-environment.md), part A.

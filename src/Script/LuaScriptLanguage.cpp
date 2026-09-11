@@ -13,6 +13,7 @@
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/ScriptComponent.h"
 #include "ECS/Components/TransformComponent.h"
+#include "ECS/EntityName.h"
 #include "ECS/Coordinator.h"
 #include "Mesh.h"
 #include "Resources/AssetRegistry.h"
@@ -79,6 +80,35 @@ void LuaScriptLanguage::Init() {
     };
 
     state["get_delta_time"] = []() -> float { return LastDeltaTime(); };
+
+    // find_entity(name) -> id, or -1 when nothing matches.
+    //
+    // The seed of Godot's get_node(). Until now a script could reach only
+    // itself via entity_id(); there was no way to address a sibling, so any
+    // interaction between two objects had to be hardcoded engine-side.
+    // Full NodePath resolution ("../Door") wants a hierarchy walk and is
+    // deliberately not here yet — this is name lookup, nothing more.
+    state["find_entity"] = [](const std::string& name) -> int {
+        Entity e = Mist::FindEntityByName(gCoordinator, name);
+        return e == Mist::kInvalidEntity ? -1 : static_cast<int>(e);
+    };
+
+    // entity_name(id) -> string. Round-trips find_entity so a script can
+    // log what it found, and falls back to "Entity N" for unnamed entities
+    // exactly as the Hierarchy panel does.
+    state["entity_name"] = [](int id) -> std::string {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.GetLivingEntities().count(e)) return "";
+        return Mist::EntityName(gCoordinator, e);
+    };
+
+    // set_entity_name(id, name). Renaming from a script is what makes
+    // spawn_* results addressable by a later find_entity.
+    state["set_entity_name"] = [](int id, const std::string& name) {
+        Entity e = static_cast<Entity>(id);
+        if (!gCoordinator.GetLivingEntities().count(e)) return;
+        Mist::SetEntityName(gCoordinator, e, name);
+    };
 
     // Transform accessors — flat table form. A sol::usertype<glm::vec3>
     // can land later without breaking the binding surface.
@@ -430,7 +460,8 @@ bool LuaScriptInstance::Compile() {
 
     // Each instance gets its own sandboxed environment that falls back
     // to the globals for things we registered in Init (print, entity_id,
-    // etc.). Scripts see engine APIs but can't trample each other.
+    // find_entity, etc.). Scripts see engine APIs but can't trample each
+    // other.
     m_Env = std::make_unique<LuaEnvPimpl>();
     m_Env->env = sol::environment(lua, sol::create, lua.globals());
 

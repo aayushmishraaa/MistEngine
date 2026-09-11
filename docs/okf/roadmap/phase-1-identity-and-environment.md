@@ -24,9 +24,20 @@ Neither item is glamorous and both are cheap, but [phase 3](/roadmap/phase-3-pre
 without them. A prefab whose contents cannot be named cannot express an override, and a scene that
 cannot store its own lighting is not a portable description of anything.
 
-# Part A — entity identity
+# Part A — entity identity — **done**
 
 Move names out of the editor and into the engine.
+
+Landed as described, with two deviations worth recording:
+
+- `SceneImporter::ImportToScene`'s name out-param was **removed** rather than
+  retargeted — it already had a `Coordinator&`, so a `bool nameEntities` flag
+  replaced the `std::unordered_map<Entity,std::string>*`.
+- `SceneSerializer` gained `SaveToString` / `LoadFromString`. The round-trip
+  tests this phase calls for need a serializer that touches neither the
+  filesystem nor the scene sandbox; play mode's snapshot in
+  [phase 4](/roadmap/phase-4-wire-the-built-but-dead.md) needs the same pair,
+  so it was pulled forward rather than written twice.
 
 - Add a `NameComponent` (or a `name` field on an existing component) holding a `std::string`, and
   register it in `main()` alongside the others.
@@ -44,7 +55,7 @@ Move names out of the editor and into the engine.
 Reuse: `MIST_REFLECT` on the new component gets the Inspector widget and serializer support for free,
 as `RenderComponent::meshPath` did at commit `b542818`.
 
-# Part B — Environment resource
+# Part B — Environment resource — *pending*
 
 Collapse the 41 tunables spread across 9 objects into one place.
 

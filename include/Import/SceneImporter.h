@@ -32,13 +32,18 @@ struct SceneImporter {
     // Returns true if the extension is one we know how to handle.
     static bool IsSupportedPath(std::string_view path);
 
-    // Imports the model at `path` into `coord`. If `outNames` is
-    // non-null, populates it with <entity, display name> pairs drawn
-    // from the aiNode / aiMesh names so the Hierarchy panel shows
-    // meaningful labels instead of "Entity N".
+    // Imports the model at `path` into `coord`, returning the root entity
+    // or Entity(-1) on failure.
+    //
+    // `nameEntities` writes a NameComponent per imported node/mesh, taken
+    // from the aiNode/aiMesh name. This used to be an
+    // `std::unordered_map<Entity,std::string>*` out-param that the editor
+    // passed its private name map into — so imported names existed only in
+    // the editor and were dropped on save. Names now live in the ECS, which
+    // is what the serializer and prefab addressing both read.
     static Entity ImportToScene(const std::string& path,
                                 Coordinator& coord,
-                                std::unordered_map<Entity, std::string>* outNames = nullptr);
+                                bool nameEntities = true);
 };
 
 } // namespace Mist::Import

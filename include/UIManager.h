@@ -286,8 +286,6 @@ private:
     };
     EditorLayout m_Layout;
 
-    // Entity naming
-    std::unordered_map<Entity, std::string> m_EntityNames;
     int m_BottomTabIndex = 0; // 0=Console, 1=AssetBrowser, 2=Output
 
     // Hierarchy filter

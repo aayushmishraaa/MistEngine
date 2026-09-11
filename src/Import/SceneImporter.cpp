@@ -4,6 +4,7 @@
 #include "Core/Logger.h"
 #include "ECS/Components/AnimationComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
+#include "ECS/EntityName.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Coordinator.h"
@@ -163,7 +164,7 @@ Entity importNodeTree(aiNode* node,
                       const std::string& sourcePath,
                       Coordinator& coord,
                       std::vector<std::shared_ptr<Mesh>>& outMeshes,
-                      std::unordered_map<Entity, std::string>* outNames) {
+                      bool nameEntities) {
     Entity e = coord.CreateEntity();
 
     TransformComponent t;
@@ -171,9 +172,9 @@ Entity importNodeTree(aiNode* node,
     coord.AddComponent(e, t);
     coord.AddComponent(e, HierarchyComponent{});
 
-    if (outNames) {
+    if (nameEntities) {
         std::string nm = node->mName.C_Str();
-        (*outNames)[e] = nm.empty() ? "Node" : nm;
+        Mist::SetEntityName(coord, e, nm.empty() ? "Node" : nm);
     }
 
     // One-mesh node: attach RenderComponent directly. Multi-mesh node:
@@ -202,9 +203,9 @@ Entity importNodeTree(aiNode* node,
             r.visible    = true;
             r.meshPath   = sourcePath;
             coord.AddComponent(me, r);
-            if (outNames) {
+            if (nameEntities) {
                 std::string nm = aim->mName.C_Str();
-                (*outNames)[me] = nm.empty() ? "Mesh" : nm;
+                Mist::SetEntityName(coord, me, nm.empty() ? "Mesh" : nm);
             }
             HierarchySystem::Attach(coord, e, me);
         }
@@ -212,7 +213,7 @@ Entity importNodeTree(aiNode* node,
 
     for (unsigned int i = 0; i < node->mNumChildren; ++i) {
         Entity childE = importNodeTree(node->mChildren[i], scene, baseDir,
-                                       sourcePath, coord, outMeshes, outNames);
+                                       sourcePath, coord, outMeshes, nameEntities);
         HierarchySystem::Attach(coord, e, childE);
     }
     return e;
@@ -229,7 +230,7 @@ bool SceneImporter::IsSupportedPath(std::string_view path) {
 
 Entity SceneImporter::ImportToScene(const std::string& path,
                                      Coordinator& coord,
-                                     std::unordered_map<Entity, std::string>* outNames) {
+                                     bool nameEntities) {
     Assimp::Importer imp;
     const aiScene* scene = imp.ReadFile(path,
         aiProcess_Triangulate            |
@@ -285,9 +286,9 @@ Entity SceneImporter::ImportToScene(const std::string& path,
         }
         coord.AddComponent(e, ac);
 
-        if (outNames) {
+        if (nameEntities) {
             std::string nm = std::filesystem::path(path).stem().string();
-            (*outNames)[e] = nm.empty() ? "AnimatedModel" : nm;
+            Mist::SetEntityName(coord, e, nm.empty() ? "AnimatedModel" : nm);
         }
 
         {
@@ -304,7 +305,7 @@ Entity SceneImporter::ImportToScene(const std::string& path,
 
     std::vector<std::shared_ptr<Mesh>> imported;
     Entity root = importNodeTree(scene->mRootNode, scene, baseDir,
-                                 path, coord, imported, outNames);
+                                 path, coord, imported, nameEntities);
 
     {
         std::lock_guard<std::mutex> lk(store().mu);

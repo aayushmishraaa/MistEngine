@@ -26,6 +26,7 @@
 // ECS
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/AnimationComponent.h"
+#include "ECS/Components/NameComponent.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/RenderComponent.h"
@@ -116,6 +117,7 @@ int main() {
     Mist::Assets::AssetRegistry::Instance().RegisterDefaultLoaders();
 
     gCoordinator.Init();
+    gCoordinator.RegisterComponent<NameComponent>();
     gCoordinator.RegisterComponent<TransformComponent>();
     gCoordinator.RegisterComponent<RenderComponent>();
     gCoordinator.RegisterComponent<PhysicsComponent>();

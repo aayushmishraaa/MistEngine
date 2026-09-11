@@ -81,23 +81,14 @@ TEST_CASE("nlohmann::json throws on number overflow", "[json]") {
 // global instance, so the tests have to as well.
 extern Coordinator gCoordinator;
 
-namespace {
-// Fresh global coordinator with the components the serializer touches.
-// RenderComponent is deliberately left out: resolving its mesh ref would need
-// a live GL context.
-void ResetGlobalCoordinator() {
-    gCoordinator.Init();
-    gCoordinator.RegisterComponent<TransformComponent>();
-    gCoordinator.RegisterComponent<PhysicsComponent>();
-    gCoordinator.RegisterComponent<LightComponent>();
-    gCoordinator.RegisterComponent<HierarchyComponent>();
-    gCoordinator.RegisterSystem<HierarchySystem>();
+#include "test_world.h"
 
-    Signature sig;
-    sig.set(gCoordinator.GetComponentType<TransformComponent>());
-    sig.set(gCoordinator.GetComponentType<HierarchyComponent>());
-    gCoordinator.SetSystemSignature<HierarchySystem>(sig);
-}
+namespace {
+// Kept as a name the existing cases already call. The body moved to
+// tests/test_world.h so every file that drives gCoordinator resets it the
+// same way — NameComponent had to join the registration set, and a
+// per-file copy meant whichever file reset last decided what was registered.
+void ResetGlobalCoordinator() { MistTest::ResetGlobalWorld(); }
 
 Entity MakeNode(glm::vec3 pos) {
     Entity e = gCoordinator.CreateEntity();
@@ -244,4 +235,115 @@ TEST_CASE("Load replaces the scene instead of appending", "[scene][serializer]")
     REQUIRE(gCoordinator.GetLivingEntities().size() == 2);
 
     std::filesystem::remove(path);
+}
+
+// --- Real round-trip, headless ---------------------------------------------
+//
+// The note at the top of this file said full round-trip tests had to wait for
+// a GL context, because resolving a mesh ref builds a Mesh (VAO/VBO). That is
+// true only for RenderComponent. Name, Transform, Physics, Light and Hierarchy
+// need no GL at all, and SaveToString/LoadFromString need no filesystem — so
+// the serializer is now testable without either.
+//
+// These cases pin entity identity specifically: before NameComponent existed,
+// names lived in UIManager's private map, were never written, and every entity
+// came back as "Entity 7" after a reload.
+
+#include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Components/NameComponent.h"
+#include "ECS/Components/PhysicsComponent.h"
+#include "ECS/Components/TransformComponent.h"
+#include "ECS/Coordinator.h"
+#include "ECS/EntityName.h"
+#include "ECS/Systems/HierarchySystem.h"
+#include "Scene/SceneSerializer.h"
+
+TEST_CASE("Entity names survive a scene round-trip", "[scene][serializer][identity]") {
+    ResetGlobalCoordinator();
+
+    Entity ground = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(ground, TransformComponent{});
+    Mist::SetEntityName(gCoordinator, ground, "Ground");
+
+    Entity pillar = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(pillar, TransformComponent{});
+    Mist::SetEntityName(gCoordinator, pillar, "Pillar 03");
+
+    const std::string text = SceneSerializer::SaveToString(gCoordinator);
+    REQUIRE(text.find("Ground") != std::string::npos);
+
+    int count = 0;
+    REQUIRE(SceneSerializer::LoadFromString(text, gCoordinator, count));
+
+    // Ids are remapped on load, so look the entities back up by the thing
+    // that is now stable: their names.
+    Entity g = Mist::FindEntityByName(gCoordinator, "Ground");
+    Entity p = Mist::FindEntityByName(gCoordinator, "Pillar 03");
+    REQUIRE(g != Mist::kInvalidEntity);
+    REQUIRE(p != Mist::kInvalidEntity);
+    REQUIRE(g != p);
+    REQUIRE(Mist::EntityName(gCoordinator, g) == "Ground");
+}
+
+TEST_CASE("Unnamed entities fall back to a placeholder, not an empty string",
+          "[scene][serializer][identity]") {
+    ResetGlobalCoordinator();
+
+    Entity e = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(e, TransformComponent{});
+
+    // No NameComponent at all -> placeholder, and nothing is written to the
+    // file, so an untitled entity does not bloat the scene with empty names.
+    REQUIRE(Mist::EntityName(gCoordinator, e) == "Entity " + std::to_string(e));
+    REQUIRE_FALSE(Mist::HasEntityName(gCoordinator, e));
+
+    const std::string text = SceneSerializer::SaveToString(gCoordinator);
+    REQUIRE(text.find("\"name\"") == std::string::npos);
+}
+
+TEST_CASE("Names survive alongside a reparented hierarchy",
+          "[scene][serializer][identity][hierarchy]") {
+    ResetGlobalCoordinator();
+
+    Entity parent = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(parent, TransformComponent{});
+    gCoordinator.AddComponent(parent, HierarchyComponent{});
+    Mist::SetEntityName(gCoordinator, parent, "Turret");
+
+    Entity child = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(child, TransformComponent{});
+    gCoordinator.AddComponent(child, HierarchyComponent{});
+    Mist::SetEntityName(gCoordinator, child, "Barrel");
+    REQUIRE(HierarchySystem::Attach(gCoordinator, parent, child));
+
+    const std::string text = SceneSerializer::SaveToString(gCoordinator);
+    int count = 0;
+    REQUIRE(SceneSerializer::LoadFromString(text, gCoordinator, count));
+
+    Entity t = Mist::FindEntityByName(gCoordinator, "Turret");
+    Entity b = Mist::FindEntityByName(gCoordinator, "Barrel");
+    REQUIRE(t != Mist::kInvalidEntity);
+    REQUIRE(b != Mist::kInvalidEntity);
+
+    // The parent link is rebuilt through the old->new id remap; the names are
+    // what let the test assert it landed on the right entity.
+    REQUIRE(gCoordinator.HasComponent<HierarchyComponent>(b));
+    REQUIRE(gCoordinator.GetComponent<HierarchyComponent>(b).parent == t);
+}
+
+TEST_CASE("Renaming an entity persists across a round-trip",
+          "[scene][serializer][identity]") {
+    ResetGlobalCoordinator();
+
+    Entity e = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(e, TransformComponent{});
+    Mist::SetEntityName(gCoordinator, e, "Cube");
+    Mist::SetEntityName(gCoordinator, e, "Player Spawn");
+
+    int count = 0;
+    REQUIRE(SceneSerializer::LoadFromString(
+        SceneSerializer::SaveToString(gCoordinator), gCoordinator, count));
+
+    REQUIRE(Mist::FindEntityByName(gCoordinator, "Cube") == Mist::kInvalidEntity);
+    REQUIRE(Mist::FindEntityByName(gCoordinator, "Player Spawn") != Mist::kInvalidEntity);
 }

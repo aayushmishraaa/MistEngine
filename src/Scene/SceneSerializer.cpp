@@ -3,9 +3,11 @@
 #include "Core/Logger.h"
 #include "Core/PathGuard.h"
 #include "Core/Reflection.h"
+#include "Core/ReflectionJson.h"
 #include "ECS/Components/AnimationComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/LightComponent.h"
+#include "ECS/Components/NameComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/TransformComponent.h"
@@ -60,91 +62,16 @@ bool vec3_from_json(const json& arr, glm::vec3& out) {
     return true;
 }
 
-// Reflection-driven write: dispatches on PropertyType so a single
-// walk of TypeRegistry::Get("X") serialises every reflected field of
-// component X. Adds a field to MIST_REFLECT → it appears in JSON
-// automatically next save.
-void writeReflectedFields(json& j, const void* obj, const Mist::PropertyList& props) {
-    const auto* base = reinterpret_cast<const char*>(obj);
-    for (const auto& p : props) {
-        const void* field = base + p.offset;
-        switch (p.type) {
-            case Mist::PropertyType::Bool:
-                j[p.name] = *reinterpret_cast<const bool*>(field); break;
-            case Mist::PropertyType::Int:
-                j[p.name] = *reinterpret_cast<const int*>(field); break;
-            case Mist::PropertyType::Enum:
-                j[p.name] = Mist::enum_value(field, p.size); break;
-            case Mist::PropertyType::Float:
-                j[p.name] = *reinterpret_cast<const float*>(field); break;
-            case Mist::PropertyType::Vec2: {
-                const auto* v = reinterpret_cast<const glm::vec2*>(field);
-                j[p.name] = {v->x, v->y}; break;
-            }
-            case Mist::PropertyType::Vec3: {
-                const auto* v = reinterpret_cast<const glm::vec3*>(field);
-                j[p.name] = {v->x, v->y, v->z}; break;
-            }
-            case Mist::PropertyType::Vec4: {
-                const auto* v = reinterpret_cast<const glm::vec4*>(field);
-                j[p.name] = {v->x, v->y, v->z, v->w}; break;
-            }
-            case Mist::PropertyType::String:
-                j[p.name] = *reinterpret_cast<const std::string*>(field); break;
-            default: break;
-        }
-    }
+// Reflection-driven component blocks delegate to the shared codec in
+// Core/ReflectionJson.h. These two names are kept as thin aliases because
+// the Save/Load bodies below read better with them than with the fully
+// qualified calls.
+inline void writeReflectedFields(json& j, const void* obj, const Mist::PropertyList& props) {
+    Mist::Reflect::WriteFields(j, obj, props);
 }
 
-void readReflectedFields(const json& j, void* obj, const Mist::PropertyList& props) {
-    if (!j.is_object()) return;
-    auto* base = reinterpret_cast<char*>(obj);
-    for (const auto& p : props) {
-        auto it = j.find(p.name);
-        if (it == j.end()) continue;
-        void* field = base + p.offset;
-        try {
-            switch (p.type) {
-                case Mist::PropertyType::Bool:
-                    *reinterpret_cast<bool*>(field) = it->get<bool>(); break;
-                case Mist::PropertyType::Int:
-                    *reinterpret_cast<int*>(field) = it->get<int>(); break;
-                case Mist::PropertyType::Enum:
-                    Mist::set_enum_value(field, p.size, it->get<long long>()); break;
-                case Mist::PropertyType::Float:
-                    *reinterpret_cast<float*>(field) = it->get<float>(); break;
-                case Mist::PropertyType::Vec2:
-                    if (it->is_array() && it->size() >= 2) {
-                        auto* v = reinterpret_cast<glm::vec2*>(field);
-                        v->x = (*it)[0].get<float>();
-                        v->y = (*it)[1].get<float>();
-                    }
-                    break;
-                case Mist::PropertyType::Vec3:
-                    if (it->is_array() && it->size() >= 3) {
-                        auto* v = reinterpret_cast<glm::vec3*>(field);
-                        v->x = (*it)[0].get<float>();
-                        v->y = (*it)[1].get<float>();
-                        v->z = (*it)[2].get<float>();
-                    }
-                    break;
-                case Mist::PropertyType::Vec4:
-                    if (it->is_array() && it->size() >= 4) {
-                        auto* v = reinterpret_cast<glm::vec4*>(field);
-                        v->x = (*it)[0].get<float>();
-                        v->y = (*it)[1].get<float>();
-                        v->z = (*it)[2].get<float>();
-                        v->w = (*it)[3].get<float>();
-                    }
-                    break;
-                case Mist::PropertyType::String:
-                    *reinterpret_cast<std::string*>(field) = it->get<std::string>(); break;
-                default: break;
-            }
-        } catch (const std::exception& e) {
-            LOG_WARN("SceneSerializer: field '", p.name, "' read failed: ", e.what());
-        }
-    }
+inline void readReflectedFields(const json& j, void* obj, const Mist::PropertyList& props) {
+    Mist::Reflect::ReadFields(j, obj, props);
 }
 
 // Mesh refs, derived from RenderComponent::meshPath.
@@ -190,18 +117,14 @@ Renderable* resolve_mesh_ref(const json& meshJson) {
 
 } // namespace
 
-bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinator*/,
-                            int /*entityCount*/) {
-    const auto sandbox = SceneSandboxRoot();
-    std::filesystem::path resolved;
-    if (!Mist::PathGuard::is_under(sandbox, filepath, &resolved)) {
-        LOG_ERROR("Refusing to save outside scene sandbox: ", filepath);
-        return false;
-    }
+namespace {
 
-    std::error_code ec;
-    std::filesystem::create_directories(resolved.parent_path(), ec);
+bool ApplySceneJson(const json& root, int& entityCount);
 
+// Serialise the whole living world to JSON. Split out of Save() so the same
+// walk backs both the on-disk path and SaveToString(), which play mode uses
+// to snapshot the scene without touching the filesystem.
+json BuildSceneJson() {
     json root = {
         {"version",  kSceneVersion},
         {"engine",   "MistEngine"},
@@ -234,6 +157,15 @@ bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinat
 
         // Transform is the gatekeeper — any entity without one is skipped.
         if (!gCoordinator.HasComponent<TransformComponent>(entity)) continue;
+
+        // Name. Written as a bare string rather than a reflected block: the
+        // component has exactly one field and `"name": "Ground"` is what
+        // SceneSerializer.h has documented as the format since v0.5.
+        if (gCoordinator.HasComponent<NameComponent>(entity)) {
+            const auto& n = gCoordinator.GetComponent<NameComponent>(entity);
+            if (!n.name.empty()) e["name"] = n.name;
+        }
+
         const auto& t = gCoordinator.GetComponent<TransformComponent>(entity);
         e["transform"] = {
             {"pos",   vec3_to_json(t.position)},
@@ -286,6 +218,25 @@ bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinat
         root["entities"].push_back(std::move(e));
     }
 
+    return root;
+}
+
+} // namespace
+
+bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinator*/,
+                            int /*entityCount*/) {
+    const auto sandbox = SceneSandboxRoot();
+    std::filesystem::path resolved;
+    if (!Mist::PathGuard::is_under(sandbox, filepath, &resolved)) {
+        LOG_ERROR("Refusing to save outside scene sandbox: ", filepath);
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(resolved.parent_path(), ec);
+
+    const json root = BuildSceneJson();
+
     std::ofstream out(resolved);
     if (!out.is_open()) {
         LOG_ERROR("Failed to open file for writing: ", filepath);
@@ -296,6 +247,7 @@ bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinat
              " (v", kSceneVersion, ", ", root["entities"].size(), " entities)");
     return true;
 }
+
 
 bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinator*/,
                             int& entityCount) {
@@ -330,6 +282,35 @@ bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinat
         return false;
     }
 
+    return ApplySceneJson(root, entityCount);
+}
+
+std::string SceneSerializer::SaveToString(Coordinator& coordinator) {
+    (void)coordinator;
+    return BuildSceneJson().dump();
+}
+
+bool SceneSerializer::LoadFromString(const std::string& text, Coordinator& /*coordinator*/,
+                                     int& entityCount) {
+    if (text.size() > kMaxSceneBytes) {
+        LOG_ERROR("Scene text exceeds cap (", text.size(), " > ", kMaxSceneBytes, ")");
+        return false;
+    }
+    json root;
+    try { root = json::parse(text); }
+    catch (const std::exception& e) {
+        LOG_ERROR("Scene parse failed: ", e.what());
+        return false;
+    }
+    return ApplySceneJson(root, entityCount);
+}
+
+namespace {
+
+// Rebuild the world from parsed scene JSON. Split out of Load() so play
+// mode's snapshot restore shares exactly one code path with file loading —
+// a second implementation is how "Stop" and "Open Scene" drift apart.
+bool ApplySceneJson(const json& root, int& entityCount) {
     if (!root.is_object() || !root.contains("entities") || !root["entities"].is_array()) {
         LOG_ERROR("Invalid scene: missing or non-array 'entities'");
         return false;
@@ -373,6 +354,11 @@ bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinat
         entityCount = std::max(entityCount, static_cast<int>(entity) + 1);
         if (e.contains("id") && e["id"].is_number_integer()) {
             idRemap[static_cast<Entity>(e["id"].get<int>())] = entity;
+        }
+
+        if (e.contains("name") && e["name"].is_string()) {
+            gCoordinator.AddComponent(entity,
+                NameComponent{e["name"].get<std::string>()});
         }
 
         if (e.contains("transform") && e["transform"].is_object()) {
@@ -451,8 +437,9 @@ bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinat
                  "parent id not present in the file; loaded as roots");
     }
 
-    LOG_INFO("Scene loaded from: ", resolved.string(),
-             " (v", root.value("version", std::string("?")), ", ",
+    LOG_INFO("Scene loaded (v", root.value("version", std::string("?")), ", ",
              root["entities"].size(), " entities, ", attached, " parented)");
     return true;
 }
+
+} // namespace

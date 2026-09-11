@@ -1,12 +1,18 @@
 #include <catch2/catch_all.hpp>
 
 #include "Core/Reflection.h"
+#include "Core/ReflectionJson.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/TransformComponent.h"
 
 #include <cstdint>
 #include <cstring>
 #include <string>
+
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
+#include <nlohmann/json.hpp>
 
 TEST_CASE("TypeRegistry exposes TransformComponent fields", "[reflection]") {
     const auto* props = Mist::TypeRegistry::Instance().Get("TransformComponent");
@@ -138,4 +144,106 @@ TEST_CASE("PhysicsComponent::shape is reflected and editable", "[reflection][enu
     REQUIRE(shape->hint == Mist::PropertyHint::Enum);
     // Labels must cover every CollisionShape enumerator.
     REQUIRE(Mist::parse_enum_hint(shape->hintString).size() == 4);
+}
+
+// --- Shared reflection <-> JSON codec ---------------------------------------
+//
+// Core/ReflectionJson.h replaced two file-static copies of the PropertyType
+// switch (SceneSerializer's and MaterialSerializer's). These cases pin the
+// behaviour every serializer now depends on: every PropertyType survives a
+// round trip, a missing key leaves the field at its default rather than
+// zeroing it, and a type-mismatched value degrades to a warning instead of
+// aborting the rest of the load.
+
+namespace {
+enum class CodecMode : std::uint8_t { Alpha = 0, Beta = 1, Gamma = 2 };
+
+struct CodecProbe {
+    bool        flag     = false;
+    int         count    = 0;
+    CodecMode   mode     = CodecMode::Alpha;
+    float       amount   = 0.0f;
+    glm::vec2   uv       {0.0f, 0.0f};
+    glm::vec3   tint     {0.0f, 0.0f, 0.0f};
+    glm::vec4   rect     {0.0f, 0.0f, 0.0f, 0.0f};
+    std::string label;
+};
+} // namespace
+
+MIST_REFLECT(CodecProbe)
+    MIST_FIELD(CodecProbe, flag,   ::Mist::PropertyHint::None, "")
+    MIST_FIELD(CodecProbe, count,  ::Mist::PropertyHint::None, "")
+    MIST_FIELD(CodecProbe, mode,   ::Mist::PropertyHint::Enum, "Alpha,Beta,Gamma")
+    MIST_FIELD(CodecProbe, amount, ::Mist::PropertyHint::None, "")
+    MIST_FIELD(CodecProbe, uv,     ::Mist::PropertyHint::None, "")
+    MIST_FIELD(CodecProbe, tint,   ::Mist::PropertyHint::Color, "")
+    MIST_FIELD(CodecProbe, rect,   ::Mist::PropertyHint::None, "")
+    MIST_FIELD(CodecProbe, label,  ::Mist::PropertyHint::None, "")
+MIST_REFLECT_END(CodecProbe)
+
+TEST_CASE("ReflectionJson round-trips every PropertyType", "[reflection][json]") {
+    const auto* props = Mist::TypeRegistry::Instance().Get("CodecProbe");
+    REQUIRE(props != nullptr);
+    REQUIRE(props->size() == 8);
+
+    CodecProbe src;
+    src.flag   = true;
+    src.count  = -17;
+    src.mode   = CodecMode::Gamma;
+    src.amount = 2.5f;
+    src.uv     = {0.25f, 0.75f};
+    src.tint   = {0.1f, 0.2f, 0.3f};
+    src.rect   = {1.0f, 2.0f, 3.0f, 4.0f};
+    src.label  = "res://materials/brick.mistmat";
+
+    nlohmann::json j;
+    Mist::Reflect::WriteFields(j, &src, *props);
+
+    CodecProbe dst;
+    Mist::Reflect::ReadFields(j, &dst, *props);
+
+    REQUIRE(dst.flag   == true);
+    REQUIRE(dst.count  == -17);
+    REQUIRE(dst.mode   == CodecMode::Gamma);
+    REQUIRE(dst.amount == Catch::Approx(2.5f));
+    REQUIRE(dst.uv.x   == Catch::Approx(0.25f));
+    REQUIRE(dst.uv.y   == Catch::Approx(0.75f));
+    REQUIRE(dst.tint.z == Catch::Approx(0.3f));
+    REQUIRE(dst.rect.w == Catch::Approx(4.0f));
+    REQUIRE(dst.label  == "res://materials/brick.mistmat");
+}
+
+TEST_CASE("ReflectionJson leaves absent fields at their defaults", "[reflection][json]") {
+    // This is the version-skew path: a scene written before a field existed
+    // must not zero that field on load. `find() == end() -> continue` is the
+    // behaviour being pinned.
+    const auto* props = Mist::TypeRegistry::Instance().Get("CodecProbe");
+    REQUIRE(props != nullptr);
+
+    auto j = nlohmann::json::parse(R"({"count": 9})");
+
+    CodecProbe dst;
+    dst.amount = 42.0f;
+    dst.label  = "kept";
+    Mist::Reflect::ReadFields(j, &dst, *props);
+
+    REQUIRE(dst.count  == 9);
+    REQUIRE(dst.amount == Catch::Approx(42.0f));
+    REQUIRE(dst.label  == "kept");
+}
+
+TEST_CASE("ReflectionJson survives a type-mismatched field", "[reflection][json]") {
+    // A corrupt or hand-edited file must not abort the whole load. The bad
+    // field keeps its default and every later field still reads.
+    const auto* props = Mist::TypeRegistry::Instance().Get("CodecProbe");
+    REQUIRE(props != nullptr);
+
+    auto j = nlohmann::json::parse(R"({"count": "not-a-number", "label": "still read"})");
+
+    CodecProbe dst;
+    dst.count = 5;
+    Mist::Reflect::ReadFields(j, &dst, *props);
+
+    REQUIRE(dst.count == 5);
+    REQUIRE(dst.label == "still read");
 }

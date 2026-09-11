@@ -3,6 +3,7 @@
 #include "Core/Logger.h"
 #include "Core/PathGuard.h"
 #include "Core/Reflection.h"
+#include "Core/ReflectionJson.h"
 #include "Material.h"
 
 #include <nlohmann/json.hpp>
@@ -32,104 +33,15 @@ using json = nlohmann::json;
 
 namespace {
 
-// Reflection-driven field write. Dispatched on PropertyType so adding
-// a new reflected field in Material.h serialises for free.
-void writeField(json& j, const PBRMaterial& mat, const Mist::PropertyInfo& p) {
-    const auto* base = reinterpret_cast<const char*>(&mat);
-    const void* field = base + p.offset;
-
-    switch (p.type) {
-        case Mist::PropertyType::Bool:
-            j[p.name] = *reinterpret_cast<const bool*>(field);
-            break;
-        case Mist::PropertyType::Int:
-            j[p.name] = *reinterpret_cast<const int*>(field);
-            break;
-        case Mist::PropertyType::Enum:
-            // Persisted as the ordinal. Read back through set_enum_value so
-            // the field's real width is respected.
-            j[p.name] = Mist::enum_value(field, p.size);
-            break;
-        case Mist::PropertyType::Float:
-            j[p.name] = *reinterpret_cast<const float*>(field);
-            break;
-        case Mist::PropertyType::Vec2: {
-            const auto* v = reinterpret_cast<const glm::vec2*>(field);
-            j[p.name] = {v->x, v->y};
-            break;
-        }
-        case Mist::PropertyType::Vec3: {
-            const auto* v = reinterpret_cast<const glm::vec3*>(field);
-            j[p.name] = {v->x, v->y, v->z};
-            break;
-        }
-        case Mist::PropertyType::Vec4: {
-            const auto* v = reinterpret_cast<const glm::vec4*>(field);
-            j[p.name] = {v->x, v->y, v->z, v->w};
-            break;
-        }
-        case Mist::PropertyType::String:
-            j[p.name] = *reinterpret_cast<const std::string*>(field);
-            break;
-        default:
-            break;
-    }
+// Field-at-a-time reflection codec, shared with SceneSerializer and every
+// other serializer via Core/ReflectionJson.h. This file used to carry its
+// own copy of the PropertyType switch.
+inline void writeField(json& j, const PBRMaterial& mat, const Mist::PropertyInfo& p) {
+    Mist::Reflect::WriteField(j, &mat, p);
 }
 
-void readField(const json& j, PBRMaterial& mat, const Mist::PropertyInfo& p) {
-    auto it = j.find(p.name);
-    if (it == j.end()) return;
-
-    auto* base = reinterpret_cast<char*>(&mat);
-    void* field = base + p.offset;
-
-    try {
-        switch (p.type) {
-            case Mist::PropertyType::Bool:
-                *reinterpret_cast<bool*>(field) = it->get<bool>();
-                break;
-            case Mist::PropertyType::Int:
-                *reinterpret_cast<int*>(field) = it->get<int>();
-                break;
-            case Mist::PropertyType::Enum:
-                Mist::set_enum_value(field, p.size, it->get<long long>());
-                break;
-            case Mist::PropertyType::Float:
-                *reinterpret_cast<float*>(field) = it->get<float>();
-                break;
-            case Mist::PropertyType::Vec2:
-                if (it->is_array() && it->size() >= 2) {
-                    auto* v = reinterpret_cast<glm::vec2*>(field);
-                    v->x = (*it)[0].get<float>();
-                    v->y = (*it)[1].get<float>();
-                }
-                break;
-            case Mist::PropertyType::Vec3:
-                if (it->is_array() && it->size() >= 3) {
-                    auto* v = reinterpret_cast<glm::vec3*>(field);
-                    v->x = (*it)[0].get<float>();
-                    v->y = (*it)[1].get<float>();
-                    v->z = (*it)[2].get<float>();
-                }
-                break;
-            case Mist::PropertyType::Vec4:
-                if (it->is_array() && it->size() >= 4) {
-                    auto* v = reinterpret_cast<glm::vec4*>(field);
-                    v->x = (*it)[0].get<float>();
-                    v->y = (*it)[1].get<float>();
-                    v->z = (*it)[2].get<float>();
-                    v->w = (*it)[3].get<float>();
-                }
-                break;
-            case Mist::PropertyType::String:
-                *reinterpret_cast<std::string*>(field) = it->get<std::string>();
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception& e) {
-        LOG_WARN("MaterialSerializer: failed to read field '", p.name, "': ", e.what());
-    }
+inline void readField(const json& j, PBRMaterial& mat, const Mist::PropertyInfo& p) {
+    Mist::Reflect::ReadField(j, &mat, p);
 }
 
 } // namespace

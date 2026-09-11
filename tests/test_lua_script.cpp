@@ -130,3 +130,63 @@ TEST_CASE("destroy_entity tolerates negative ids without crashing", "[lua][bindi
 }
 
 #endif // MIST_ENABLE_SCRIPTING
+
+// --- Name lookup bindings ---------------------------------------------------
+//
+// find_entity is the seed of Godot's get_node(): before it, a script had
+// entity_id() for itself and no way to reach anything else, so any
+// interaction between two objects had to be hardcoded engine-side.
+
+#include "ECS/Components/NameComponent.h"
+#include "ECS/EntityName.h"
+
+#include "test_world.h"
+
+TEST_CASE("Lua find_entity resolves a named entity", "[lua][script][identity]") {
+    REQUIRE(MistTest::ResetGlobalWorld());
+
+    Entity e = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(e, TransformComponent{});
+    Mist::SetEntityName(gCoordinator, e, "LuaLookupTarget");
+
+    auto lua = makeLua();
+    // IScriptInstance exposes only GetString, so the script stringifies the
+    // ids it found rather than this test growing a new interface method.
+    auto inst = lua->Compile(
+        "found = tostring(find_entity('LuaLookupTarget'))\n"
+        "missing = tostring(find_entity('NoSuchEntity'))\n"
+        "label = entity_name(find_entity('LuaLookupTarget'))\n");
+    REQUIRE(inst != nullptr);
+
+    std::string found, missing, label;
+    REQUIRE(inst->GetString("found", found));
+    REQUIRE(inst->GetString("missing", missing));
+    REQUIRE(inst->GetString("label", label));
+
+    REQUIRE(found   == std::to_string(e));
+    REQUIRE(missing == "-1");
+    REQUIRE(label   == "LuaLookupTarget");
+
+    gCoordinator.DestroyEntity(e);
+}
+
+TEST_CASE("Lua set_entity_name makes a spawned entity addressable",
+          "[lua][script][identity]") {
+    REQUIRE(MistTest::ResetGlobalWorld());
+
+    Entity e = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(e, TransformComponent{});
+
+    auto lua = makeLua();
+    auto inst = lua->Compile(
+        "set_entity_name(" + std::to_string(e) + ", 'RenamedFromLua')\n"
+        "back = tostring(find_entity('RenamedFromLua'))\n");
+    REQUIRE(inst != nullptr);
+
+    std::string back;
+    REQUIRE(inst->GetString("back", back));
+    REQUIRE(back == std::to_string(e));
+    REQUIRE(Mist::EntityName(gCoordinator, e) == "RenamedFromLua");
+
+    gCoordinator.DestroyEntity(e);
+}
