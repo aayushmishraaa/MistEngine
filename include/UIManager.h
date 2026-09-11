@@ -183,13 +183,37 @@ private:
     // `const Mist::PropertyList&` is the typedef from Core/Reflection.h. We
     // use void* here so UIManager.h doesn't need that include in the public
     // header; the .cpp pulls in the real type.
-    void DrawReflectedProperties(void* obj, const void* propertyListPtr);
+    // `componentType` and `owner` are optional: when both are supplied and the
+    // entity belongs to a prefab instance, an edit is recorded as an override.
+    void DrawReflectedProperties(void* obj, const void* propertyListPtr,
+                                 const char* componentType = nullptr,
+                                 Entity owner = static_cast<Entity>(-1));
 
     // Editor panels (wired from EditorUI.cpp)
     void DrawProfilerWindow();
     // One reflected panel over Renderer::GetEnvironment(). Replaced
     // DrawPostProcessControls / DrawShadowControls / DrawSkyboxControls.
     void DrawEnvironmentPanel();
+
+    // Prefabs. DestroyPrefabInstance removes every entity the instance
+    // spawned, not just the root — destroying only the root orphans its
+    // children in the Hierarchy.
+    void DestroyPrefabInstance(Entity root);
+    void SaveSelectionAsPrefab(const std::string& path);
+    void DrawPrefabInstanceBlock(Entity sel);
+
+    // Records an Inspector edit as a prefab override when `entity` belongs to
+    // an instance. A no-op otherwise. Without it an edit looks like it worked
+    // and silently reverts on the next scene load, because the scene stores a
+    // reference plus overrides rather than the expanded subtree.
+    void RecordOverrideIfPrefabMember(Entity entity, const char* componentType,
+                                      const char* fieldName, const void* component);
+
+    // "Save as Prefab..." is raised from a hierarchy context menu, which has
+    // already been popped by the time the modal would open — so the request is
+    // latched and the popup opened from the top-level draw.
+    bool m_OpenSavePrefabPopup = false;
+    char m_PrefabPathBuffer[260] = "prefabs/new.mistprefab";
     void DrawLightEditor();
 
     // Utility

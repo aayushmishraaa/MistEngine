@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <random>
 #include <sstream>
 #include <string>
@@ -117,6 +118,45 @@ std::unordered_set<std::string> collectDependencies(const json& sceneJson,
     std::unordered_set<std::string> deps;
     if (!sceneJson.contains("entities")) return deps;
     for (const auto& e : sceneJson["entities"]) {
+        // Prefab instances store a reference, not the expanded subtree, so the
+        // .mistprefab file itself is a dependency — without it an exported
+        // package reconstructs a scene full of instances whose sources are
+        // missing, and every one of them silently vanishes on import.
+        if (e.contains("prefab") && e["prefab"].is_object()
+            && e["prefab"].contains("path") && e["prefab"]["path"].is_string()) {
+            const std::string pp = e["prefab"]["path"].get<std::string>();
+            if (!pp.empty()) {
+                deps.insert(pp);
+
+                // A prefab carries its own RenderComponents, so its material
+                // references have to be harvested too. Nested prefabs are out
+                // of scope for this cut, so this does not recurse.
+                std::ifstream pf(sceneDir / pp);
+                if (pf) {
+                    try {
+                        json pj; pf >> pj;
+                        // Walk every "render" object anywhere in the prefab
+                        // tree — the shape is recursive, unlike the flat scene
+                        // entity list.
+                        std::function<void(const json&)> harvest = [&](const json& node) {
+                            if (!node.is_object()) return;
+                            if (node.contains("render") && node["render"].is_object()) {
+                                const auto& r = node["render"];
+                                if (r.contains("materialPath") && r["materialPath"].is_string()) {
+                                    const auto mp = r["materialPath"].get<std::string>();
+                                    if (!mp.empty()) deps.insert(mp);
+                                }
+                            }
+                            if (node.contains("children") && node["children"].is_array()) {
+                                for (const auto& c : node["children"]) harvest(c);
+                            }
+                        };
+                        if (pj.contains("root")) harvest(pj["root"]);
+                    } catch (...) {}
+                }
+            }
+        }
+
         if (!e.contains("render")) continue;
         const auto& r = e["render"];
         if (!r.contains("materialPath")) continue;

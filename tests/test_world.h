@@ -22,6 +22,7 @@
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/NameComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
+#include "ECS/Components/PrefabComponents.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Coordinator.h"
 #include "ECS/Systems/HierarchySystem.h"
@@ -45,6 +46,8 @@ inline bool ResetGlobalWorld() {
     gCoordinator.RegisterComponent<TransformComponent>();
     gCoordinator.RegisterComponent<PhysicsComponent>();
     gCoordinator.RegisterComponent<LightComponent>();
+    gCoordinator.RegisterComponent<PrefabInstanceComponent>();
+    gCoordinator.RegisterComponent<PrefabMemberComponent>();
     gCoordinator.RegisterComponent<HierarchyComponent>();
     gCoordinator.RegisterSystem<HierarchySystem>();
 

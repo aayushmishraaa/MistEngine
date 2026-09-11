@@ -1,7 +1,7 @@
 ---
 type: Subsystem Parity
 title: Scene and composition
-description: Godot composes everything from nestable node trees that double as prefabs; MistEngine has one flat entity list and no reuse unit at all.
+description: Godot composes everything from nestable node trees that double as prefabs; MistEngine now has .mistprefab instancing with overrides, but no nesting.
 tags: [parity, godot, scene, architecture, prefab]
 status: draft
 generated:
@@ -32,38 +32,78 @@ by nesting scenes, not by layering MVC.
 
 # MistEngine today
 
-One flat list of entities in a single global `Coordinator`. There is no reuse unit of any kind: no
-prefab, no template, no sub-scene, no way to say "another one of those".
+**`.mistprefab` is the engine's first reuse unit.** Per
+[decision 0001](/decisions/0001-prefab-asset-model.md) it is a separate asset
+type holding an entity subtree, not Godot's "every scene is also instantiable"
+model.
 
-Parent/child relationships exist via `HierarchyComponent`, and since commit `ea91d7c` they actually
-affect rendering — before that `cachedGlobal` was computed and read by nothing. `SceneImporter` does
-build a real entity tree from an Assimp node hierarchy. So the *tree* exists; the *instancing* does
-not.
+The format differs from a scene in **addressing, and only addressing**. A scene
+stores integer ids and remaps them through an old→new table on load, because
+`CreateEntity` does not hand back the ids that were saved. A prefab stores
+sibling-unique **name paths** (`"Turret/Barrel"`), so it is position-independent
+and ids never leak between assets. The component payload is identical and comes
+from `Scene/ComponentBlocks.h`, shared by both serializers so adding a component
+updates one writer rather than two.
 
-Duplicating content means one of: re-importing the source model, re-running a Lua spawn function, or
-the Hierarchy panel's "Duplicate" context item — which copies only Transform and Render, silently
-dropping Physics, Light, Animation and Script, and pushes no undo command.
+What works:
 
-# Delta
+- **Propagation.** A scene stores the *reference plus overrides*, never the
+  expanded subtree. `SceneSerializer::Save` skips every entity an instance
+  spawned and writes a `prefab` block; Load re-instantiates from the source as
+  it is on disk now. Edit the prefab, reload the scene, every instance updates.
+  Flattening would have made a prefab a one-time copy — which the Hierarchy's
+  "Duplicate" already was.
+- **Overrides**, keyed on (local name path, component type, field name). The
+  reflection layer already gave the last two by name. Stored as a *partial*
+  reflected object per (target, component), which is exactly the shape
+  `Mist::Reflect::ReadFields` consumes: "apply only the overridden fields" and
+  "tolerate fields an older file lacks" are the same operation, so overrides
+  reuse it rather than reimplementing the switch.
+- **Sibling-unique names enforced at save time.** A duplicate makes an override
+  path ambiguous, so saving fails with an error naming the offending path rather
+  than producing an asset whose overrides land on whichever child sorts first.
+- **`PathGuard` from the first commit**, not retrofitted. Materials and packages
+  both had to be fixed after the fact at commit `04b00b4`.
+- **Editor surface**: "Save as Prefab..." on a hierarchy subtree, `.mistprefab`
+  drag-drop onto the viewport, an Inspector block showing the source path and
+  every overridden field with a revert button, and undo for instancing and
+  reverting. Deleting any member of an instance deletes the whole instance —
+  destroying one child would leave the scene holding a reference whose expansion
+  no longer matches its source.
+- **`PackageIO`** includes referenced prefabs and the materials inside them in
+  its dependency walk.
 
-The gap is not "scenes cannot nest" — it is that **nothing can be reused**. Consequences that show
-up immediately in practice:
+Failure handling is deliberately non-fatal in two places, because the
+alternative makes editing a prefab a scene-breaking operation: an override whose
+target no longer exists is dropped with a warning, and a prefab file that fails
+to load skips that instance rather than aborting the scene.
 
-- A level must be authored entirely in Lua (`scripts/showcase.lua`) or re-imported from a DCC tool.
-  There is no third option.
-- A fix to a repeated object must be applied by hand to every copy.
-- The asset browser can drop a model onto the viewport, but the result is an anonymous entity tree
-  with no link back to anything reusable.
+# Remaining delta
 
-This is the largest single architectural gap in the engine, and it is also the one with the most
-prerequisites — see [decision 0001](/decisions/0001-prefab-asset-model.md) for the chosen model and
-why Godot's exact approach was rejected.
+- **Nested prefabs** are out of scope: a prefab containing an instance of
+  another is a later question, decided rather than discovered.
+- **Structural overrides** — adding or removing a child on an instance — are out
+  of scope. This is where prefab systems genuinely rot, because they force
+  propagation rules that survive the source gaining or losing nodes. Overrides
+  are scalar and vector *fields* only.
+- **Reverting takes effect on reload.** Clearing an override updates the stored
+  table, but the live component still holds the overridden value until the
+  prefab is re-read. The editor says so rather than letting the button look
+  broken.
+- The Hierarchy's **"Duplicate"** still copies only Transform and Render,
+  silently dropping Physics, Light, Animation and Script, and pushes no undo
+  command. Prefabs are the intended answer, but Duplicate remains as it was.
 
 # Evidence
 
-- `include/ECS/Coordinator.h` — flat entity storage; no scene or sub-scene concept.
-- `grep -rin "prefab\|packedscene\|instantiate" include src` → only
-  `Script/ScriptLanguage.h:41`, an unrelated use of the word in a comment about compiling scripts.
+- `include/Assets/PrefabSerializer.h`, `src/Assets/PrefabSerializer.cpp` — the format.
+- `include/Assets/PrefabOverrides.h`, `src/Assets/PrefabOverrides.cpp` — apply / record / clear.
+- `include/ECS/Components/PrefabComponents.h` — `PrefabInstanceComponent` (serialized reference
+  plus override table) and `PrefabMemberComponent` (runtime-only membership marker).
+- `include/Scene/ComponentBlocks.h` — the component payload, shared with the scene serializer.
+- `src/Scene/SceneSerializer.cpp` — skips expanded instance content, writes the `prefab` block.
+- `tests/test_prefab.cpp` — 16 headless cases including propagation, override precedence over
+  propagation, and PathGuard escapes.
 - `src/Import/SceneImporter.cpp:160` `importNodeTree` — builds a tree, but the result is plain
   entities with no template identity.
 - `src/UIManager.cpp` Hierarchy context menu "Duplicate" — copies `TransformComponent` and
@@ -73,11 +113,8 @@ why Godot's exact approach was rejected.
 
 # Depends on / Blocks
 
-Blocked by [entity identity](/subsystems/entity-identity.md) — a prefab whose contents cannot be
-named or addressed cannot express an override.
+Both prerequisites landed first, as planned: [entity identity](/subsystems/entity-identity.md) gave
+overrides something to address, and [environment and camera](/subsystems/environment-and-camera.md)
+made a prefab able to contain a viewpoint.
 
-Blocked by [environment and camera](/subsystems/environment-and-camera.md) for the camera half: a
-prefab containing a viewpoint is meaningless while `Camera` is a `Renderer` member.
-
-Blocks: practically all content authoring.
-Implementation: [phase 3](/roadmap/phase-3-prefabs.md).
+Implemented in [phase 3](/roadmap/phase-3-prefabs.md).

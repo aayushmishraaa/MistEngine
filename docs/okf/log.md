@@ -63,3 +63,22 @@
   and `RecomputeSubtree` gates the whole subtree on that flag — so dragging a
   parent's position in the Inspector left its children behind. Pre-existing.
 - Tests: 130 → 145 green.
+
+# 2026-09-11 — phase 3
+
+- `.mistprefab` landed: separate asset type, name-path addressing, partial
+  reflected overrides, propagation on reload, PathGuard from the first commit.
+- Hoisted the per-entity component payload into `Scene/ComponentBlocks.h`,
+  shared by the scene and prefab serializers. Same reasoning as
+  `Core/ReflectionJson.h` one level up: a second copy guarantees drift.
+- Editor: save-as-prefab, `.mistprefab` drop, an Inspector block with per-field
+  revert, override recording on edit, and undo for instancing and reverting.
+- `PackageIO` now walks prefab references and the materials inside them.
+- **Fixed the pre-existing order-dependence recorded on 2026-09-11 (phase 1
+  part A).** Root cause: `tests/test_path_guard.cpp` repointed the process-wide
+  `PathGuard::project_root()` and never restored it, so every test that ran
+  afterwards resolved project paths against a temp directory. That is what made
+  `tests/test_material_asset.cpp` fail under randomised order, and it broke the
+  prefab scene tests the same way until a scoped restorer was added. The suite
+  is now order-independent — verified across four seeds.
+- Tests: 145 → 160 green.

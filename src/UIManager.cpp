@@ -8,6 +8,9 @@
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/CameraComponent.h"
 #include "ECS/Components/NameComponent.h"
+#include "ECS/Components/PrefabComponents.h"
+#include "Assets/PrefabOverrides.h"
+#include "Assets/PrefabSerializer.h"
 #include "ECS/EntityName.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/AnimationComponent.h"
@@ -529,6 +532,28 @@ void UIManager::DrawMainMenuBar() {
     // Assets -> New Material popup. Creates a default .mistmat at the
     // path the user types. Path completion / picker is a future-cycle
     // nicety; the text input covers authoring today.
+    // Latched from the hierarchy context menu, which has already been popped
+    // by the time we get here.
+    if (m_OpenSavePrefabPopup) {
+        ImGui::OpenPopup("SavePrefab");
+        m_OpenSavePrefabPopup = false;
+    }
+    if (ImGui::BeginPopupModal("SavePrefab", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Output .mistprefab path");
+        ImGui::TextDisabled("Saved relative to the project root.");
+        ImGui::SetNextItemWidth(420);
+        ImGui::InputText("##SavePrefabPath", m_PrefabPathBuffer, sizeof(m_PrefabPathBuffer));
+        ImGui::TextDisabled("Sibling names inside the subtree must be unique.");
+        ImGui::Separator();
+        if (ImGui::Button("Save", ImVec2(120, 0))) {
+            SaveSelectionAsPrefab(m_PrefabPathBuffer);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
     if (ImGui::BeginPopupModal("NewMaterial", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Output .mistmat path");
         ImGui::SetNextItemWidth(420);
@@ -644,6 +669,29 @@ void UIManager::HandleAssetDrop(const std::string& path) {
         SpawnMeshEntity(path);
     } else if (ext == ".scene" || ext == ".json" || ext == ".mscene" || ext == ".mist") {
         LoadScene(path);
+    } else if (ext == ".mistprefab") {
+        Entity inst = Mist::Assets::PrefabSerializer::Instantiate(path, *m_Coordinator);
+        if (inst == static_cast<Entity>(-1)) {
+            Mist::Editor::Toaster::Instance().Push(
+                Mist::Editor::ToastLevel::Error, "Failed to instance prefab: " + path);
+        } else {
+            SelectEntity(inst);
+            m_ConsoleMessages.push_back("Instanced prefab: " + path);
+
+            // Undo destroys the whole spawned subtree, not just the root —
+            // leaving orphaned children behind is how an undo turns into a
+            // leak you can see in the Hierarchy.
+            auto rootRef = std::make_shared<Entity>(inst);
+            const std::string prefabPath = path;
+            Mist::Editor::Command c;
+            c.label     = "Instance prefab";
+            c.merge_key = 0;
+            c.redo = [this, rootRef, prefabPath]() {
+                *rootRef = Mist::Assets::PrefabSerializer::Instantiate(prefabPath, *m_Coordinator);
+            };
+            c.undo = [this, rootRef]() { DestroyPrefabInstance(*rootRef); };
+            m_UndoStack.Push(std::move(c));
+        }
     } else if (ext == ".mistpkg") {
         std::string scenePath;
         if (Mist::Assets::PackageIO::Import(path, scenePath)) {
@@ -653,6 +701,133 @@ void UIManager::HandleAssetDrop(const std::string& path) {
         Mist::Editor::Toaster::Instance().Push(
             Mist::Editor::ToastLevel::Warn,
             "Unsupported asset type: " + ext);
+    }
+}
+
+void UIManager::RecordOverrideIfPrefabMember(Entity entity, const char* componentType,
+                                             const char* fieldName, const void* component) {
+    if (!m_Coordinator || !componentType || !fieldName || !component) return;
+    if (!m_Coordinator->HasComponent<PrefabMemberComponent>(entity)) return;
+
+    const auto& member = m_Coordinator->GetComponent<PrefabMemberComponent>(entity);
+    const Entity instRoot = member.instanceRoot;
+    if (!m_Coordinator->GetLivingEntities().count(instRoot)) return;
+    if (!m_Coordinator->HasComponent<PrefabInstanceComponent>(instRoot)) return;
+
+    // Without this, editing a field on an instance would look like it worked
+    // and then silently revert on the next scene load: the scene stores a
+    // reference plus overrides, so an unrecorded edit has nowhere to live.
+    auto& inst = m_Coordinator->GetComponent<PrefabInstanceComponent>(instRoot);
+    inst.overridesJson = Mist::Assets::RecordPrefabOverride(
+        inst.overridesJson, member.localPath, componentType, fieldName, component);
+}
+
+void UIManager::DrawPrefabInstanceBlock(Entity sel) {
+    if (!m_Coordinator) return;
+    if (!m_Coordinator->HasComponent<PrefabMemberComponent>(sel)) return;
+
+    const auto& member = m_Coordinator->GetComponent<PrefabMemberComponent>(sel);
+    const Entity instRoot = member.instanceRoot;
+    if (!m_Coordinator->GetLivingEntities().count(instRoot)) return;
+    if (!m_Coordinator->HasComponent<PrefabInstanceComponent>(instRoot)) return;
+
+    auto& inst = m_Coordinator->GetComponent<PrefabInstanceComponent>(instRoot);
+
+    ImGui::Separator();
+    ImGui::TextDisabled("Prefab instance");
+    ImGui::Text("Source: %s", inst.prefabPath.c_str());
+    if (member.localPath.empty()) {
+        ImGui::TextDisabled("This is the instance root.");
+    } else {
+        ImGui::TextDisabled("Path in prefab: %s", member.localPath.c_str());
+    }
+
+    // Overridden fields on THIS entity, with a revert button each. Godot marks
+    // overridden properties and offers a revert; without that, an override is
+    // invisible — the value just looks like what the prefab says, and editing
+    // the prefab appears not to work.
+    const auto all = Mist::Assets::ListPrefabOverrides(inst.overridesJson);
+    bool anyHere = false;
+    for (const auto& o : all) {
+        if (o.target != member.localPath) continue;
+        anyHere = true;
+
+        ImGui::PushID((o.component + "/" + o.field).c_str());
+        ImGui::BulletText("%s.%s", o.component.c_str(), o.field.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Revert")) {
+            const std::string before = inst.overridesJson;
+            const std::string after  = Mist::Assets::ClearPrefabOverride(
+                before, o.target, o.component, o.field);
+
+            Coordinator* coord = m_Coordinator;
+            Mist::Editor::Command c;
+            c.label     = "Revert override";
+            c.merge_key = 0;
+            c.redo = [coord, instRoot, after]() {
+                if (coord->HasComponent<PrefabInstanceComponent>(instRoot)) {
+                    coord->GetComponent<PrefabInstanceComponent>(instRoot).overridesJson = after;
+                }
+            };
+            c.undo = [coord, instRoot, before]() {
+                if (coord->HasComponent<PrefabInstanceComponent>(instRoot)) {
+                    coord->GetComponent<PrefabInstanceComponent>(instRoot).overridesJson = before;
+                }
+            };
+            c.redo();
+            m_UndoStack.Push(std::move(c));
+
+            // The stored table is authoritative, but the live component still
+            // holds the overridden value — reverting only takes visible effect
+            // on the next reload unless the prefab is re-read. Say so rather
+            // than letting the button look broken.
+            Mist::Editor::Toaster::Instance().Push(
+                Mist::Editor::ToastLevel::Info,
+                "Override cleared; reload the scene to see the prefab's value");
+            ImGui::PopID();
+            break;  // `all` is now stale
+        }
+        ImGui::PopID();
+    }
+    if (!anyHere) ImGui::TextDisabled("No overrides on this entity.");
+}
+
+void UIManager::DestroyPrefabInstance(Entity root) {
+    if (!m_Coordinator) return;
+    if (!m_Coordinator->GetLivingEntities().count(root)) return;
+
+    // Collect the whole instance before destroying anything: every entity the
+    // instance spawned carries a PrefabMemberComponent pointing back at this
+    // root. Destroying only the root would leave its children orphaned in the
+    // Hierarchy — visible, unparented, and unreferenced by any prefab.
+    std::vector<Entity> doomed;
+    for (Entity e : m_Coordinator->GetLivingEntities()) {
+        if (!m_Coordinator->HasComponent<PrefabMemberComponent>(e)) continue;
+        if (m_Coordinator->GetComponent<PrefabMemberComponent>(e).instanceRoot == root) {
+            doomed.push_back(e);
+        }
+    }
+    for (Entity e : doomed) m_Coordinator->DestroyEntity(e);
+
+    if (m_HasSelectedEntity
+        && std::find(doomed.begin(), doomed.end(), m_SelectedEntity) != doomed.end()) {
+        m_HasSelectedEntity = false;
+    }
+}
+
+void UIManager::SaveSelectionAsPrefab(const std::string& path) {
+    if (!m_Coordinator || !m_HasSelectedEntity) return;
+
+    if (Mist::Assets::PrefabSerializer::Save(m_SelectedEntity, *m_Coordinator, path)) {
+        Mist::Editor::Toaster::Instance().Push(
+            Mist::Editor::ToastLevel::Info, "Prefab saved: " + path);
+        m_ConsoleMessages.push_back("Saved prefab: " + path);
+    } else {
+        // PrefabSerializer already logged the specific reason — most often
+        // two siblings sharing a name, which would make overrides ambiguous.
+        Mist::Editor::Toaster::Instance().Push(
+            Mist::Editor::ToastLevel::Error,
+            "Failed to save prefab (see console): " + path);
     }
 }
 
@@ -836,9 +1011,26 @@ void UIManager::DrawHierarchyNode(Entity entity, const std::string& filterLower)
             m_ConsoleMessages.push_back("Duplicated: " + copyName);
             SelectEntity(newEntity);
         }
+        if (ImGui::MenuItem("Save as Prefab...")) {
+            SelectEntity(entity);
+            // Seed the path from the entity's own name so the common case is
+            // one keystroke away from correct.
+            const std::string suggested = "prefabs/" + name + ".mistprefab";
+            std::snprintf(m_PrefabPathBuffer, sizeof(m_PrefabPathBuffer), "%s",
+                          suggested.c_str());
+            m_OpenSavePrefabPopup = true;
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("Delete")) {
-            DeleteEntity(entity);
+            // An instance member has to take the whole instance with it:
+            // destroying one child of a prefab would leave the scene holding a
+            // reference whose expansion no longer matches the source.
+            if (m_Coordinator->HasComponent<PrefabMemberComponent>(entity)) {
+                DestroyPrefabInstance(
+                    m_Coordinator->GetComponent<PrefabMemberComponent>(entity).instanceRoot);
+            } else {
+                DeleteEntity(entity);
+            }
         }
         ImGui::EndPopup();
     }
@@ -954,6 +1146,7 @@ void UIManager::DrawInspector() {
             Mist::SetEntityName(*m_Coordinator, m_SelectedEntity, nameBuf);
         }
         ImGui::TextDisabled("ID: %d", m_SelectedEntity);
+        DrawPrefabInstanceBlock(m_SelectedEntity);
         ImGui::Separator();
         
         // Per-component header with inline Remove button. The closure
@@ -1035,7 +1228,7 @@ void UIManager::DrawInspector() {
                 auto& c = coord->GetComponent<CameraComponent>(sel);
                 if (const auto* props =
                         Mist::TypeRegistry::Instance().Get("CameraComponent")) {
-                    DrawReflectedProperties(&c, props);
+                    DrawReflectedProperties(&c, props, "CameraComponent", sel);
                 }
                 // Orientation comes from the Transform, as it should — say so
                 // rather than leaving the user hunting for a rotation field
@@ -1057,7 +1250,7 @@ void UIManager::DrawInspector() {
                 // `type` is reflected with PropertyHint::Enum now, so the
                 // generic drawer renders it along with everything else.
                 if (auto* props = Mist::TypeRegistry::Instance().Get("LightComponent")) {
-                    DrawReflectedProperties(&lc, props);
+                    DrawReflectedProperties(&lc, props, "LightComponent", sel);
                 }
             });
 
@@ -1541,6 +1734,12 @@ void UIManager::DrawTransformComponent(TransformComponent& transform) {
             // parent and left its children behind.
             transform.dirty = true;
 
+            // An edit on a prefab instance member is an override.
+            for (const char* field : {"position", "rotation", "scale"}) {
+                RecordOverrideIfPrefabMember(m_SelectedEntity, "TransformComponent",
+                                             field, &transform);
+            }
+
             // Capture for undo via the merge-aware stack. Using one key
             // per entity transform ("entity/transform") means successive
             // drags within 500ms collapse into a single undo step —
@@ -1618,7 +1817,7 @@ void UIManager::DrawRenderComponent(RenderComponent& render) {
     // Reflection-driven block for reflected fields (currently: `visible`).
     // Add MIST_FIELD lines in RenderComponent.h and they appear here for free.
     if (const auto* props = Mist::TypeRegistry::Instance().Get("RenderComponent")) {
-        DrawReflectedProperties(&render, props);
+        DrawReflectedProperties(&render, props, "RenderComponent", m_SelectedEntity);
     }
 
     // Post-hook: surface non-reflected runtime info (the concrete Mesh pointer).
@@ -1637,7 +1836,7 @@ void UIManager::DrawRenderComponent(RenderComponent& render) {
 void UIManager::DrawPhysicsComponent(PhysicsComponent& physics) {
     // Reflection-driven block for reflected fields (currently: `syncTransform`).
     if (const auto* props = Mist::TypeRegistry::Instance().Get("PhysicsComponent")) {
-        DrawReflectedProperties(&physics, props);
+        DrawReflectedProperties(&physics, props, "PhysicsComponent", m_SelectedEntity);
     }
     
     if (physics.rigidBody) {
@@ -1657,7 +1856,8 @@ void UIManager::DrawPhysicsComponent(PhysicsComponent& physics) {
 // Each field is wrapped in a PushID/PopID pair keyed on its name. With a
 // five-field component this never mattered; Environment has 34 in one list,
 // and two ImGui widgets sharing a label silently share state.
-void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr) {
+void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr,
+                                        const char* componentType, Entity owner) {
     // Dispatches on (PropertyType, PropertyHint) to the right ImGui widget.
     // This is the generic spine the component inspectors delegate to —
     // adding a new field in a MIST_REFLECT block is enough to see it here
@@ -1788,6 +1988,15 @@ void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr) 
             default:
                 ImGui::TextDisabled("%s (unreflected type)", p.name);
                 break;
+        }
+
+        // An edit on a prefab instance member is an override. ImGui's widgets
+        // report a change on the frame it happens, which is exactly the hook:
+        // recording after the fact would mean diffing against the prefab.
+        if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) {
+            if (componentType && owner != static_cast<Entity>(-1)) {
+                RecordOverrideIfPrefabMember(owner, componentType, p.name, obj);
+            }
         }
 
         ImGui::PopID();

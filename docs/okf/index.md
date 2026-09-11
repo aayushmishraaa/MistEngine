@@ -31,9 +31,10 @@ Tree state: commit `04b00b4`. Every `# Evidence` claim below was checked against
 
 **The renderer is ahead of Godot's Compatibility tier. The engine architecture is largely absent.**
 
-Phases 1 and 2 have landed: entity names are a serialized component with a lookup and a Lua binding, and
+Phases 1, 2 and 3 have landed: entity names are a serialized component with a lookup and a Lua binding, and
 every render tunable now lives on one serialized `Environment`. The camera is a component, and all six
-geometry passes cull. The table below tracks state as of that work.
+geometry passes cull, and `.mistprefab` gives the engine its first reuse unit. The table below
+tracks state as of that work.
 
 On rendering, MistEngine is closer to Godot's **Forward+** than to Compatibility: clustered lighting
 for 1024 lights where Compatibility caps at 8 per mesh, PCSS where Compatibility has none, plus TAA,
@@ -47,7 +48,7 @@ actions. Several of those are *already written and simply never called*.
 
 | Subsystem | State | Detail |
 |---|---|---|
-| [Scene and composition](/subsystems/scene-and-composition.md) | absent | no reuse unit at all |
+| [Scene and composition](/subsystems/scene-and-composition.md) | partial | .mistprefab instancing + overrides; no nesting |
 | [Entity identity](/subsystems/entity-identity.md) | partial | names serialized + lookup; no NodePath or groups |
 | [Node lifecycle](/subsystems/node-lifecycle.md) | partial | two of Godot's nine callbacks |
 | [Resources and assets](/subsystems/resources-and-assets.md) | partial | one loader installed of four |

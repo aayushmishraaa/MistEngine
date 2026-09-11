@@ -1,5 +1,11 @@
 #include "Scene/SceneSerializer.h"
 
+#include "Assets/PrefabOverrides.h"
+#include "Assets/PrefabSerializer.h"
+#include "ECS/Components/PrefabComponents.h"
+#include "ECS/EntityName.h"
+#include "Scene/ComponentBlocks.h"
+
 #include "Core/Logger.h"
 #include "Core/PathGuard.h"
 #include "Core/Reflection.h"
@@ -52,17 +58,7 @@ std::filesystem::path SceneSandboxRoot() {
     return cwd / "scenes";
 }
 
-json vec3_to_json(const glm::vec3& v) {
-    return json::array({v.x, v.y, v.z});
-}
 
-bool vec3_from_json(const json& arr, glm::vec3& out) {
-    if (!arr.is_array() || arr.size() != 3) return false;
-    out.x = arr[0].get<float>();
-    out.y = arr[1].get<float>();
-    out.z = arr[2].get<float>();
-    return true;
-}
 
 // Reflection-driven component blocks delegate to the shared codec in
 // Core/ReflectionJson.h. These two names are kept as thin aliases because
@@ -74,47 +70,6 @@ inline void writeReflectedFields(json& j, const void* obj, const Mist::PropertyL
 
 inline void readReflectedFields(const json& j, void* obj, const Mist::PropertyList& props) {
     Mist::Reflect::ReadFields(j, obj, props);
-}
-
-// Mesh refs, derived from RenderComponent::meshPath.
-//
-// This used to be `json mesh_ref_for(Renderable*)` that ignored its argument
-// and unconditionally returned `{"builtin":"cube"}` — there was no way to
-// recover what a bare `Renderable*` pointed at. Every plane, sphere and
-// imported model therefore came back as a cube. `meshPath` is recorded at each
-// spawn site now, so the reference survives the round trip.
-json mesh_ref_for(const RenderComponent& r) {
-    constexpr std::string_view kBuiltin = "builtin://";
-    if (r.meshPath.empty()) {
-        // Untracked renderable (a module or plugin built one directly). Record
-        // the absence rather than lying about it with a cube.
-        return json::object();
-    }
-    if (r.meshPath.rfind(kBuiltin.data(), 0) == 0) {
-        return json{{"builtin", r.meshPath.substr(kBuiltin.size())}};
-    }
-    return json{{"ext", r.meshPath}};
-}
-
-Renderable* resolve_mesh_ref(const json& meshJson) {
-    if (!meshJson.is_object()) return nullptr;
-    auto& registry = Mist::Assets::AssetRegistry::Instance();
-    if (meshJson.contains("builtin") && meshJson["builtin"].is_string()) {
-        std::string path = "builtin://" + meshJson["builtin"].get<std::string>();
-        auto ref = LoadRef(registry.meshes(), path);
-        return ref.get();
-    }
-    if (meshJson.contains("ext") && meshJson["ext"].is_string()) {
-        // On-disk models are re-imported through SceneImporter, which spawns
-        // its own entity tree — so a scene cannot restore one from here
-        // without duplicating that tree. Left as a known gap, but it now
-        // reports the actual path instead of silently substituting a cube.
-        const std::string& uri = meshJson["ext"].get_ref<const std::string&>();
-        LOG_WARN("SceneSerializer: '", uri, "' is an imported model; re-import "
-                 "it via File -> Import Model. Entity will have no mesh.");
-        return nullptr;
-    }
-    return nullptr;
 }
 
 } // namespace
@@ -133,10 +88,6 @@ json BuildSceneJson(const Environment* env) {
         {"entities", json::array()},
     };
 
-    const auto* lightProps     = Mist::TypeRegistry::Instance().Get("LightComponent");
-    const auto* physicsProps   = Mist::TypeRegistry::Instance().Get("PhysicsComponent");
-    const auto* renderProps    = Mist::TypeRegistry::Instance().Get("RenderComponent");
-    const auto* cameraProps    = Mist::TypeRegistry::Instance().Get("CameraComponent");
 
     // Iterate the authoritative living-entity set, not a dense 0..entityCount
     // range.
@@ -161,6 +112,58 @@ json BuildSceneJson(const Environment* env) {
         // Transform is the gatekeeper — any entity without one is skipped.
         if (!gCoordinator.HasComponent<TransformComponent>(entity)) continue;
 
+        // Prefab instances are stored as a REFERENCE plus overrides, never as
+        // the expanded subtree. That is the whole payoff: edit the prefab
+        // source, reload the scene, and every instance picks up the change.
+        // Flattening would make a prefab a one-time copy, which "Duplicate"
+        // already was.
+        //
+        // So: skip every entity the instance spawned except its root, and
+        // skip the root's component blocks too — its transform is carried as
+        // an override if the user moved it.
+        if (gCoordinator.HasComponent<PrefabMemberComponent>(entity)) {
+            const auto& member = gCoordinator.GetComponent<PrefabMemberComponent>(entity);
+            const bool isRoot = (member.instanceRoot == entity);
+            if (!isRoot) continue;
+
+            if (gCoordinator.HasComponent<PrefabInstanceComponent>(entity)) {
+                const auto& inst = gCoordinator.GetComponent<PrefabInstanceComponent>(entity);
+                json jp = {
+                    {"path", inst.prefabPath},
+                };
+                // Stored as parsed JSON rather than an escaped string so the
+                // scene file stays readable and diffable.
+                try {
+                    jp["overrides"] = inst.overridesJson.empty()
+                                    ? json::array()
+                                    : json::parse(inst.overridesJson);
+                } catch (const std::exception&) {
+                    LOG_WARN("SceneSerializer: instance ", entity,
+                             " has a malformed override table; writing an empty one");
+                    jp["overrides"] = json::array();
+                }
+                e["prefab"] = std::move(jp);
+
+                if (gCoordinator.HasComponent<NameComponent>(entity)) {
+                    const auto& n = gCoordinator.GetComponent<NameComponent>(entity);
+                    if (!n.name.empty()) e["name"] = n.name;
+                }
+                // Hierarchy is still written: an instance can be parented to
+                // something in the scene, and that link is scene state, not
+                // prefab state.
+                if (gCoordinator.HasComponent<HierarchyComponent>(entity)) {
+                    const auto& h = gCoordinator.GetComponent<HierarchyComponent>(entity);
+                    json jh = json::object();
+                    if (h.parent != HierarchyComponent::kNoParent) {
+                        jh["parent"] = static_cast<int>(h.parent);
+                    }
+                    e["hierarchy"] = jh;
+                }
+                root["entities"].push_back(std::move(e));
+            }
+            continue;
+        }
+
         // Name. Written as a bare string rather than a reflected block: the
         // component has exactly one field and `"name": "Ground"` is what
         // SceneSerializer.h has documented as the format since v0.5.
@@ -169,40 +172,9 @@ json BuildSceneJson(const Environment* env) {
             if (!n.name.empty()) e["name"] = n.name;
         }
 
-        const auto& t = gCoordinator.GetComponent<TransformComponent>(entity);
-        e["transform"] = {
-            {"pos",   vec3_to_json(t.position)},
-            {"rot",   vec3_to_json(t.rotation)},
-            {"scale", vec3_to_json(t.scale)},
-        };
-
-        if (gCoordinator.HasComponent<CameraComponent>(entity)) {
-            const auto& c = gCoordinator.GetComponent<CameraComponent>(entity);
-            json jc = json::object();
-            if (cameraProps) writeReflectedFields(jc, &c, *cameraProps);
-            e["camera"] = jc;
-        }
-
-        if (gCoordinator.HasComponent<RenderComponent>(entity)) {
-            const auto& r = gCoordinator.GetComponent<RenderComponent>(entity);
-            json jr = {{"mesh", mesh_ref_for(r)}};
-            if (renderProps) writeReflectedFields(jr, &r, *renderProps);
-            e["render"] = jr;
-        }
-
-        if (gCoordinator.HasComponent<PhysicsComponent>(entity)) {
-            const auto& p = gCoordinator.GetComponent<PhysicsComponent>(entity);
-            json jp = json::object();
-            if (physicsProps) writeReflectedFields(jp, &p, *physicsProps);
-            e["physics"] = jp;
-        }
-
-        if (gCoordinator.HasComponent<LightComponent>(entity)) {
-            const auto& lc = gCoordinator.GetComponent<LightComponent>(entity);
-            json jl = {{"type", static_cast<int>(lc.type)}};
-            if (lightProps) writeReflectedFields(jl, &lc, *lightProps);
-            e["light"] = jl;
-        }
+        // Component payload. Shared with the prefab serializer so adding a
+        // component updates one writer, not two.
+        Mist::Scene::WriteComponentBlocks(e, entity, gCoordinator);
 
         if (gCoordinator.HasComponent<HierarchyComponent>(entity)) {
             const auto& h = gCoordinator.GetComponent<HierarchyComponent>(entity);
@@ -346,9 +318,6 @@ bool ApplySceneJson(const json& root, int& entityCount, Environment* env) {
         }
     }
 
-    const auto* lightProps     = Mist::TypeRegistry::Instance().Get("LightComponent");
-    const auto* physicsProps   = Mist::TypeRegistry::Instance().Get("PhysicsComponent");
-    const auto* renderProps    = Mist::TypeRegistry::Instance().Get("RenderComponent");
 
     // Clear the existing world first. Load used to add on top of whatever was
     // already there, so opening a scene duplicated the current one instead of
@@ -370,58 +339,52 @@ bool ApplySceneJson(const json& root, int& entityCount, Environment* env) {
 
     entityCount = 0;
     for (const auto& e : root["entities"]) {
-        Entity entity = gCoordinator.CreateEntity();
+        // Prefab instance: re-instantiate from the source asset and apply the
+        // stored overrides, rather than reading component blocks that were
+        // never written. This is where propagation happens — the subtree comes
+        // from the prefab as it is on disk NOW, so edits to the source reach
+        // every instance.
+        const bool isPrefabRef = e.contains("prefab") && e["prefab"].is_object()
+                              && e["prefab"].contains("path")
+                              && e["prefab"]["path"].is_string();
+
+        Entity entity;
+        if (isPrefabRef) {
+            const std::string prefabPath = e["prefab"]["path"].get<std::string>();
+            entity = Mist::Assets::PrefabSerializer::Instantiate(prefabPath, gCoordinator);
+            if (entity == static_cast<Entity>(-1)) {
+                // A missing or broken prefab must not take the rest of the
+                // scene with it. Skip this entity and carry on; the warning
+                // from Instantiate already names the path.
+                LOG_WARN("SceneSerializer: prefab '", prefabPath,
+                         "' failed to instantiate; skipping that instance");
+                continue;
+            }
+
+            std::string overrides = "[]";
+            if (e["prefab"].contains("overrides")) {
+                overrides = e["prefab"]["overrides"].dump();
+            }
+            Mist::Assets::ApplyPrefabOverrides(entity, gCoordinator, overrides);
+            if (gCoordinator.HasComponent<PrefabInstanceComponent>(entity)) {
+                gCoordinator.GetComponent<PrefabInstanceComponent>(entity).overridesJson =
+                    overrides;
+            }
+        } else {
+            entity = gCoordinator.CreateEntity();
+        }
+
         entityCount = std::max(entityCount, static_cast<int>(entity) + 1);
         if (e.contains("id") && e["id"].is_number_integer()) {
             idRemap[static_cast<Entity>(e["id"].get<int>())] = entity;
         }
 
         if (e.contains("name") && e["name"].is_string()) {
-            gCoordinator.AddComponent(entity,
-                NameComponent{e["name"].get<std::string>()});
+            Mist::SetEntityName(gCoordinator, entity, e["name"].get<std::string>());
         }
 
-        if (e.contains("transform") && e["transform"].is_object()) {
-            TransformComponent t;
-            if (e["transform"].contains("pos"))   vec3_from_json(e["transform"]["pos"],   t.position);
-            if (e["transform"].contains("rot"))   vec3_from_json(e["transform"]["rot"],   t.rotation);
-            if (e["transform"].contains("scale")) vec3_from_json(e["transform"]["scale"], t.scale);
-            gCoordinator.AddComponent(entity, t);
-        }
-
-        if (e.contains("camera") && e["camera"].is_object()) {
-            CameraComponent c;
-            const auto* cameraProps = Mist::TypeRegistry::Instance().Get("CameraComponent");
-            if (cameraProps) readReflectedFields(e["camera"], &c, *cameraProps);
-            gCoordinator.AddComponent(entity, c);
-        }
-
-        if (e.contains("render") && e["render"].is_object()) {
-            RenderComponent r;
-            if (renderProps) readReflectedFields(e["render"], &r, *renderProps);
-            if (e["render"].contains("mesh")) {
-                r.renderable = resolve_mesh_ref(e["render"]["mesh"]);
-            }
-            gCoordinator.AddComponent(entity, r);
-        }
-
-        if (e.contains("physics") && e["physics"].is_object()) {
-            PhysicsComponent p;
-            if (physicsProps) readReflectedFields(e["physics"], &p, *physicsProps);
-            // rigidBody pointer stays null — ECSPhysicsSystem rebuilds
-            // it next tick based on the loaded shape/mass params.
-            p.rigidBody = nullptr;
-            p.shapeHash = 0;
-            gCoordinator.AddComponent(entity, p);
-        }
-
-        if (e.contains("light") && e["light"].is_object()) {
-            LightComponent lc;
-            if (e["light"].contains("type") && e["light"]["type"].is_number_integer()) {
-                lc.type = static_cast<MistLightType>(e["light"]["type"].get<int>());
-            }
-            if (lightProps) readReflectedFields(e["light"], &lc, *lightProps);
-            gCoordinator.AddComponent(entity, lc);
+        if (!isPrefabRef) {
+            Mist::Scene::ReadComponentBlocks(e, entity, gCoordinator);
         }
 
         if (e.contains("hierarchy") && e["hierarchy"].is_object()) {
@@ -430,23 +393,15 @@ bool ApplySceneJson(const json& root, int& entityCount, Environment* env) {
             // the relationship consistent. `children` is deliberately NOT read
             // back from the file — it is derived from the parent links, and
             // trusting both would let a hand-edited scene desynchronise them.
-            gCoordinator.AddComponent(entity, HierarchyComponent{});
+            if (!gCoordinator.HasComponent<HierarchyComponent>(entity)) {
+                gCoordinator.AddComponent(entity, HierarchyComponent{});
+            }
             if (e["hierarchy"].contains("parent") && e["hierarchy"]["parent"].is_number_integer()) {
                 pendingParents.emplace_back(
                     entity, static_cast<Entity>(e["hierarchy"]["parent"].get<int>()));
             }
         }
 
-        if (e.contains("animation") && e["animation"].is_object()) {
-            AnimationComponent ac;
-            ac.currentAnimName = e["animation"].value("currentClip", std::string{});
-            ac.playbackSpeed   = e["animation"].value("playbackSpeed", 1.0f);
-            ac.playing         = e["animation"].value("playing", false);
-            ac.loop            = e["animation"].value("loop",    true);
-            // availableClips is not serialised — those come from the
-            // re-imported source model, not the scene file.
-            gCoordinator.AddComponent(entity, ac);
-        }
     }
 
     // Environment. Absent block leaves `env` untouched, so a pre-Environment

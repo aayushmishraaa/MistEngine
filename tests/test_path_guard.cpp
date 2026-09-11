@@ -46,10 +46,27 @@ TEST_CASE("PathGuard::is_under rejects siblings that share a prefix", "[path_gua
     REQUIRE_FALSE(Mist::PathGuard::is_under(root, sibling, &resolved));
 }
 
+namespace {
+// PathGuard::project_root() is a process-wide function-local static. These
+// cases have to repoint it, and before this guard existed they never put it
+// back — so every test that ran afterwards resolved project paths against a
+// temp directory. That is what made tests/test_material_asset.cpp fail under
+// Catch2's randomised order while passing in declaration order, and it later
+// broke the prefab scene tests the same way.
+struct ScopedProjectRoot {
+    fs::path previous;
+    explicit ScopedProjectRoot(const fs::path& next)
+        : previous(Mist::PathGuard::project_root()) {
+        Mist::PathGuard::set_project_root(next);
+    }
+    ~ScopedProjectRoot() { Mist::PathGuard::set_project_root(previous); }
+};
+} // namespace
+
 TEST_CASE("PathGuard::resolve_res_path resolves under the project root", "[path_guard][res]") {
     fs::path root = fs::temp_directory_path() / "mist-res-root";
     fs::create_directories(root / "meshes");
-    Mist::PathGuard::set_project_root(root);
+    ScopedProjectRoot scoped(root);
 
     auto out = Mist::PathGuard::resolve_res_path("res://meshes/cube.mesh");
     REQUIRE(!out.empty());
@@ -61,7 +78,7 @@ TEST_CASE("PathGuard::resolve_res_path resolves under the project root", "[path_
 TEST_CASE("PathGuard::resolve_res_path rejects traversal", "[path_guard][res][security]") {
     fs::path root = fs::temp_directory_path() / "mist-res-escape";
     fs::create_directories(root);
-    Mist::PathGuard::set_project_root(root);
+    ScopedProjectRoot scoped(root);
 
     // Classic escape attempt — should not resolve.
     auto out = Mist::PathGuard::resolve_res_path("res://../../etc/passwd");

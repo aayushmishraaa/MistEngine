@@ -19,7 +19,7 @@ item (wiring dead subsystems) is independent of everything and therefore goes la
 |---|---|---|
 | [1](/roadmap/phase-1-identity-and-environment.md) — **done** | Entity identity + Environment resource | none |
 | [2](/roadmap/phase-2-camera-and-culling.md) — **done** | Camera as a component + frustum culling | phase 1 |
-| [3](/roadmap/phase-3-prefabs.md) | `.mistprefab` instancing | phases 1 and 2 |
+| [3](/roadmap/phase-3-prefabs.md) — **done** | `.mistprefab` instancing | phases 1 and 2 |
 | [4](/roadmap/phase-4-wire-the-built-but-dead.md) | Wire six already-written subsystems | none — independent |
 
 # Why this order
