@@ -8,6 +8,7 @@
 #include "Core/Logger.h"
 #include "Debug/DebugDraw.h"
 #include "ECS/Coordinator.h"
+#include "ECS/Components/CameraComponent.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
@@ -192,6 +193,61 @@ bool Renderer::Init() {
     return true;
 }
 
+// Pick the viewpoint for this frame: the first active CameraComponent in the
+// scene, else the editor's free-fly camera.
+//
+// Everything downstream reads the returned CameraView rather than `camera` and
+// the kNearPlane/kFarPlane constants. That is the whole point — a per-camera
+// depth range is only safe if there is exactly one place that decides it.
+CameraView Renderer::ResolveActiveView() const {
+    CameraView v;
+    v.aspect = (screenHeight > 0)
+             ? static_cast<float>(screenWidth) / static_cast<float>(screenHeight)
+             : 1.0f;
+
+    for (Entity e : gCoordinator.GetLivingEntities()) {
+        if (!gCoordinator.HasComponent<CameraComponent>(e))    continue;
+        if (!gCoordinator.HasComponent<TransformComponent>(e)) continue;
+
+        const auto& cam = gCoordinator.GetComponent<CameraComponent>(e);
+        if (!cam.active) continue;
+
+        // A camera with a degenerate range would produce a singular projection
+        // matrix and take the cluster grid's log-z slicing with it (log(far/near)
+        // with near <= 0 is not a number). Skip rather than render garbage.
+        if (!(cam.nearPlane > 0.0f) || !(cam.farPlane > cam.nearPlane)) {
+            LOG_WARN("CameraComponent on entity ", e, " has an invalid depth range (near=",
+                     cam.nearPlane, ", far=", cam.farPlane, "); ignoring it");
+            continue;
+        }
+
+        auto& t = gCoordinator.GetComponent<TransformComponent>(e);
+        const glm::mat4 world = t.WorldMatrix();
+
+        v.position   = glm::vec3(world[3]);
+        // The transform's basis is the camera's; invert it to get the view.
+        v.view       = glm::inverse(world);
+        v.fovDegrees = cam.fovDegrees;
+        v.nearPlane  = cam.nearPlane;
+        v.farPlane   = cam.farPlane;
+        v.fromScene  = true;
+        v.projection = glm::perspective(glm::radians(v.fovDegrees), v.aspect,
+                                        v.nearPlane, v.farPlane);
+        return v;
+    }
+
+    // Editor fallback.
+    v.position   = camera.Position;
+    v.view       = camera.GetViewMatrix();
+    v.fovDegrees = camera.Zoom;
+    v.nearPlane  = kNearPlane;
+    v.farPlane   = kFarPlane;
+    v.fromScene  = false;
+    v.projection = glm::perspective(glm::radians(v.fovDegrees), v.aspect,
+                                    v.nearPlane, v.farPlane);
+    return v;
+}
+
 void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> renderSystem, UIManager* uiManager) {
     float currentFrame = glfwGetTime();
     deltaTime = currentFrame - lastFrame;
@@ -207,9 +263,11 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     m_Profiler.BeginFrame();
 
-    glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom),
-        (float)screenWidth / (float)screenHeight, kNearPlane, kFarPlane);
-    glm::mat4 view = camera.GetViewMatrix();
+    m_ActiveView = ResolveActiveView();
+    const CameraView& cv = m_ActiveView;
+
+    glm::mat4 projection = cv.projection;
+    glm::mat4 view       = cv.view;
 
     // TAA sub-pixel jitter.
     //
@@ -267,13 +325,13 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     PerFrameUBO perFrame;
     perFrame.view = view;
     perFrame.projection = jitteredProjection;  // matches what geometry rendered with
-    perFrame.viewPos = glm::vec4(camera.Position, 1.0f);
+    perFrame.viewPos = glm::vec4(cv.position, 1.0f);
     perFrame.lightDir = glm::vec4(lightDir, 0.0f);
     perFrame.lightColor = glm::vec4(lightColor, 1.0f);
     perFrame.time = currentFrame;
     perFrame.deltaTime = deltaTime;
-    perFrame.nearPlane = kNearPlane;
-    perFrame.farPlane = kFarPlane;
+    perFrame.nearPlane = cv.nearPlane;
+    perFrame.farPlane = cv.farPlane;
     m_UBOManager.UpdatePerFrame(perFrame);
 
     // Update light manager
@@ -282,16 +340,25 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // Until this cycle BuildClusters had no callers anywhere, which left the
     // AABB buffer uninitialised and made the whole clustered-light path
     // (every point and spot light) read garbage.
+    // The cache key now covers near/far as well as FOV. Switching to a camera
+    // with a different depth range changes the grid's log-z slicing, and
+    // keying only on zoom would have kept the stale grid — the clustered
+    // lookup would then index a grid built for a different range, which is
+    // precisely the desync class that ea91d7c fixed.
     if (!m_LightManager.AreClustersBuilt()
-        || screenWidth  != m_ClusterGridWidth
-        || screenHeight != m_ClusterGridHeight
-        || camera.Zoom  != m_ClusterGridZoom) {
-        m_LightManager.BuildClusters(projection, kNearPlane, kFarPlane,
+        || screenWidth   != m_ClusterGridWidth
+        || screenHeight  != m_ClusterGridHeight
+        || cv.fovDegrees != m_ClusterGridZoom
+        || cv.nearPlane  != m_ClusterGridNear
+        || cv.farPlane   != m_ClusterGridFar) {
+        m_LightManager.BuildClusters(projection, cv.nearPlane, cv.farPlane,
                                      static_cast<int>(screenWidth),
                                      static_cast<int>(screenHeight));
         m_ClusterGridWidth  = screenWidth;
         m_ClusterGridHeight = screenHeight;
-        m_ClusterGridZoom   = camera.Zoom;
+        m_ClusterGridZoom   = cv.fovDegrees;
+        m_ClusterGridNear   = cv.nearPlane;
+        m_ClusterGridFar    = cv.farPlane;
     }
 
     m_LightManager.UploadToGPU();
@@ -302,7 +369,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.BeginGPUSection("Shadows");
 
     // Cascaded shadow maps
-    m_ShadowSystem.CalculateCascades(camera, glm::normalize(lightDir), kNearPlane, kFarPlane);
+    m_ShadowSystem.CalculateCascades(cv, glm::normalize(lightDir));
 
     Shader& csmDepthShader = depthShader; // Reuse depth shader for CSM
     for (int cascade = 0; cascade < ShadowSystem::NUM_CASCADES; cascade++) {
@@ -445,7 +512,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     mainShader.use();
     mainShader.setMat4("projection", jitteredProjection);
     mainShader.setMat4("view", view);
-    mainShader.setVec3("viewPos", camera.Position);
+    mainShader.setVec3("viewPos", cv.position);
 
     if (m_Environment.usePBR) {
         // PBR lighting setup
@@ -490,8 +557,8 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         // depth slicing.
         mainShader.setVec2("screenSize",
             glm::vec2((float)screenWidth, (float)screenHeight));
-        mainShader.setFloat("nearPlane", kNearPlane);
-        mainShader.setFloat("farPlane",  kFarPlane);
+        mainShader.setFloat("nearPlane", cv.nearPlane);
+        mainShader.setFloat("farPlane",  cv.farPlane);
         mainShader.setBool("useClusteredLights", true);
 
         // Omni shadow atlas on texture unit 8. Uniform is a
@@ -566,7 +633,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         skinnedPBRShader.use();
         skinnedPBRShader.setMat4("projection", jitteredProjection);
         skinnedPBRShader.setMat4("view", view);
-        skinnedPBRShader.setVec3("viewPos", camera.Position);
+        skinnedPBRShader.setVec3("viewPos", cv.position);
         skinnedPBRShader.setVec3("lightDir",   glm::normalize(lightDir));
         skinnedPBRShader.setVec3("lightColor", lightColor);
         skinnedPBRShader.setFloat("lightEnergy", 2.5f);
@@ -585,8 +652,8 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         }
         skinnedPBRShader.setVec2("screenSize",
             glm::vec2((float)screenWidth, (float)screenHeight));
-        skinnedPBRShader.setFloat("nearPlane", kNearPlane);
-        skinnedPBRShader.setFloat("farPlane",  kFarPlane);
+        skinnedPBRShader.setFloat("nearPlane", cv.nearPlane);
+        skinnedPBRShader.setFloat("farPlane",  cv.farPlane);
         skinnedPBRShader.setBool("useClusteredLights", true);
 
         m_ShadowSystem.BindOmniShadowAtlas(skinnedPBRShader, 8);
@@ -648,7 +715,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     // === GPU PARTICLES ===
     m_Profiler.BeginGPUSection("Particles");
-    m_Particles.Update(deltaTime, camera.Position);
+    m_Particles.Update(deltaTime, cv.position);
     // Particle rendering (additive blending)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE);

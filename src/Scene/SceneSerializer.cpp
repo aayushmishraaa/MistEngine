@@ -8,6 +8,7 @@
 #include "ECS/Components/AnimationComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/LightComponent.h"
+#include "ECS/Components/CameraComponent.h"
 #include "ECS/Components/NameComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/RenderComponent.h"
@@ -135,6 +136,7 @@ json BuildSceneJson(const Environment* env) {
     const auto* lightProps     = Mist::TypeRegistry::Instance().Get("LightComponent");
     const auto* physicsProps   = Mist::TypeRegistry::Instance().Get("PhysicsComponent");
     const auto* renderProps    = Mist::TypeRegistry::Instance().Get("RenderComponent");
+    const auto* cameraProps    = Mist::TypeRegistry::Instance().Get("CameraComponent");
 
     // Iterate the authoritative living-entity set, not a dense 0..entityCount
     // range.
@@ -173,6 +175,13 @@ json BuildSceneJson(const Environment* env) {
             {"rot",   vec3_to_json(t.rotation)},
             {"scale", vec3_to_json(t.scale)},
         };
+
+        if (gCoordinator.HasComponent<CameraComponent>(entity)) {
+            const auto& c = gCoordinator.GetComponent<CameraComponent>(entity);
+            json jc = json::object();
+            if (cameraProps) writeReflectedFields(jc, &c, *cameraProps);
+            e["camera"] = jc;
+        }
 
         if (gCoordinator.HasComponent<RenderComponent>(entity)) {
             const auto& r = gCoordinator.GetComponent<RenderComponent>(entity);
@@ -378,6 +387,13 @@ bool ApplySceneJson(const json& root, int& entityCount, Environment* env) {
             if (e["transform"].contains("rot"))   vec3_from_json(e["transform"]["rot"],   t.rotation);
             if (e["transform"].contains("scale")) vec3_from_json(e["transform"]["scale"], t.scale);
             gCoordinator.AddComponent(entity, t);
+        }
+
+        if (e.contains("camera") && e["camera"].is_object()) {
+            CameraComponent c;
+            const auto* cameraProps = Mist::TypeRegistry::Instance().Get("CameraComponent");
+            if (cameraProps) readReflectedFields(e["camera"], &c, *cameraProps);
+            gCoordinator.AddComponent(entity, c);
         }
 
         if (e.contains("render") && e["render"].is_object()) {

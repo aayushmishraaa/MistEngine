@@ -16,6 +16,7 @@
 
 // New subsystems
 #include "Environment.h"
+#include "Renderer/CameraView.h"
 #include "PostProcessStack.h"
 #include "HiZPyramid.h"
 #include "ShadowSystem.h"
@@ -34,12 +35,14 @@ class UIManager;
 
 class Renderer {
 public:
-    // Camera depth range. Named because these two numbers have to agree in
-    // four places — the projection matrix, the PBR shader's nearPlane/farPlane
-    // uniforms, the CSM cascade split computation, and the cluster grid's
-    // log-z slicing. When they were eight separate literals, any edit to one
-    // silently desynchronised the clustered-light lookup from the grid it was
-    // indexing into.
+    // Fallback depth range, used by the editor's free-fly camera and by any
+    // scene with no active CameraComponent.
+    //
+    // These two numbers have to agree across the projection matrix, the PBR
+    // shader's nearPlane/farPlane uniforms, the CSM cascade splits and the
+    // cluster grid's log-z slicing. That agreement is now enforced by
+    // CameraView rather than by everyone reading the same two constants —
+    // which is what makes a per-camera range safe at all.
     static constexpr float kNearPlane = 0.1f;
     static constexpr float kFarPlane  = 100.0f;
 
@@ -53,7 +56,15 @@ public:
     void RenderWithECS(Scene& scene, std::shared_ptr<RenderSystem> renderSystem);
     void RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> renderSystem, UIManager* uiManager);
 
+    // The editor's free-fly viewport camera. Not a scene object — see
+    // CameraComponent for the in-scene viewpoint.
     Camera& GetCamera() { return camera; }
+
+    // The viewpoint the last frame actually rendered with: an active
+    // CameraComponent when the scene has one, otherwise the editor camera.
+    // ImGuizmo needs the same matrices and depth range the frame used, and
+    // reading `camera` plus the constants is how those drift apart.
+    const CameraView& GetActiveView() const { return m_ActiveView; }
     GLFWwindow* GetWindow() const { return window; }
     float GetDeltaTime() const;
 
@@ -152,6 +163,12 @@ private:
     UBOManager m_UBOManager;
     Profiler m_Profiler;
     Environment m_Environment;
+
+    // Resolved once per frame at the top of RenderWithECSAndUI.
+    CameraView m_ActiveView;
+
+    // Picks the active CameraComponent, falling back to the editor camera.
+    CameraView ResolveActiveView() const;
     GLuint m_DummyTex2D = 0;
     GLuint m_DummyTexCube = 0;
     void CreateDummyTextures();
@@ -164,6 +181,8 @@ private:
     unsigned int m_ClusterGridWidth  = 0;
     unsigned int m_ClusterGridHeight = 0;
     float        m_ClusterGridZoom   = 0.0f;
+    float        m_ClusterGridNear   = 0.0f;
+    float        m_ClusterGridFar    = 0.0f;
 
     // G2 viewport descriptor. Kept in sync with screenWidth/screenHeight and
     // the post-process output texture inside RenderWithECSAndUI. A future

@@ -1,7 +1,7 @@
 ---
 type: Subsystem Parity
 title: Environment and camera
-description: Godot puts render settings in one shareable Environment resource and the camera in the scene; MistEngine now has the Environment, but the camera is still a Renderer member.
+description: Godot puts render settings in one shareable Environment resource and the camera in the scene; MistEngine now has both, but only one viewport.
 tags: [parity, godot, rendering, camera, serialization]
 status: draft
 generated:
@@ -77,15 +77,53 @@ One known ergonomic gap: the Inspector has no property groups or categories,
 so 34 fields render as one flat list. Godot's `@export_group` is the fix and is
 not scheduled.
 
-## Camera — still a Renderer member
+## Camera — now a component
 
-`Camera camera;` remains a private `Renderer` data member
-(`include/Renderer.h`). So: one camera, ever; not in the scene; not saved; no
-second viewpoint; no render-to-texture. There is no `CameraComponent`.
+`CameraComponent` (`include/ECS/Components/CameraComponent.h`) carries the
+projection — `fovDegrees`, `nearPlane`, `farPlane`, `active`. Position and
+orientation come from the entity's `TransformComponent`, as they should. It is
+reflected and serialized, so a scene stores its own viewpoint.
 
-`Renderer::kNearPlane` / `kFarPlane` are still shared constants, because the
-projection matrix, the PBR shader uniforms, the CSM cascade splits and the
-cluster grid all have to agree on them.
+The existing `Camera` class stays as the **editor's free-fly viewport camera**.
+Godot has the same split: the editor viewport camera is not a node in the scene
+being edited, and conflating them means the editor's framing gets saved into
+the level.
+
+### The depth-range hazard, and CameraView
+
+`kNearPlane` / `kFarPlane` were shared constants precisely because four
+subsystems must agree on the depth range: the projection matrix, the PBR
+shader's uniforms, the CSM cascade splits, and the cluster grid's log-z
+slicing. Making that range per-camera reintroduces the desync that commit
+`ea91d7c` fixed, except now the values vary at runtime.
+
+The mitigation is `CameraView` (`include/Renderer/CameraView.h`): the frame
+resolves **one** view at the top of `RenderWithECSAndUI` and every consumer
+takes it, instead of each site reading `camera` plus the constants. There is
+one place that picks the active camera and one place that decides near/far.
+
+Three things fell out of that:
+
+- **The cluster-grid cache key now includes near/far.** It keyed only on FOV
+  and screen size, so switching to a camera with a different depth range would
+  have kept a grid built for the old range — the clustered lookup would index a
+  grid sliced for different bounds, which is exactly the `ea91d7c` failure.
+- **`ShadowSystem::CalculateCascades` no longer hardcodes a 1.6 aspect
+  ratio.** It did, while the projection matrix used the real viewport ratio, so
+  the cascade frusta it fitted were not the frustum being rendered at any
+  aspect other than 16:10. It now takes the `CameraView`. Pre-existing bug,
+  fixed here because the signature had to change anyway.
+- **The gizmo reads the resolved view.** `UIManager` rebuilt its own projection
+  from `Renderer::kNearPlane`/`kFarPlane`; with a per-camera range that would
+  put the handles off the object whenever a scene camera was active.
+
+A camera with a degenerate range (`near <= 0`, or `far <= near`) is rejected by
+the resolver with a warning rather than rendered: `log(far/near)` is not a
+number, and the cluster grid slices log-z between exactly those two values.
+
+Still missing against Godot: multiple simultaneous viewports,
+render-to-texture, and `Viewport` as a first-class object — `include/Renderer/
+Viewport.h` holds only width/height/output-texture.
 
 # Evidence
 
@@ -97,14 +135,18 @@ cluster grid all have to agree on them.
 - `src/UIManager.cpp` `DrawEnvironmentPanel` — one reflected panel; the three it replaced are gone.
 - `tests/test_scene_serializer.cpp` — Environment round-trip including the `TonemapOperator` enum,
   a field-coverage guard, and the absent-block case.
-- `include/Renderer.h` — `Camera camera;` is still a private member; no `CameraComponent` exists.
+- `include/ECS/Components/CameraComponent.h` — the component and its reflect block.
+- `include/Renderer/CameraView.h` — the per-frame resolved viewpoint.
+- `src/Renderer.cpp` `ResolveActiveView` — active-camera selection, degenerate-range guard,
+  and the cluster-grid cache key including near/far.
+- `src/ShadowSystem.cpp` — `CalculateCascades(const CameraView&, ...)`; the 1.6 aspect is gone.
 - `src/Renderer.cpp` — the directional-light scan that derives the sun.
-- `ls include/ECS/Components/` — no `CameraComponent.h`.
+- `tests/test_reflection.cpp` — default-parity with the fallback range and the degenerate-range cases.
+- `tests/test_scene_serializer.cpp` — camera round-trip.
 
 # Depends on / Blocks
 
-Environment depends on nothing; it is a reflected struct plus serializer wiring.
-Camera-as-component blocks [prefabs](/subsystems/scene-and-composition.md) containing viewpoints and
-any multi-viewport work.
-Implementation: [phase 1](/roadmap/phase-1-identity-and-environment.md) for Environment,
-[phase 2](/roadmap/phase-2-camera-and-culling.md) for the camera.
+Both landed. [Prefabs](/subsystems/scene-and-composition.md) can now contain a viewpoint.
+Multi-viewport work is still blocked, on `Viewport` rather than on the camera.
+Implemented in [phase 1](/roadmap/phase-1-identity-and-environment.md) for Environment and
+[phase 2](/roadmap/phase-2-camera-and-culling.md) part A for the camera.

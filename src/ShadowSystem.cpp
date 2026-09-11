@@ -60,7 +60,9 @@ void ShadowSystem::Init() {
     LOG_INFO("ShadowSystem initialized: ", NUM_CASCADES, " cascades, ", SHADOW_MAP_SIZE, "x", SHADOW_MAP_SIZE);
 }
 
-void ShadowSystem::CalculateCascades(const Camera& camera, const glm::vec3& lightDir, float nearPlane, float farPlane) {
+void ShadowSystem::CalculateCascades(const CameraView& cv, const glm::vec3& lightDir) {
+    const float nearPlane = cv.nearPlane;
+    const float farPlane  = cv.farPlane;
     float lambda = 0.75f; // logarithmic/uniform blend factor
 
     for (int i = 0; i < NUM_CASCADES; i++) {
@@ -71,8 +73,9 @@ void ShadowSystem::CalculateCascades(const Camera& camera, const glm::vec3& ligh
     }
 
     float lastSplitDist = nearPlane;
-    glm::mat4 viewMatrix = camera.GetViewMatrix();
-    glm::mat4 projMatrix = glm::perspective(glm::radians(camera.Zoom), 1.6f, nearPlane, farPlane);
+    glm::mat4 viewMatrix = cv.view;
+    glm::mat4 projMatrix = glm::perspective(glm::radians(cv.fovDegrees), cv.aspect,
+                                           nearPlane, farPlane);
     glm::mat4 invCam = glm::inverse(projMatrix * viewMatrix);
 
     for (int cascade = 0; cascade < NUM_CASCADES; cascade++) {
@@ -84,7 +87,8 @@ void ShadowSystem::CalculateCascades(const Camera& camera, const glm::vec3& ligh
             {-1, 1,  1}, {1, 1,  1}, {1, -1,  1}, {-1, -1,  1}
         };
 
-        glm::mat4 cascadeProj = glm::perspective(glm::radians(camera.Zoom), 1.6f, lastSplitDist, splitDist);
+        glm::mat4 cascadeProj = glm::perspective(glm::radians(cv.fovDegrees), cv.aspect,
+                                                lastSplitDist, splitDist);
         glm::mat4 invCascade = glm::inverse(cascadeProj * viewMatrix);
 
         for (auto& corner : frustumCorners) {

@@ -52,7 +52,7 @@ actions. Several of those are *already written and simply never called*.
 | [Node lifecycle](/subsystems/node-lifecycle.md) | partial | two of Godot's nine callbacks |
 | [Resources and assets](/subsystems/resources-and-assets.md) | partial | one loader installed of four |
 | [Rendering pipeline](/subsystems/rendering-pipeline.md) | ahead / behind | Forward+-class lighting, no scene-level features |
-| [Environment and camera](/subsystems/environment-and-camera.md) | partial | Environment serialized; camera still a Renderer member |
+| [Environment and camera](/subsystems/environment-and-camera.md) | partial | both serialized; still one viewport |
 | [Physics](/subsystems/physics.md) | partial | no layers, areas or character body |
 | [Input](/subsystems/input.md) | built, dead | action system written, zero callers |
 | [Scripting](/subsystems/scripting.md) | strong | the most complete subsystem in the engine |

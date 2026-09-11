@@ -5,6 +5,7 @@
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <array>
+#include "Renderer/CameraView.h"
 #include "Shader.h"
 #include "Renderer/RID.h"
 
@@ -19,7 +20,13 @@ public:
     ~ShadowSystem();
 
     void Init();
-    void CalculateCascades(const Camera& camera, const glm::vec3& lightDir, float nearPlane, float farPlane);
+    // Takes the frame's resolved CameraView rather than a Camera plus a
+    // separate near/far pair. The old signature let the caller pass a depth
+    // range that disagreed with the camera it was fitting cascades to, and it
+    // hardcoded a 1.6 aspect ratio internally while the projection matrix used
+    // the real viewport ratio — so the cascade frusta were not the frustum
+    // being rendered at any aspect other than 16:10.
+    void CalculateCascades(const CameraView& view, const glm::vec3& lightDir);
     void BeginShadowPass(int cascadeIndex);
     void EndShadowPass();
     void BindCascadeShadowMaps(Shader& shader, int startUnit = 0);

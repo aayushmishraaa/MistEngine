@@ -24,7 +24,7 @@ the scene format must already carry component data the camera can sit beside.
 They share a dependency: both need per-entity world bounds and a camera that something other than
 `Renderer` can reach. Doing them in one pass avoids building that twice.
 
-# Part A — camera as a component
+# Part A — camera as a component — **done**
 
 `Camera camera;` is a private `Renderer` member (`include/Renderer.h:104`), which means one camera,
 never saved, never in the scene.
@@ -45,7 +45,14 @@ those two numbers must agree across the projection matrix, the PBR shader unifor
 the cluster grid. A per-camera near/far has to thread through all four, or the cluster lookup
 desynchronises from the grid it indexes — which is exactly the class of bug C2 was.
 
-# Part B — frustum culling
+**How that was handled:** rather than threading two floats to four places, the frame resolves one
+`CameraView` (`include/Renderer/CameraView.h`) at the top of `RenderWithECSAndUI` and every consumer
+takes it. One place picks the camera; one place decides near/far. Two latent bugs surfaced while
+doing it and were fixed: the cluster-grid cache key did not include near/far, and
+`ShadowSystem::CalculateCascades` hardcoded a 1.6 aspect ratio while the projection used the real
+viewport ratio.
+
+# Part B — frustum culling — *in progress*
 
 The code is written. `include/Scene/Frustum.h` has `ExtractFromVP` and `Intersects(AABB)`;
 `src/Scene/SceneGraph.cpp:103` does a real cull test. `SceneGraph` is unreachable from `main()`.

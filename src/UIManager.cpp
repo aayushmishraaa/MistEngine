@@ -6,6 +6,7 @@
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
+#include "ECS/Components/CameraComponent.h"
 #include "ECS/Components/NameComponent.h"
 #include "ECS/EntityName.h"
 #include "ECS/Components/LightComponent.h"
@@ -1022,6 +1023,26 @@ void UIManager::DrawInspector() {
             [=] { PhysicsComponent p; coord->AddComponent(sel, p); },
             [&] { DrawPhysicsComponent(coord->GetComponent<PhysicsComponent>(sel)); });
 
+        drawComponent("Camera",
+            [&] { return coord->HasComponent<CameraComponent>(sel); },
+            [=] { coord->RemoveComponent<CameraComponent>(sel); },
+            [=, snap = coord->HasComponent<CameraComponent>(sel)
+                     ? coord->GetComponent<CameraComponent>(sel)
+                     : CameraComponent{}] {
+                coord->AddComponent(sel, snap);
+            },
+            [&] {
+                auto& c = coord->GetComponent<CameraComponent>(sel);
+                if (const auto* props =
+                        Mist::TypeRegistry::Instance().Get("CameraComponent")) {
+                    DrawReflectedProperties(&c, props);
+                }
+                // Orientation comes from the Transform, as it should — say so
+                // rather than leaving the user hunting for a rotation field
+                // that is deliberately absent.
+                ImGui::TextDisabled("Position / rotation come from Transform.");
+            });
+
         // Light — reflection-driven body (MIST_REFLECT on
         // LightComponent registers it with TypeRegistry at
         // static-init). Godot Light3D equivalents: color, energy,
@@ -1152,6 +1173,9 @@ void UIManager::DrawInspector() {
             tryAdd("Light",
                    [&] { return coord->HasComponent<LightComponent>(sel); },
                    [&] { coord->AddComponent(sel, LightComponent{}); });
+            tryAdd("Camera",
+                   [&] { return coord->HasComponent<CameraComponent>(sel); },
+                   [&] { coord->AddComponent(sel, CameraComponent{}); });
             tryAdd("Animation",
                    [&] { return coord->HasComponent<AnimationComponent>(sel); },
                    [&] { coord->AddComponent(sel, AnimationComponent{}); });
@@ -2537,17 +2561,22 @@ void UIManager::DrawEditorLayout() {
                 && m_GizmoSystem) {
                 GizmoSystem::BeginFrame(imgScreenPos.x, imgScreenPos.y, displayW2, displayH2);
 
-                auto& cam  = m_Renderer->GetCamera();
                 auto& t    = m_Coordinator->GetComponent<TransformComponent>(m_SelectedEntity);
-                float camAspect = displayH2 > 0 ? displayW2 / displayH2 : 16.0f / 9.0f;
-                glm::mat4 view  = cam.GetViewMatrix();
-                // Must match the matrix the scene was rendered with, or the
-                // handles sit off the object. Camera::GetProjectionMatrix uses
-                // a 500-unit far plane; the renderer uses Renderer::kFarPlane
-                // (100). Same near/far, panel aspect.
-                glm::mat4 proj  = glm::perspective(glm::radians(cam.Zoom), camAspect,
-                                                   Renderer::kNearPlane,
-                                                   Renderer::kFarPlane);
+
+                // Must match what the frame was rendered with, or the handles
+                // sit off the object. Reading the camera and rebuilding the
+                // projection from constants is how that drifted before: the
+                // depth range is now per-camera, so the only correct source is
+                // the view the renderer actually resolved.
+                //
+                // The aspect is recomputed from the panel rather than taken
+                // from the view, because the Scene View panel can be a
+                // different shape than the backbuffer the renderer sized to.
+                const CameraView& cv = m_Renderer->GetActiveView();
+                float camAspect = displayH2 > 0 ? displayW2 / displayH2 : cv.aspect;
+                glm::mat4 view  = cv.view;
+                glm::mat4 proj  = glm::perspective(glm::radians(cv.fovDegrees), camAspect,
+                                                   cv.nearPlane, cv.farPlane);
                 // Manipulate in WORLD space — that is what the user sees and
                 // what ImGuizmo draws against. The local matrix would put the
                 // handles at the parent-relative offset for a parented entity.

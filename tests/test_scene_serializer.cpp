@@ -423,3 +423,50 @@ TEST_CASE("A scene with no environment block leaves the caller's Environment alo
     REQUIRE(SceneSerializer::LoadFromString(text, gCoordinator, count, &dst));
     REQUIRE(dst.exposure == Catch::Approx(9.0f));
 }
+
+// --- CameraComponent --------------------------------------------------------
+//
+// The camera used to be a private Renderer data member, so framing was lost on
+// exit and a scene could never store its own viewpoint.
+
+#include "ECS/Components/CameraComponent.h"
+
+TEST_CASE("CameraComponent survives a scene round-trip", "[scene][serializer][camera]") {
+    ResetGlobalCoordinator();
+
+    Entity e = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(e, TransformComponent{});
+    Mist::SetEntityName(gCoordinator, e, "CutsceneCam");
+
+    CameraComponent cam;
+    cam.fovDegrees = 60.0f;
+    cam.nearPlane  = 0.05f;
+    cam.farPlane   = 500.0f;
+    cam.active     = true;
+    gCoordinator.AddComponent(e, cam);
+
+    int count = 0;
+    REQUIRE(SceneSerializer::LoadFromString(
+        SceneSerializer::SaveToString(gCoordinator), gCoordinator, count));
+
+    Entity back = Mist::FindEntityByName(gCoordinator, "CutsceneCam");
+    REQUIRE(back != Mist::kInvalidEntity);
+    REQUIRE(gCoordinator.HasComponent<CameraComponent>(back));
+
+    const auto& got = gCoordinator.GetComponent<CameraComponent>(back);
+    REQUIRE(got.fovDegrees == Catch::Approx(60.0f));
+    REQUIRE(got.nearPlane  == Catch::Approx(0.05f));
+    REQUIRE(got.farPlane   == Catch::Approx(500.0f));
+    REQUIRE(got.active     == true);
+}
+
+TEST_CASE("An entity without a CameraComponent emits no camera block",
+          "[scene][serializer][camera]") {
+    ResetGlobalCoordinator();
+
+    Entity e = gCoordinator.CreateEntity();
+    gCoordinator.AddComponent(e, TransformComponent{});
+
+    const std::string text = SceneSerializer::SaveToString(gCoordinator);
+    REQUIRE(text.find("\"camera\"") == std::string::npos);
+}

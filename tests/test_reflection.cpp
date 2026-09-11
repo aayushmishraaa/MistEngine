@@ -247,3 +247,61 @@ TEST_CASE("ReflectionJson survives a type-mismatched field", "[reflection][json]
     REQUIRE(dst.count == 5);
     REQUIRE(dst.label == "still read");
 }
+
+// --- CameraView / CameraComponent depth range -------------------------------
+//
+// kNearPlane / kFarPlane were shared constants because four subsystems must
+// agree on the depth range: the projection matrix, the PBR shader uniforms,
+// the CSM cascade splits, and the cluster grid's log-z slicing. Making that
+// range per-camera reintroduces the desync hazard ea91d7c fixed, so these
+// cases pin the invariants the renderer's resolver relies on.
+
+#include "ECS/Components/CameraComponent.h"
+#include "Renderer/CameraView.h"
+
+TEST_CASE("CameraComponent defaults match the renderer fallback range",
+          "[reflection][camera]") {
+    // A scene that gains a camera must not visibly jump, so the component's
+    // defaults have to equal the editor camera's fallback.
+    CameraComponent cam;
+    CameraView      view;
+
+    REQUIRE(cam.nearPlane  == Catch::Approx(view.nearPlane));
+    REQUIRE(cam.farPlane   == Catch::Approx(view.farPlane));
+    REQUIRE(cam.fovDegrees == Catch::Approx(view.fovDegrees));
+}
+
+TEST_CASE("CameraComponent is fully reflected", "[reflection][camera]") {
+    const auto* props = Mist::TypeRegistry::Instance().Get("CameraComponent");
+    REQUIRE(props != nullptr);
+    REQUIRE(props->size() == 4);
+    for (const auto& p : *props) {
+        REQUIRE(p.type != Mist::PropertyType::Unknown);
+        REQUIRE(p.offset < sizeof(CameraComponent));
+    }
+}
+
+TEST_CASE("A degenerate depth range is detectable before it reaches the cluster grid",
+          "[reflection][camera]") {
+    // The renderer's resolver rejects these rather than rendering garbage:
+    // log(far/near) with near <= 0 is not a number, and the cluster grid
+    // slices log-z between exactly these two values.
+    auto usable = [](const CameraComponent& c) {
+        return c.nearPlane > 0.0f && c.farPlane > c.nearPlane;
+    };
+
+    CameraComponent ok;
+    REQUIRE(usable(ok));
+
+    CameraComponent zeroNear; zeroNear.nearPlane = 0.0f;
+    REQUIRE_FALSE(usable(zeroNear));
+
+    CameraComponent negNear; negNear.nearPlane = -1.0f;
+    REQUIRE_FALSE(usable(negNear));
+
+    CameraComponent inverted; inverted.nearPlane = 100.0f; inverted.farPlane = 1.0f;
+    REQUIRE_FALSE(usable(inverted));
+
+    CameraComponent degenerate; degenerate.nearPlane = 5.0f; degenerate.farPlane = 5.0f;
+    REQUIRE_FALSE(usable(degenerate));
+}

@@ -26,6 +26,7 @@
 // ECS
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/AnimationComponent.h"
+#include "ECS/Components/CameraComponent.h"
 #include "ECS/Components/NameComponent.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/PhysicsComponent.h"
@@ -118,6 +119,7 @@ int main() {
 
     gCoordinator.Init();
     gCoordinator.RegisterComponent<NameComponent>();
+    gCoordinator.RegisterComponent<CameraComponent>();
     gCoordinator.RegisterComponent<TransformComponent>();
     gCoordinator.RegisterComponent<RenderComponent>();
     gCoordinator.RegisterComponent<PhysicsComponent>();

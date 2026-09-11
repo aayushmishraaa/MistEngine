@@ -17,6 +17,7 @@
 // that want their own isolated world construct a local `Coordinator` instead
 // (see tests/test_hierarchy.cpp) and should not use this.
 
+#include "ECS/Components/CameraComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/NameComponent.h"
@@ -40,6 +41,7 @@ namespace MistTest {
 inline bool ResetGlobalWorld() {
     gCoordinator.Init();
     gCoordinator.RegisterComponent<NameComponent>();
+    gCoordinator.RegisterComponent<CameraComponent>();
     gCoordinator.RegisterComponent<TransformComponent>();
     gCoordinator.RegisterComponent<PhysicsComponent>();
     gCoordinator.RegisterComponent<LightComponent>();
