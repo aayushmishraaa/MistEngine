@@ -33,6 +33,13 @@
 #include "ECS/Components/PhysicsComponent.h"
 #include "ECS/Components/RenderComponent.h"
 #include "ECS/Components/TransformComponent.h"
+#include "Input/InputSystem.h"
+#include "Input/InputContext.h"
+#include "Input/InputMapSerializer.h"
+#include "Editor/BuiltinPlugins.h"
+#include "Scene/SceneSerializer.h"
+#include "Editor/EditorPlugin.h"
+#include "Editor/EditorState.h"
 #include "ECS/Coordinator.h"
 #include "ECS/Systems/ECSPhysicsSystem.h"
 #include "ECS/Systems/HierarchySystem.h"
@@ -185,9 +192,26 @@ int main() {
         return -1;
     }
 
+    // Action-based input. Written long ago with action maps, multiple bindings
+    // per action, gamepad support with a deadzone, a context stack and
+    // RebindAction — and zero callers until now.
+    //
+    // Init() deliberately installs no GLFW callbacks (see InputSystem::Init),
+    // so ordering against ImGui's backend does not matter.
+    static InputSystem inputSystem;
+    inputSystem.Init(renderer.GetWindow());
+
+    // The editor context carries the camera-fly bindings. A saved map merges
+    // over the built-in defaults, so a rebind survives a restart and a newly
+    // added action still gets its default.
+    InputContextMap editorContext = CreateEditorContext();
+    Mist::Input::LoadInputMap(editorContext, "input_map.json");
+    inputSystem.SetContext(editorContext);
+
     InputManager inputManager;
     g_inputManager = &inputManager;
     inputManager.Initialize(renderer.GetWindow());
+    inputManager.SetInputSystem(&inputSystem);
     inputManager.SetCamera(&renderer.GetCamera());
     inputManager.EnableSceneEditorMode(true);
     std::cout << "Input Manager initialized successfully" << std::endl;
@@ -195,6 +219,41 @@ int main() {
     PhysicsSystem physicsSystem;
     g_physicsSystem = &physicsSystem;
     uiManager.SetPhysicsSystem(&physicsSystem);
+
+    // Play mode. EditorState has modelled Edit/Playing/Paused since it was
+    // written, but SetSnapshotCallbacks had zero callers and nothing read
+    // ShouldUpdateGame() — so Play/Pause/Stop mutated an enum and the buttons
+    // were inert.
+    //
+    // The snapshot is an in-memory string, not a temp file: an editor feature
+    // should not depend on the scene sandbox or on disk being writable, and
+    // SaveToString/LoadFromString already share one code path with file
+    // save/load so "Stop" and "Open Scene" cannot drift apart.
+    static std::string playSnapshot;
+    if (auto* editorState = uiManager.GetEditorState()) {
+        editorState->SetSnapshotCallbacks(
+            [] {
+                playSnapshot = SceneSerializer::SaveToString(gCoordinator);
+                LOG_INFO("Play: scene snapshot taken (", playSnapshot.size(), " bytes)");
+            },
+            [&uiManager] {
+                if (playSnapshot.empty()) return;
+                int restored = 0;
+                if (SceneSerializer::LoadFromString(playSnapshot, gCoordinator, restored)) {
+                    // The selection and undo history both refer to entities
+                    // that no longer exist after a world rebuild.
+                    uiManager.ClearSelectionAndHistory();
+                    LOG_INFO("Stop: scene restored to its pre-play state");
+                } else {
+                    LOG_ERROR("Stop: failed to restore the pre-play scene");
+                }
+            });
+    }
+
+    // Built-in editor plugins. EditorPluginRegistry was complete and called
+    // only from its own test, so the editor was not actually extensible.
+    Mist::Editor::Plugins::RegisterBuiltinPlugins();
+    Mist::Editor::EditorPluginRegistry::Instance().EnableAll();
 
     ModuleManager moduleManager;
     g_moduleManager = &moduleManager;
@@ -288,6 +347,8 @@ int main() {
     constexpr float kMaxFrameDelta     = 0.25f;
     float           physicsAccumulator = 0.0f;
 
+    EditorState* editorStateRef = uiManager.GetEditorState();
+
     while (!glfwWindowShouldClose(renderer.GetWindow())) {
         float deltaTime = renderer.GetDeltaTime();
 
@@ -302,6 +363,33 @@ int main() {
                 g_uiManager->SetShowDemo(!g_uiManager->IsShowingDemo());
             }
             f1Pressed = f1Cur;
+        }
+
+        inputSystem.Update();
+
+        // W/E collision, resolved by the mechanism the context stack exists
+        // for.
+        //
+        // W and E moved the camera (InputManager) AND set the gizmo mode
+        // (UIManager) on the same keypress, with two different ImGui gates, so
+        // pressing W to translate also flew the camera forward. Godot's answer
+        // is that viewport navigation is modal: the fly context is only live
+        // while the right mouse button is held. Outside that, the letters are
+        // the gizmo's.
+        //
+        // This is a deliberate behaviour change: WASD no longer moves the
+        // camera on its own. Hold RMB in the viewport to fly.
+        {
+            const bool flying = inputSystem.IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT);
+            static bool flyContextPushed = false;
+            if (flying && !flyContextPushed) {
+                inputSystem.PushContext(editorContext);
+                flyContextPushed = true;
+            } else if (!flying && flyContextPushed) {
+                inputSystem.PopContext();
+                flyContextPushed = false;
+            }
+            inputManager.SetCameraControlEnabled(flying);
         }
 
         inputManager.Update(deltaTime);
@@ -332,9 +420,20 @@ int main() {
         // physics is locked to 60 Hz.
         float frameDelta = std::min(deltaTime, kMaxFrameDelta);
         physicsAccumulator += frameDelta;
+        // Play-mode gate. A global gate is the honest first cut: Godot does
+        // this per-node with process modes, which MistEngine has no equivalent
+        // of, so "the whole game ticks or none of it does" is the accurate
+        // description of what is implemented.
+        //
+        // The accumulator still drains while paused, or the first frame after
+        // Play would fire a burst of catch-up steps and launch everything.
+        const bool gameTicking = !editorStateRef || editorStateRef->ShouldUpdateGame();
+
         while (physicsAccumulator >= kPhysicsStep) {
-            physicsSystem.Update(kPhysicsStep);
-            ecsPhysicsSystem->Update(kPhysicsStep);
+            if (gameTicking) {
+                physicsSystem.Update(kPhysicsStep);
+                ecsPhysicsSystem->Update(kPhysicsStep);
+            }
             physicsAccumulator -= kPhysicsStep;
         }
 
@@ -351,11 +450,11 @@ int main() {
         // _ready reading transforms is unaffected: the Lua get_transform /
         // set_transform bindings operate on the local position/rotation/scale
         // fields, not on the composed matrix.
-        hierarchySystem->FireReadyCallbacks(gCoordinator);
+        if (gameTicking) hierarchySystem->FireReadyCallbacks(gCoordinator);
 
 #if MIST_ENABLE_SCRIPTING
         // deltaTime is already clamped above.
-        scriptSystem->Update(gCoordinator, deltaTime);
+        if (gameTicking) scriptSystem->Update(gCoordinator, deltaTime);
 #endif
 
         hierarchySystem->UpdateTransforms(gCoordinator);

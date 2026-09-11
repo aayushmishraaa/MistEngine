@@ -82,3 +82,30 @@
   prefab scene tests the same way until a scoped restorer was added. The suite
   is now order-independent — verified across four seeds.
 - Tests: 145 → 160 green.
+
+# 2026-09-11 — phase 4
+
+- All six built-but-dead subsystems wired: `InputSystem`, play mode, shortcut
+  dispatch, editor plugin docks, lifecycle signals, shader hot-reload.
+- `InputSystem::Init` stopped installing GLFW callbacks and `Update()` polls
+  instead. Installing them only coexists with ImGui's backend in one specific
+  order, and `InputManager` already documented callback conflicts with ImGui as
+  the reason the live path went pure-polling. Trade-off: `GetScrollDelta()` is
+  inert without a host-installed `ScrollCallback`.
+- The W/E collision is fixed by making viewport navigation modal — the fly
+  context is pushed only while RMB is held. **Deliberate behaviour change:**
+  WASD alone no longer moves the camera.
+- Binding table serialized to `input_map.json`, merged over defaults so a rebind
+  survives a restart and a new action still gets its default.
+- Lua gained `is_action_pressed`, `is_action_just_pressed`, `get_axis`,
+  `get_vector`.
+- Fixed: File → New Scene destroyed nothing, so the previous scene kept
+  rendering. `Duplicate` gained the undo command it never had.
+- Deleted `src/Core/Engine.cpp` + header (registered 3 components / 2 systems
+  against `main()`'s 7 / 5 — it would have booted with no hierarchy, lights or
+  scripts), both `#if 0` FPS-UI blocks, and the uncalled `DrawCrosshair`.
+  `CLAUDE.md` gotcha #2 and `docs/architecture.md` updated accordingly.
+- Recorded wire-or-delete recommendations for `EventBus`, `SystemScheduler`,
+  `CommandQueue` and the audio stack in the phase-4 document. Not acted on.
+- Tests: 160 → 176 green. `InputSystem` and `EditorState` had no tests at all
+  before. Order-independent across three seeds.

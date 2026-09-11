@@ -14,6 +14,7 @@
 #include "ECS/Components/ScriptComponent.h"
 #include "ECS/Components/TransformComponent.h"
 #include "ECS/EntityName.h"
+#include "Input/InputSystem.h"
 #include "ECS/Coordinator.h"
 #include "Mesh.h"
 #include "Resources/AssetRegistry.h"
@@ -80,6 +81,51 @@ void LuaScriptLanguage::Init() {
     };
 
     state["get_delta_time"] = []() -> float { return LastDeltaTime(); };
+
+    // --- Input actions (Godot's Input singleton) ---
+    //
+    // Scripts had no access to input at all: everything was read engine-side
+    // in InputManager, Renderer's GLFW callbacks, UIManager and main(). These
+    // route through InputSystem's context stack, so a script sees the same
+    // bindings the editor does and honours the same shadowing rules.
+    //
+    // All four degrade to "nothing pressed" when no InputSystem is live, which
+    // is the case in headless runs and tests — a script must not crash because
+    // it asked about input outside the editor.
+    state["is_action_pressed"] = [](const std::string& action) -> bool {
+        auto* in = InputSystem::Get();
+        return in ? in->IsActionPressed(action) : false;
+    };
+    state["is_action_just_pressed"] = [](const std::string& action) -> bool {
+        auto* in = InputSystem::Get();
+        return in ? in->IsActionJustPressed(action) : false;
+    };
+    state["get_axis"] = [](const std::string& negative, const std::string& positive) -> float {
+        // Godot's get_axis(negative, positive) shape: one scalar from two
+        // button actions, which is what gameplay code actually wants.
+        auto* in = InputSystem::Get();
+        if (!in) return 0.0f;
+        float v = 0.0f;
+        if (in->IsActionPressed(positive)) v += 1.0f;
+        if (in->IsActionPressed(negative)) v -= 1.0f;
+        return v;
+    };
+    state["get_vector"] = [](sol::this_state ts,
+                             const std::string& negX, const std::string& posX,
+                             const std::string& negY, const std::string& posY) -> sol::object {
+        sol::state_view lua(ts);
+        sol::table t = lua.create_table();
+        auto* in = InputSystem::Get();
+        float x = 0.0f, y = 0.0f;
+        if (in) {
+            if (in->IsActionPressed(posX)) x += 1.0f;
+            if (in->IsActionPressed(negX)) x -= 1.0f;
+            if (in->IsActionPressed(posY)) y += 1.0f;
+            if (in->IsActionPressed(negY)) y -= 1.0f;
+        }
+        t["x"] = x; t["y"] = y;
+        return sol::make_object(lua, t);
+    };
 
     // find_entity(name) -> id, or -1 when nothing matches.
     //

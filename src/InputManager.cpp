@@ -1,4 +1,6 @@
 #include "InputManager.h"
+
+#include "Input/InputSystem.h"
 #include "Camera.h"
 #include "imgui.h"
 #include <iostream>
@@ -277,32 +279,37 @@ void InputManager::ProcessCameraMovement(float deltaTime) {
     }
     
     bool keyPressed = false;
-    
-    if (m_KeyStates[GLFW_KEY_W]) {
-        m_Camera->ProcessKeyboard(FORWARD, deltaTime);
-        keyPressed = true;
+
+    // Action queries when an InputSystem is attached, raw keys otherwise.
+    //
+    // The raw path is kept as a fallback rather than deleted: a host embedding
+    // the engine without an InputSystem still gets a working camera, and the
+    // two paths are trivially comparable if input ever misbehaves.
+    if (m_InputSystem) {
+        struct Move { const char* action; Camera_Movement dir; };
+        static constexpr Move kMoves[] = {
+            {"MoveForward",  FORWARD},
+            {"MoveBackward", BACKWARD},
+            {"MoveLeft",     LEFT},
+            {"MoveRight",    RIGHT},
+            {"MoveDown",     DOWN},
+            {"MoveUp",       UP},
+        };
+        for (const auto& m : kMoves) {
+            if (m_InputSystem->IsActionPressed(m.action)) {
+                m_Camera->ProcessKeyboard(m.dir, deltaTime);
+                keyPressed = true;
+            }
+        }
+    } else {
+        if (m_KeyStates[GLFW_KEY_W]) { m_Camera->ProcessKeyboard(FORWARD,  deltaTime); keyPressed = true; }
+        if (m_KeyStates[GLFW_KEY_S]) { m_Camera->ProcessKeyboard(BACKWARD, deltaTime); keyPressed = true; }
+        if (m_KeyStates[GLFW_KEY_A]) { m_Camera->ProcessKeyboard(LEFT,     deltaTime); keyPressed = true; }
+        if (m_KeyStates[GLFW_KEY_D]) { m_Camera->ProcessKeyboard(RIGHT,    deltaTime); keyPressed = true; }
+        if (m_KeyStates[GLFW_KEY_Q]) { m_Camera->ProcessKeyboard(DOWN,     deltaTime); keyPressed = true; }
+        if (m_KeyStates[GLFW_KEY_E]) { m_Camera->ProcessKeyboard(UP,       deltaTime); keyPressed = true; }
     }
-    if (m_KeyStates[GLFW_KEY_S]) {
-        m_Camera->ProcessKeyboard(BACKWARD, deltaTime);
-        keyPressed = true;
-    }
-    if (m_KeyStates[GLFW_KEY_A]) {
-        m_Camera->ProcessKeyboard(LEFT, deltaTime);
-        keyPressed = true;
-    }
-    if (m_KeyStates[GLFW_KEY_D]) {
-        m_Camera->ProcessKeyboard(RIGHT, deltaTime);
-        keyPressed = true;
-    }
-    if (m_KeyStates[GLFW_KEY_Q]) {
-        m_Camera->ProcessKeyboard(DOWN, deltaTime);
-        keyPressed = true;
-    }
-    if (m_KeyStates[GLFW_KEY_E]) {
-        m_Camera->ProcessKeyboard(UP, deltaTime);
-        keyPressed = true;
-    }
-    
+
     // Show debug only first time camera moves
     static bool firstMovement = true;
     if (keyPressed && firstMovement) {

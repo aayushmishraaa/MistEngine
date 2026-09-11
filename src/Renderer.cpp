@@ -46,6 +46,17 @@ Renderer::Renderer(unsigned int width, unsigned int height)
 }
 
 Renderer::~Renderer() {
+    // ShaderManager holds non-owning pointers to these members. Leaving them
+    // registered past our destruction is a dangling read on the next
+    // PollAndReload — which the manager's own header warns about.
+    {
+        auto& sm = Mist::Renderer::ShaderManager::Instance();
+        for (Shader* sh : {&objectShader, &depthShader, &depthPrepassShader,
+                           &glowShader, &skyboxShader, &pbrShader, &skinnedPBRShader}) {
+            sm.Unregister(sh);
+        }
+    }
+
     m_Profiler.Shutdown();
     DebugDraw::Shutdown();
 
@@ -144,6 +155,26 @@ bool Renderer::Init() {
     // Load PBR shaders
     pbrShader = Shader("shaders/pbr_vertex.glsl", "shaders/pbr_fragment.glsl");
     skinnedPBRShader = Shader("shaders/skinned_pbr.vert", "shaders/pbr_fragment.glsl");
+
+    // Opt every pipeline shader into hot-reload tracking.
+    //
+    // ShaderManager::PollAndReload has been running every 30 frames since it
+    // was written, over a permanently empty registry, because Register had
+    // zero callers. This is the one line that turns it into a feature.
+    //
+    // Registration must happen AFTER the assignments above: these are
+    // assignments into existing members, so the Shader objects are only in
+    // their final state once each completes. The addresses are stable (they are
+    // members of `this`), which is what lets the manager hold non-owning
+    // pointers. pbr_fragment.glsl is shared by pbrShader and skinnedPBRShader,
+    // so both are registered and a single edit reloads both.
+    {
+        auto& sm = Mist::Renderer::ShaderManager::Instance();
+        for (Shader* sh : {&objectShader, &depthShader, &depthPrepassShader,
+                           &glowShader, &skyboxShader, &pbrShader, &skinnedPBRShader}) {
+            sm.Register(sh);
+        }
+    }
 
     // Validate critical shaders
     if (pbrShader.ID == 0) LOG_ERROR("CRITICAL: PBR shader failed!");

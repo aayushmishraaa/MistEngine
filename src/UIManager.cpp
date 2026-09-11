@@ -12,6 +12,7 @@
 #include "Assets/PrefabOverrides.h"
 #include "Assets/PrefabSerializer.h"
 #include "ECS/EntityName.h"
+#include "ECS/Signals.h"
 #include "ECS/Components/LightComponent.h"
 #include "ECS/Components/AnimationComponent.h"
 #if MIST_ENABLE_SCRIPTING
@@ -39,6 +40,7 @@
 #include "ImGuizmo.h"
 #include "Editor/EditorState.h"
 #include "Editor/MistTheme.h"
+#include "Editor/EditorPlugin.h"
 #include "Editor/ShortcutRegistry.h"
 #include "Editor/Toaster.h"
 #include "Core/Logger.h"
@@ -258,29 +260,11 @@ void UIManager::NewFrame() {
         // no runtime "game active" branch anymore. Kept the outer brace so the
         // diff vs the old `else` block is trivial.
 
-        // Process Ctrl+Z / Ctrl+Y for undo/redo
-        ImGuiIO& undoIO = ImGui::GetIO();
-        if (undoIO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z) && m_UndoStack.CanUndo()) {
-            std::string label = m_UndoStack.TopUndoLabel();
-            m_UndoStack.Undo();
-            m_ConsoleMessages.push_back("Undo: " + label);
-        }
-        if (undoIO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y) && m_UndoStack.CanRedo()) {
-            std::string label = m_UndoStack.TopRedoLabel();
-            m_UndoStack.Redo();
-            m_ConsoleMessages.push_back("Redo: " + label);
-        }
-
-        // Gizmo mode shortcuts. Gate on `!WantCaptureKeyboard` so they
-        // don't hijack single-letter typing in an InputText (e.g.
-        // renaming an entity with "e" in the name). ImGuizmo itself
-        // also respects its own input-capture logic.
-        if (m_GizmoSystem && !undoIO.WantCaptureKeyboard) {
-            if (ImGui::IsKeyPressed(ImGuiKey_W, false)) m_GizmoSystem->SetMode(GizmoMode::Translate);
-            if (ImGui::IsKeyPressed(ImGuiKey_E, false)) m_GizmoSystem->SetMode(GizmoMode::Rotate);
-            if (ImGui::IsKeyPressed(ImGuiKey_R, false)) m_GizmoSystem->SetMode(GizmoMode::Scale);
-            if (ImGui::IsKeyPressed(ImGuiKey_X, false)) m_GizmoSystem->ToggleSpace();
-        }
+        // Every editor chord goes through the registry — see
+        // DispatchShortcuts. The hardcoded Ctrl+Z / Ctrl+Y and W/E/R/X blocks
+        // that used to live here were the only live shortcuts in the editor,
+        // and they bypassed the table the menus were rendering labels from.
+        DispatchShortcuts();
 
         // Godot-like fixed layout
         DrawMainMenuBar();
@@ -341,9 +325,7 @@ void UIManager::DrawMainMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Scene", chord("editor/new_scene").c_str())) {
-                m_ConsoleMessages.push_back("New scene created");
-                m_EntityList.clear();
-                m_HasSelectedEntity = false;
+                NewScene();
             }
             if (ImGui::MenuItem("Save Scene", chord("editor/save_scene").c_str())) {
                 SaveScene(m_ScenePathBuffer);
@@ -464,6 +446,28 @@ void UIManager::DrawMainMenuBar() {
             }
             ImGui::EndMenu();
         }
+        // Plugin-contributed menu items. EditorPluginRegistry has worked since
+        // it was written and was called only from its own test, so the editor
+        // was not actually extensible.
+        //
+        // Paths are slash-separated ("Tools/Bake Lighting"). Anything without
+        // a recognised top-level menu falls back to "Plugins" — the header
+        // describes that fallback but never implemented it, because the
+        // consumer is the only place that can.
+        {
+            const auto menus = Mist::Editor::EditorPluginRegistry::Instance().SnapshotMenus();
+            if (!menus.empty() && ImGui::BeginMenu("Plugins")) {
+                for (const auto& m : menus) {
+                    const auto slash = m.path.find_last_of('/');
+                    const std::string label = (slash == std::string::npos)
+                                            ? m.path
+                                            : m.path.substr(slash + 1);
+                    if (ImGui::MenuItem(label.c_str()) && m.onClick) m.onClick();
+                }
+                ImGui::EndMenu();
+            }
+        }
+
         ImGui::EndMainMenuBar();
     }
 
@@ -537,6 +541,10 @@ void UIManager::DrawMainMenuBar() {
     if (m_OpenSavePrefabPopup) {
         ImGui::OpenPopup("SavePrefab");
         m_OpenSavePrefabPopup = false;
+    }
+    if (m_OpenSaveSceneAsPopup) {
+        ImGui::OpenPopup("SaveSceneAs");
+        m_OpenSaveSceneAsPopup = false;
     }
     if (ImGui::BeginPopupModal("SavePrefab", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Output .mistprefab path");
@@ -792,6 +800,188 @@ void UIManager::DrawPrefabInstanceBlock(Entity sel) {
     if (!anyHere) ImGui::TextDisabled("No overrides on this entity.");
 }
 
+std::string UIManager::ShortcutChord(const char* id) {
+    const auto* sc = Mist::Editor::ShortcutRegistry::Instance().Find(id);
+    return sc ? sc->DisplayText() : std::string{};
+}
+
+// Single dispatch site for every registered shortcut.
+//
+// Before this, ShortcutRegistry rendered correct chord labels into the menus
+// while Matches / FindByChord had no callers outside their own test — so
+// Ctrl+S, Ctrl+N, Ctrl+O, Ctrl+D, Delete, F5 and F8 were displayed and not
+// dispatched. Only Ctrl+Z / Ctrl+Y and the gizmo letters were hardcoded and
+// live, which made the menu a standing lie.
+void UIManager::DispatchShortcuts() {
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Typing in a text field must never trigger an editor command. This is
+    // WantTextInput rather than WantCaptureKeyboard so the chords still work
+    // while a panel merely has focus.
+    if (io.WantTextInput) return;
+
+    int mods = 0;
+    if (io.KeyCtrl)  mods |= GLFW_MOD_CONTROL;
+    if (io.KeyShift) mods |= GLFW_MOD_SHIFT;
+    if (io.KeyAlt)   mods |= GLFW_MOD_ALT;
+    if (io.KeySuper) mods |= GLFW_MOD_SUPER;
+
+    // Only the keys the registry actually binds. Polling all of ImGuiKey_COUNT
+    // would work but walks ~650 slots every frame for a table of fifteen.
+    struct KeyMap { ImGuiKey imgui; int glfw; };
+    static constexpr KeyMap kKeys[] = {
+        {ImGuiKey_N, GLFW_KEY_N}, {ImGuiKey_O, GLFW_KEY_O}, {ImGuiKey_S, GLFW_KEY_S},
+        {ImGuiKey_Z, GLFW_KEY_Z}, {ImGuiKey_Y, GLFW_KEY_Y}, {ImGuiKey_D, GLFW_KEY_D},
+        {ImGuiKey_Q, GLFW_KEY_Q}, {ImGuiKey_W, GLFW_KEY_W}, {ImGuiKey_E, GLFW_KEY_E},
+        {ImGuiKey_R, GLFW_KEY_R}, {ImGuiKey_X, GLFW_KEY_X},
+        {ImGuiKey_Delete, GLFW_KEY_DELETE},
+        {ImGuiKey_F5, GLFW_KEY_F5}, {ImGuiKey_F8, GLFW_KEY_F8},
+    };
+
+    for (const auto& k : kKeys) {
+        if (!ImGui::IsKeyPressed(k.imgui, false)) continue;
+        const auto* sc = Mist::Editor::ShortcutRegistry::Instance().FindByChord(k.glfw, mods);
+        if (!sc) continue;
+        RunShortcut(sc->id);
+    }
+}
+
+void UIManager::RunShortcut(const std::string& id) {
+    if (id == "editor/new_scene")  { NewScene(); return; }
+    if (id == "editor/save_scene") { SaveScene(m_ScenePathBuffer); return; }
+    if (id == "editor/save_as")    { m_OpenSaveSceneAsPopup = true; return; }
+    if (id == "editor/open_scene") { LoadScene(m_ScenePathBuffer); return; }
+
+    if (id == "editor/undo") {
+        if (m_UndoStack.CanUndo()) {
+            const std::string label = m_UndoStack.TopUndoLabel();
+            m_UndoStack.Undo();
+            m_ConsoleMessages.push_back("Undo: " + label);
+        }
+        return;
+    }
+    if (id == "editor/redo") {
+        if (m_UndoStack.CanRedo()) {
+            const std::string label = m_UndoStack.TopRedoLabel();
+            m_UndoStack.Redo();
+            m_ConsoleMessages.push_back("Redo: " + label);
+        }
+        return;
+    }
+
+    if (id == "editor/duplicate") {
+        if (m_HasSelectedEntity) DuplicateEntity(m_SelectedEntity);
+        return;
+    }
+    if (id == "editor/delete") {
+        if (m_HasSelectedEntity && m_Coordinator) {
+            // Matches the context menu: deleting any member of a prefab
+            // instance removes the whole instance.
+            if (m_Coordinator->HasComponent<PrefabMemberComponent>(m_SelectedEntity)) {
+                DestroyPrefabInstance(
+                    m_Coordinator->GetComponent<PrefabMemberComponent>(m_SelectedEntity)
+                        .instanceRoot);
+            } else {
+                DeleteEntity(m_SelectedEntity);
+            }
+        }
+        return;
+    }
+
+    if (id == "editor/play") { if (m_EditorState) m_EditorState->Play(); return; }
+    if (id == "editor/stop") { if (m_EditorState) m_EditorState->Stop(); return; }
+
+    // Gizmo chords. These were hardcoded W/E/R/X; routing them through the
+    // registry is what makes them rebindable and what lets the input context
+    // stack arbitrate against camera movement.
+    if (!m_GizmoSystem) return;
+    if (id == "editor/gizmo_translate")   { m_GizmoSystem->SetMode(GizmoMode::Translate); return; }
+    if (id == "editor/gizmo_rotate")      { m_GizmoSystem->SetMode(GizmoMode::Rotate); return; }
+    if (id == "editor/gizmo_scale")       { m_GizmoSystem->SetMode(GizmoMode::Scale); return; }
+    if (id == "editor/gizmo_toggle_space"){ m_GizmoSystem->ToggleSpace(); return; }
+}
+
+void UIManager::ClearSelectionAndHistory() {
+    // Called after the world is rebuilt underneath the editor — play-mode
+    // Stop restores a snapshot, which destroys and recreates every entity.
+    // The selection and the undo stack both hold entity ids that no longer
+    // refer to anything, and an undo across that boundary would resurrect
+    // entities from a world that is gone.
+    m_HasSelectedEntity = false;
+    m_SelectedEntity    = 0;
+    m_EntityList.clear();
+    m_UndoStack.Clear();
+    m_UndoStack.MarkSaved();
+}
+
+void UIManager::NewScene() {
+    if (!m_Coordinator) return;
+
+    // This used to clear m_EntityList and the selection and stop there —
+    // without destroying a single entity. "New Scene" left the entire previous
+    // scene rendering, which reads as the menu item doing nothing.
+    std::vector<Entity> doomed(m_Coordinator->GetLivingEntities().begin(),
+                               m_Coordinator->GetLivingEntities().end());
+    for (Entity e : doomed) m_Coordinator->DestroyEntity(e);
+
+    m_EntityList.clear();
+    m_HasSelectedEntity = false;
+    m_SelectedEntity    = 0;
+    m_EntityCounter     = 0;
+
+    // A new scene has no history to undo into, and leaving the old stack would
+    // let Ctrl+Z resurrect entities from a scene that no longer exists.
+    m_UndoStack.Clear();
+    m_UndoStack.MarkSaved();
+
+    m_ConsoleMessages.push_back("New scene created (" + std::to_string(doomed.size())
+                                + " entities destroyed)");
+}
+
+void UIManager::DuplicateEntity(Entity entity) {
+    if (!m_Coordinator) return;
+    if (!m_Coordinator->GetLivingEntities().count(entity)) return;
+
+    // Still a shallow copy of Transform + Render only — Physics, Light,
+    // Animation and Script are not carried. Prefabs are the real answer to
+    // "another one of those"; this is left as it was rather than quietly
+    // growing into a second, worse prefab system.
+    Entity copy = m_Coordinator->CreateEntity();
+    if (m_Coordinator->HasComponent<TransformComponent>(entity)) {
+        TransformComponent t = m_Coordinator->GetComponent<TransformComponent>(entity);
+        t.position.x += 1.0f;
+        t.dirty = true;
+        m_Coordinator->AddComponent(copy, t);
+    }
+    if (m_Coordinator->HasComponent<RenderComponent>(entity)) {
+        m_Coordinator->AddComponent(copy,
+            m_Coordinator->GetComponent<RenderComponent>(entity));
+    }
+    m_Coordinator->AddComponent(copy, HierarchyComponent{});
+
+    const std::string copyName = Mist::EntityName(*m_Coordinator, entity) + " (copy)";
+    Mist::SetEntityName(*m_Coordinator, copy, copyName);
+    m_ConsoleMessages.push_back("Duplicated: " + copyName);
+    SelectEntity(copy);
+
+    // Duplicate pushed no undo command at all before this.
+    EntitySnapshot snap = SnapshotEntity(copy);
+    auto idRef = std::make_shared<Entity>(copy);
+    Mist::Editor::Command c;
+    c.label     = "Duplicate " + copyName;
+    c.merge_key = 0;
+    c.redo = [this, snap, idRef]() { *idRef = RespawnFromSnapshot(snap); };
+    c.undo = [this, idRef]() {
+        if (m_Coordinator && m_Coordinator->GetLivingEntities().count(*idRef)) {
+            m_Coordinator->DestroyEntity(*idRef);
+            if (m_HasSelectedEntity && m_SelectedEntity == *idRef) {
+                m_HasSelectedEntity = false;
+            }
+        }
+    };
+    m_UndoStack.Push(std::move(c));
+}
+
 void UIManager::DestroyPrefabInstance(Entity root) {
     if (!m_Coordinator) return;
     if (!m_Coordinator->GetLivingEntities().count(root)) return;
@@ -992,24 +1182,8 @@ void UIManager::DrawHierarchyNode(Entity entity, const std::string& filterLower)
 
     if (ImGui::BeginPopupContextItem("EntityContext")) {
         if (ImGui::MenuItem("Rename")) { SelectEntity(entity); }
-        if (ImGui::MenuItem("Duplicate")) {
-            Entity newEntity = m_Coordinator->CreateEntity();
-            if (m_Coordinator->HasComponent<TransformComponent>(entity)) {
-                TransformComponent t = m_Coordinator->GetComponent<TransformComponent>(entity);
-                t.position.x += 1.0f;
-                m_Coordinator->AddComponent(newEntity, t);
-            }
-            if (m_Coordinator->HasComponent<RenderComponent>(entity)) {
-                RenderComponent r = m_Coordinator->GetComponent<RenderComponent>(entity);
-                m_Coordinator->AddComponent(newEntity, r);
-            }
-            // Always add HierarchyComponent so the duplicate is first-class
-            // in the scene graph (parent defaults to kNoParent = root).
-            m_Coordinator->AddComponent(newEntity, HierarchyComponent{});
-            const std::string copyName = name + " (copy)";
-            Mist::SetEntityName(*m_Coordinator, newEntity, copyName);
-            m_ConsoleMessages.push_back("Duplicated: " + copyName);
-            SelectEntity(newEntity);
+        if (ImGui::MenuItem("Duplicate", ShortcutChord("editor/duplicate").c_str())) {
+            DuplicateEntity(entity);
         }
         if (ImGui::MenuItem("Save as Prefab...")) {
             SelectEntity(entity);
@@ -1546,6 +1720,7 @@ void UIManager::CreateEntity(const std::string& name) {
     m_Coordinator->AddComponent(entity, HierarchyComponent{});
 
     Mist::SetEntityName(*m_Coordinator, entity, name);
+    Mist::Events::OnEntityCreated().Emit(entity);
     m_ConsoleMessages.push_back("Created entity: " + name);
 
     SelectEntity(entity);
@@ -1581,6 +1756,10 @@ void UIManager::DeleteEntity(Entity entity) {
     // documents this trade-off.
     EntitySnapshot snap = SnapshotEntity(entity);
 
+    // Before the destroy, while the components are still readable — a handler
+    // that needs to know what the entity was has no other chance.
+    Mist::Events::OnEntityDestroyed().Emit(entity);
+
     m_Coordinator->DestroyEntity(entity);
     if (m_HasSelectedEntity && m_SelectedEntity == entity) {
         m_HasSelectedEntity = false;
@@ -1611,8 +1790,12 @@ void UIManager::DeleteEntity(Entity entity) {
 }
 
 void UIManager::SelectEntity(Entity entity) {
+    const bool changed = !m_HasSelectedEntity || m_SelectedEntity != entity;
     m_SelectedEntity = entity;
     m_HasSelectedEntity = true;
+    // Only on an actual change: the Hierarchy calls this on every click,
+    // including re-clicks on the already-selected row.
+    if (changed) Mist::Events::OnSelectionChanged().Emit(entity);
 }
 
 // Shared implementation for the three primitive builders.
@@ -2199,282 +2382,10 @@ void UIManager::DrawExportDialog() {
 // FPS-specific UI methods deleted. The blocks below are stubbed out so that
 // any stale include-chain still compiles; real removal of their declarations
 // happens in UIManager.h in the same commit.
-#if 0
-void UIManager::DrawFPSGameLauncher() {
-    // Create a prominent window for FPS game controls
-    ImGui::SetNextWindowPos(ImVec2(10, 30), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(400, 250), ImGuiCond_FirstUseEver);
-    
-    ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse;
-    
-    if (ImGui::Begin("?? FPS Game Controller", nullptr, window_flags)) {
-        
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.4f, 1.0f)); // Bright green
-        ImGui::Text("MistEngine FPS Game Mode");
-        ImGui::PopStyleColor();
-        
-        ImGui::Separator();
-        
-        if (m_FPSGameManager) {
-            bool isGameActive = m_FPSGameManager->IsGameActive();
-            bool isGamePaused = m_FPSGameManager->IsGamePaused();
-            
-            if (!isGameActive) {
-                // Game not started - show start button
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.8f, 0.0f, 1.0f)); // Green
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.0f, 0.6f, 0.0f, 1.0f));
-                
-                if (ImGui::Button("?? START FPS GAME", ImVec2(200, 50))) {
-                    m_ConsoleMessages.push_back("?? STARTING FPS GAME FROM UI BUTTON!");
-                    m_FPSGameManager->StartNewGame();
-                    
-                    // Note: Scene clearing would be implemented here in a full version
-                    m_ConsoleMessages.push_back("FPS Game starting - clearing editor scene");
-                }
-                ImGui::PopStyleColor(3);
-                
-                ImGui::Spacing();
-                ImGui::Text("Click the button above to start your FPS adventure!");
-                ImGui::Text("Game Features:");
-                ImGui::BulletText("9 Enemy AI opponents");
-                ImGui::BulletText("Multiple weapon types");
-                ImGui::BulletText("Physics-based combat");
-                ImGui::BulletText("Score and health system");
-                
-            } else if (isGamePaused) {
-                // Game is paused - show resume button
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.6f, 0.8f, 1.0f)); // Blue
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 0.8f, 1.0f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.0f, 0.4f, 0.6f, 1.0f));
-                
-                if (ImGui::Button("?? RESUME GAME", ImVec2(150, 40))) {
-                    m_FPSGameManager->ResumeGame();
-                    m_ConsoleMessages.push_back("Game resumed from UI");
-                }
-                ImGui::PopStyleColor(3);
-                
-                ImGui::SameLine();
-                
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.4f, 0.0f, 1.0f)); // Orange
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.5f, 0.0f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.3f, 0.0f, 1.0f));
-                
-                if (ImGui::Button("?? RESTART", ImVec2(100, 40))) {
-                    m_FPSGameManager->RestartGame();
-                    m_ConsoleMessages.push_back("Game restarted from UI");
-                }
-                ImGui::PopStyleColor(3);
-                
-                ImGui::Text("?? Game is PAUSED");
-                
-            } else {
-                // Game is active - show pause and quit buttons
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.8f, 0.0f, 1.0f)); // Yellow
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 0.0f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.6f, 0.0f, 1.0f));
-                
-                if (ImGui::Button("?? PAUSE GAME", ImVec2(120, 40))) {
-                    m_FPSGameManager->PauseGame();
-                    m_ConsoleMessages.push_back("Game paused from UI");
-                }
-                ImGui::PopStyleColor(3);
-                
-                ImGui::SameLine();
-                
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.0f, 0.0f, 1.0f)); // Red
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.0f, 0.0f, 1.0f));
-                
-                if (ImGui::Button("?? QUIT GAME", ImVec2(100, 40))) {
-                    m_FPSGameManager->QuitGame();
-                    m_ConsoleMessages.push_back("Game quit from UI");
-                }
-                ImGui::PopStyleColor(3);
-                
-                ImGui::Spacing();
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.0f, 1.0f)); // Green
-                ImGui::Text("?? GAME IS RUNNING!");
-                ImGui::PopStyleColor();
-                
-                ImGui::Text("Controls:");
-                ImGui::BulletText("WASD - Move player");
-                ImGui::BulletText("Mouse - Look around");
-                ImGui::BulletText("Left Click - Shoot");
-                ImGui::BulletText("R - Reload weapon");
-                ImGui::BulletText("1/2 - Switch weapons");
-            }
-            
-            ImGui::Separator();
-            
-            // Game stats if available
-            if (isGameActive && m_FPSGameManager->m_enemySystem) {
-                int aliveEnemies = m_FPSGameManager->m_enemySystem->GetAliveEnemyCount();
-                ImGui::Text("?? Enemies Remaining: %d", aliveEnemies);
-                
-                if (aliveEnemies == 0) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 0.0f, 1.0f)); // Yellow
-                    ImGui::Text("?? VICTORY! All enemies defeated!");
-                    ImGui::PopStyleColor();
-                }
-            }
-            
-        } else {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f)); // Red
-            ImGui::Text("? FPS Game Manager not available");
-            ImGui::Text("The FPS system is not properly initialized.");
-            ImGui::PopStyleColor();
-        }
-        
-        ImGui::Spacing();
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Press F3 to toggle Scene Editor mode");
-    }
-    
-    ImGui::End();
-}
-
-void UIManager::DrawFPSGameHUD() {
-    // Get screen size
-    ImGuiIO& io = ImGui::GetIO();
-    float screenWidth = io.DisplaySize.x;
-    float screenHeight = io.DisplaySize.y;
-    
-    // Health bar (top-left)
-    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(200, 60), ImGuiCond_Always);
-    ImGui::Begin("Health", nullptr, 
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoBackground);
-    
-    // Mock player health - in real implementation, get from PlayerComponent
-    float playerHealth = 100.0f; // TODO: Get from actual player
-    float maxHealth = 100.0f;
-    
-    ImGui::Text("HEALTH");
-    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.8f, 0.2f, 0.2f, 1.0f)); // Red
-    ImGui::ProgressBar(playerHealth / maxHealth, ImVec2(180, 20), "");
-    ImGui::PopStyleColor();
-    ImGui::SameLine();
-    ImGui::Text("%.0f", playerHealth);
-    
-    ImGui::End();
-    
-    // Ammo counter (top-right)
-    ImGui::SetNextWindowPos(ImVec2(screenWidth - 210, 10), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(200, 60), ImGuiCond_Always);
-    ImGui::Begin("Ammo", nullptr, 
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoBackground);
-    
-    // Mock ammo count - in real implementation, get from WeaponComponent  
-    int currentAmmo = 30;
-    int maxAmmo = 30;
-    
-    ImGui::Text("AMMO");
-    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.2f, 0.8f, 0.2f, 1.0f)); // Green
-    ImGui::ProgressBar((float)currentAmmo / (float)maxAmmo, ImVec2(180, 20), "");
-    ImGui::PopStyleColor();
-    ImGui::SameLine();
-    ImGui::Text("%d/%d", currentAmmo, maxAmmo);
-    
-    ImGui::End();
-    
-    // Score (bottom-left)
-    ImGui::SetNextWindowPos(ImVec2(10, screenHeight - 70), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(200, 60), ImGuiCond_Always);
-    ImGui::Begin("Score", nullptr, 
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | 
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoBackground);
-    
-    int playerScore = 0; // TODO: Get from actual player
-    int enemiesKilled = 0;
-    
-    ImGui::Text("SCORE: %d", playerScore);
-    ImGui::Text("KILLS: %d", enemiesKilled);
-    
-    ImGui::End();
-}
-#endif // FPS-specific UI methods
-
-void UIManager::DrawCrosshair() {
-    ImGuiIO& io = ImGui::GetIO();
-    float screenWidth = io.DisplaySize.x;
-    float screenHeight = io.DisplaySize.y;
-    
-    // Center of screen
-    float centerX = screenWidth * 0.5f;
-    float centerY = screenHeight * 0.5f;
-    
-    // Draw crosshair using ImGui draw list
-    ImDrawList* drawList = ImGui::GetForegroundDrawList();
-    
-    float crosshairSize = 20.0f;
-    float crosshairThickness = 2.0f;
-    ImU32 crosshairColor = IM_COL32(255, 255, 255, 200); // White with transparency
-    
-    // Horizontal line
-    drawList->AddLine(
-        ImVec2(centerX - crosshairSize, centerY),
-        ImVec2(centerX + crosshairSize, centerY),
-        crosshairColor, crosshairThickness
-    );
-    
-    // Vertical line
-    drawList->AddLine(
-        ImVec2(centerX, centerY - crosshairSize),
-        ImVec2(centerX, centerY + crosshairSize),
-        crosshairColor, crosshairThickness
-    );
-    
-    // Center dot
-    drawList->AddCircleFilled(
-        ImVec2(centerX, centerY),
-        2.0f,
-        crosshairColor
-    );
-}
-
-#if 0
-void UIManager::DrawGameOverScreen() {
-    if (!m_FPSGameManager) return;
-
-    ImGuiIO& io = ImGui::GetIO();
-    float screenWidth = io.DisplaySize.x;
-    float screenHeight = io.DisplaySize.y;
-
-    // Full screen overlay
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(screenWidth, screenHeight), ImGuiCond_Always);
-    ImGui::Begin("GameOver", nullptr,
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoScrollbar);
-
-    // Dark overlay background
-    ImGui::GetBackgroundDrawList()->AddRectFilled(
-        ImVec2(0, 0), ImVec2(screenWidth, screenHeight),
-        IM_COL32(0, 0, 0, 180)
-    );
-
-    // Center the GAME OVER text
-    ImGui::SetCursorPos(ImVec2(screenWidth * 0.5f - 150, screenHeight * 0.4f));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-    ImGui::SetWindowFontScale(3.0f);
-    ImGui::Text("GAME OVER");
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::PopStyleColor();
-
-    // Restart button
-    ImGui::SetCursorPos(ImVec2(screenWidth * 0.5f - 75, screenHeight * 0.6f));
-    if (ImGui::Button("RESTART", ImVec2(150, 50))) {
-    }
-
-    ImGui::End();
-}
-#endif // DrawGameOverScreen
+// The FPS-game UI (DrawFPSGameLauncher, DrawFPSGameHUD, DrawGameOverScreen)
+// and DrawCrosshair lived here: two `#if 0` blocks with an uncalled function
+// sitting live-compiled between them. None were declared in UIManager.h and
+// none had callers. Removed rather than carried.
 
 // --- Wired Editor Panels (from EditorUI.cpp functionality) ---
 
@@ -3047,6 +2958,18 @@ void UIManager::DrawEditorLayout() {
         ImGui::End();
     }
 
+
+    // Plugin-contributed docks. Each plugin window is a normal ImGui window,
+    // so the user can dock, float or close it like any built-in panel.
+    //
+    // Drawn after the built-in layout so a plugin cannot disturb the default
+    // dockspace arrangement built on first run.
+    for (const auto& d : Mist::Editor::EditorPluginRegistry::Instance().SnapshotDocks()) {
+        if (!d.draw) continue;
+        if (ImGui::Begin(d.title.c_str())) d.draw();
+        ImGui::End();
+    }
+
 }
 
 // --- Scene Serialization ---
@@ -3101,6 +3024,7 @@ void UIManager::LoadScene(const std::string& path) {
     if (SceneSerializer::Load(path, gCoordinator, entityCount, env)) {
         m_EntityCounter = entityCount;
         m_HasSelectedEntity = false;
+        Mist::Events::OnSceneLoaded().Emit();
         m_ConsoleMessages.push_back("Scene loaded from: " + path);
         // New scene = fresh history. Undoing back into the previous
         // scene's entities would produce zombie ids.

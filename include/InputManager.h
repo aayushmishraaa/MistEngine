@@ -22,6 +22,8 @@ enum class InputMode {
 
 class Camera; // Forward declaration
 
+class InputSystem;
+
 class InputManager {
 public:
     InputManager();
@@ -30,6 +32,14 @@ public:
     void Initialize(GLFWwindow* window);
     void Update(float deltaTime);
     void SetCamera(Camera* camera);
+
+    // Opt camera movement into the action system.
+    //
+    // When set, ProcessCameraMovement queries named actions
+    // ("MoveForward", …) instead of polling hardcoded GLFW keys, which is what
+    // makes the camera rebindable and what lets the context stack arbitrate
+    // between camera movement and the gizmo letters.
+    void SetInputSystem(InputSystem* input) { m_InputSystem = input; }
     
     // Context management
     void SetInputContext(InputContext context);
@@ -70,6 +80,7 @@ public:
 private:
     GLFWwindow* m_Window;
     Camera* m_Camera;
+    InputSystem* m_InputSystem = nullptr;
     
     InputContext m_CurrentContext;
     InputMode m_CurrentMode;

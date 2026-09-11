@@ -14,10 +14,24 @@ void InputSystem::Init(GLFWwindow* window) {
     std::memset(m_MouseButtons, 0, sizeof(m_MouseButtons));
     std::memset(m_MouseButtonsPrev, 0, sizeof(m_MouseButtonsPrev));
 
-    glfwSetKeyCallback(window, KeyCallback);
-    glfwSetMouseButtonCallback(window, MouseButtonCallback);
-    glfwSetScrollCallback(window, ScrollCallback);
-    glfwSetCursorPosCallback(window, CursorPosCallback);
+    // Deliberately does NOT install GLFW callbacks.
+    //
+    // It used to call glfwSetKeyCallback / MouseButton / Scroll / CursorPos
+    // here. ImGui's GLFW backend is initialised with install_callbacks=true and
+    // chains to whatever was registered before it, so the two only coexist in
+    // one specific order — and src/InputManager.cpp documents at length that
+    // callback conflicts with ImGui are exactly why the live input path was
+    // rewritten to pure polling in the first place.
+    //
+    // Update() now polls glfwGetKey / glfwGetMouseButton instead, which makes
+    // this system independent of callback ordering entirely. The static
+    // KeyCallback / MouseButtonCallback / ScrollCallback / CursorPosCallback
+    // members are kept and still work if a host wires them up, but nothing in
+    // this engine does.
+    //
+    // One consequence: GLFW has no polling equivalent for scroll, so
+    // GetScrollDelta() stays 0 unless ScrollCallback is installed by a host.
+    // The editor camera's zoom comes from Renderer's own scroll callback.
 
     double mx, my;
     glfwGetCursorPos(window, &mx, &my);
@@ -27,11 +41,23 @@ void InputSystem::Init(GLFWwindow* window) {
 }
 
 void InputSystem::Update() {
+    if (!m_Window) return;
+
     std::memcpy(m_KeysPrev, m_Keys, sizeof(m_Keys));
     std::memcpy(m_MouseButtonsPrev, m_MouseButtons, sizeof(m_MouseButtons));
     m_MousePosPrev = m_MousePos;
     m_ScrollDelta = m_ScrollAccum;
     m_ScrollAccum = 0.0f;
+
+    // Poll rather than rely on callbacks — see Init() for why. Edge detection
+    // (IsActionJustPressed) still works because the previous frame's state was
+    // copied above.
+    for (int key = 0; key < kMaxKeys; ++key) {
+        m_Keys[key] = (glfwGetKey(m_Window, key) == GLFW_PRESS);
+    }
+    for (int btn = 0; btn < kMaxMouseButtons; ++btn) {
+        m_MouseButtons[btn] = (glfwGetMouseButton(m_Window, btn) == GLFW_PRESS);
+    }
 
     double mx, my;
     glfwGetCursorPos(m_Window, &mx, &my);

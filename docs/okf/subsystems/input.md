@@ -32,55 +32,60 @@ propagation with `Viewport.set_input_as_handled()` or `Control.accept_event()`.
 
 # MistEngine today
 
-**Two input systems exist. The better one is dead.**
+**`InputSystem` is wired.** Action maps, multiple bindings per action, keyboard /
+mouse / gamepad devices with a 0.15 deadzone, a context stack with higher
+contexts shadowing lower ones, and `RebindAction` — all of it now has a caller.
 
-`Input/InputSystem.h` + `InputAction.h` + `InputContext.h` implement most of `InputMap`: named
-actions, multiple bindings per action, keyboard / mouse / gamepad-button / gamepad-axis devices,
-per-binding scale for inverted axes, a gamepad deadzone of 0.15, `IsActionPressed` /
-`IsActionJustPressed` / `IsActionJustReleased` / `GetAxisValue` / `GetAxis2D`, a context *stack* with
-higher contexts shadowing lower ones, and `RebindAction`. Prebuilt `CreateEditorContext()` and
-`CreateGameplayContext()` factories ship with it.
+- Instantiated in `main()` and polled once per frame.
+- `Init()` deliberately installs **no** GLFW callbacks. It used to, which only
+  coexists with ImGui's backend in one specific order — and `InputManager`
+  documents that callback conflicts with ImGui are exactly why the live path was
+  rewritten to pure polling. `Update()` polls `glfwGetKey` /
+  `glfwGetMouseButton` instead, so the system is independent of callback
+  ordering. Consequence: `GetScrollDelta()` stays 0 unless a host installs
+  `ScrollCallback`, since GLFW has no polling equivalent for scroll.
+- `InputManager::ProcessCameraMovement` queries named actions instead of
+  hardcoded `glfwGetKey` calls, with the raw path kept as a fallback for a host
+  that attaches no `InputSystem`.
+- **The binding table is serialized.** `input_map.json` is merged over the
+  built-in defaults at startup, so a rebind survives a restart and a newly added
+  action still gets its default. Guarded under the project root.
+- **Lua has input**: `is_action_pressed`, `is_action_just_pressed`, `get_axis`
+  and `get_vector`, all degrading to "nothing pressed" when no `InputSystem` is
+  live so a headless run cannot crash on them.
 
-It has **zero callers**. Nothing instantiates it.
+**The W/E collision is fixed by the context stack**, which is what it was for.
+Viewport navigation is now modal: the camera-fly context is pushed only while the
+right mouse button is held, as Godot does. Outside RMB the letters belong to the
+gizmo, dispatched through `ShortcutRegistry`. This is a deliberate behaviour
+change — WASD no longer flies the camera on its own.
 
-What actually runs is `InputManager`: pure polling, hardcoded keys, `glfwGetKey(m_Window, GLFW_KEY_W)`
-and friends. It handles camera fly, orbit/pan on middle mouse, right-drag look, numpad view presets,
-and an editor/gameplay context enum. Remapping is impossible. Gamepads are unsupported in the live
-path.
+# Remaining delta
 
-There is no event propagation model at all — no tree walk, no consumption. Input is read wherever it
-is needed: `InputManager`, `Renderer`'s GLFW callbacks, `UIManager::NewFrame` for Ctrl+Z and the gizmo
-keys, and `main()` for F1 and F.
-
-That scattering causes real collisions. `W`/`E`/`R` set the gizmo mode in `UIManager` *and* move the
-camera in `InputManager` — pressing `W` to translate also flies forward.
-
-# Delta
-
-Parity here is mostly a **wiring** problem, not a design problem. `InputSystem` is close to
-`InputMap` already; what it lacks is:
-
-- Any caller.
-- A serialized binding table (Godot's lives in Project Settings; MistEngine's is hardcoded in
-  `CreateEditorContext()`).
-- `get_vector` (it has `GetAxis2D`, which is the same idea).
-- Event propagation and consumption, which matters much less without a `Control` UI tree.
-
-The gizmo/camera key collision is a symptom of having no single input owner, and wiring `InputSystem`
-with its context stack is exactly the mechanism that resolves it.
+- **No event propagation or consumption model.** No tree walk, no
+  `set_input_as_handled()`. This matters much less without a `Control` UI tree,
+  but input is still read in several places (`InputManager`, `Renderer`'s GLFW
+  callbacks, `UIManager`, `main()`).
+- **No `_input` / `_unhandled_input` script callbacks** — scripts poll actions
+  rather than receiving events. See [node lifecycle](/subsystems/node-lifecycle.md).
+- **No rebinding UI.** The table is serializable and `RebindAction` works; there
+  is no panel to drive them from.
+- Scroll is not available through `InputSystem`, per the polling trade-off above.
 
 # Evidence
 
-- `grep -rn "InputSystem" src tests | grep -v src/Input/InputSystem.cpp` → no results.
-- `include/Input/InputContext.h` — `CreateEditorContext()` / `CreateGameplayContext()` with full
-  binding tables.
-- `src/Input/InputSystem.cpp` — `GetGamepadAxis` with a 0.15 deadzone; `IsActionJustPressed` over the
-  context stack.
-- `src/InputManager.cpp` `UpdateKeyStatesFromPolling` — hardcoded `glfwGetKey` calls.
-- `src/UIManager.cpp` `NewFrame` — `ImGuiKey_W/E/R` set gizmo mode, colliding with camera WASD.
+- `src/MistEngine.cpp` — instantiation, the saved-map merge, the RMB-gated
+  context push, and the per-frame `Update()`.
+- `src/Input/InputSystem.cpp` `Init` / `Update` — the no-callbacks decision and
+  the polling loop.
+- `include/Input/InputMapSerializer.h`, `src/Input/InputMapSerializer.cpp`.
+- `src/InputManager.cpp` `ProcessCameraMovement` — action queries with a raw
+  fallback.
+- `src/Script/LuaScriptLanguage.cpp` — the four action bindings.
+- `tests/test_input_system.cpp` — 10 cases; the subsystem had none before.
 
 # Depends on / Blocks
 
-Depends on nothing. Purely additive.
-Implementation: [phase 4](/roadmap/phase-4-wire-the-built-but-dead.md) — the single best
-parity-per-hour item in the engine.
+Depended on nothing. Implemented in
+[phase 4](/roadmap/phase-4-wire-the-built-but-dead.md) — it was the best parity-per-hour item in
+the engine, as predicted.

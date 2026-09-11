@@ -43,6 +43,14 @@ public:
     float GetGamepadAxis(int id, int axis) const;
     bool IsGamepadButtonPressed(int id, int button) const;
 
+    // The live instance, or nullptr when none has been initialised.
+    //
+    // Needed because the Lua bindings are free functions with no `this` to
+    // capture, and headless runs legitimately have no InputSystem at all — a
+    // script asking about input outside the editor must get "nothing pressed"
+    // rather than a crash.
+    static InputSystem* Get() { return s_Instance; }
+
     // Rebinding
     void RebindAction(const std::string& action, const InputBinding& newBinding);
 
@@ -57,12 +65,16 @@ private:
     std::vector<InputContextMap> m_ContextStack;
 
     // Keyboard state
-    bool m_Keys[512] = {};
-    bool m_KeysPrev[512] = {};
+    // GLFW key codes top out at GLFW_KEY_LAST (348); 512 covers it with room.
+    static constexpr int kMaxKeys = 512;
+    static constexpr int kMaxMouseButtons = 8;
+
+    bool m_Keys[kMaxKeys] = {};
+    bool m_KeysPrev[kMaxKeys] = {};
 
     // Mouse state
-    bool m_MouseButtons[8] = {};
-    bool m_MouseButtonsPrev[8] = {};
+    bool m_MouseButtons[kMaxMouseButtons] = {};
+    bool m_MouseButtonsPrev[kMaxMouseButtons] = {};
     glm::vec2 m_MousePos = {0, 0};
     glm::vec2 m_MousePosPrev = {0, 0};
     float m_ScrollDelta = 0.0f;

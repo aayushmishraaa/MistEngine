@@ -31,10 +31,11 @@ Tree state: commit `04b00b4`. Every `# Evidence` claim below was checked against
 
 **The renderer is ahead of Godot's Compatibility tier. The engine architecture is largely absent.**
 
-Phases 1, 2 and 3 have landed: entity names are a serialized component with a lookup and a Lua binding, and
+**All four roadmap phases have landed.** entity names are a serialized component with a lookup and a Lua binding, and
 every render tunable now lives on one serialized `Environment`. The camera is a component, and all six
-geometry passes cull, and `.mistprefab` gives the engine its first reuse unit. The table below
-tracks state as of that work.
+geometry passes cull, `.mistprefab` gives the engine its first reuse unit, and the six built-but-dead
+subsystems are wired. The table below tracks state as of that work; see
+[the roadmap](/roadmap/index.md) for what each phase did and did not cover.
 
 On rendering, MistEngine is closer to Godot's **Forward+** than to Compatibility: clustered lighting
 for 1024 lights where Compatibility caps at 8 per mesh, PCSS where Compatibility has none, plus TAA,
@@ -55,9 +56,9 @@ actions. Several of those are *already written and simply never called*.
 | [Rendering pipeline](/subsystems/rendering-pipeline.md) | ahead / behind | Forward+-class lighting + culling; no GI, probes or LOD |
 | [Environment and camera](/subsystems/environment-and-camera.md) | partial | both serialized; still one viewport |
 | [Physics](/subsystems/physics.md) | partial | no layers, areas or character body |
-| [Input](/subsystems/input.md) | built, dead | action system written, zero callers |
+| [Input](/subsystems/input.md) | partial | action system wired + serialized; no event propagation |
 | [Scripting](/subsystems/scripting.md) | strong | the most complete subsystem in the engine |
-| [Editor tooling](/subsystems/editor-tooling.md) | partial | undo and reflection good; plugins and shortcuts dead |
+| [Editor tooling](/subsystems/editor-tooling.md) | partial | plugins, shortcuts and play mode wired; no property groups |
 | [Animation and audio](/subsystems/animation-and-audio.md) | absent | bind pose only; audio unreachable |
 
 # Where to start

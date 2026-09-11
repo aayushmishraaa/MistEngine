@@ -1,8 +1,8 @@
 > **SUPERSEDED — do not trust this document.**
 >
 > Written against 0.4.2 and substantially wrong as of 0.5.0. Specifically: it diagrams
-> `Core::Engine` as the composition root, but that class is never instantiated — the real root is
-> `main()` in `src/MistEngine.cpp`. It documents an `AIManager` and an `HttpClient` that were deleted
+> `Core::Engine` as the composition root. That class was never instantiated and has since been
+> deleted; the real root is `main()` in `src/MistEngine.cpp`. It documents an `AIManager` and an `HttpClient` that were deleted
 > in 0.5.0. It references a plan file by absolute path on a machine that is not this one. And its
 > PathGuard table is incomplete: `MaterialSerializer` and `PackageIO` were unguarded until commit
 > `04b00b4`.

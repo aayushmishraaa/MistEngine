@@ -52,7 +52,24 @@ non-blocking GPU timer queries.
 
 # Delta
 
-Three subsystems are written and unreachable:
+Three subsystems **were** written and unreachable. All three are now wired
+(phase 4):
+
+- **`EditorPluginRegistry`** — `UIManager` iterates `SnapshotDocks()` at the end
+  of `DrawEditorLayout` and `SnapshotMenus()` under a "Plugins" menu. One real
+  in-tree plugin ships (`SceneStatsPlugin`), because a registry whose only
+  plugin was a test double could be asserted to compile but not shown to work.
+- **`ShortcutRegistry`** — one dispatch site in `UIManager::NewFrame`. All
+  fifteen registered chords now fire; previously only the hardcoded Ctrl+Z /
+  Ctrl+Y and the gizmo letters were live, which made the menu labels a standing
+  lie. `New Scene`, `Duplicate` and `Save As` had to be extracted from menu
+  bodies first.
+- **`EditorState`** — `main()` installs snapshot callbacks over
+  `SceneSerializer::SaveToString` / `LoadFromString` and gates physics, scripts
+  and `_ready` on `ShouldUpdateGame()`. A global gate is the honest first cut;
+  process modes do not exist.
+
+Historical record of what they looked like before:
 
 - **`EditorPluginRegistry`** implements `IEditorPlugin` with `OnEnable`/`OnDisable`, an
   `EditorContext` for registering docks and slash-pathed menu items, and thread-safe snapshots. Called
@@ -72,12 +89,14 @@ Other gaps against Godot:
   renders as one flat list.
 - **No inspector plugin hook** — a custom widget for a custom type means editing `UIManager`.
 - **No viewport gizmo registration**; light and collision gizmos are hardcoded in `Renderer.cpp`.
-- **Dead duplicates.** `src/Editor/EditorUI.cpp` is 226 lines in `namespace EditorPanels` that
-  reimplement panels `UIManager` already has as members; the namespace is never referenced.
-  `UIManager::DrawSceneView`, `DrawAssetBrowser`, `DrawConsole` and `DrawCrosshair` each appear exactly
-  once — their own definition.
-- **Menu items that do nothing:** File → New Scene clears a UI cache and the selection without
-  destroying any entity; File → Exit's body is a comment; Hierarchy → Rename re-selects the entity.
+- **Dead duplicates** — mostly removed. `src/Editor/EditorUI.cpp` (226 lines, `namespace
+  EditorPanels`) went in phase 1, the two `#if 0` FPS-UI blocks and `DrawCrosshair` in phase 4.
+  `UIManager::DrawSceneView`, `DrawAssetBrowser` and `DrawConsole` remain: each appears exactly once,
+  as its own definition, and `DrawSceneView` is the only caller of
+  `Renderer::SetFullscreenPresent`, so the whole `Viewport` fullscreen-blit path is dead with it.
+- **Menu items that do nothing:** File → Exit's body is a comment; Hierarchy → Rename re-selects the
+  entity. (File → New Scene used to clear a UI cache and the selection *without destroying a single
+  entity* — fixed in phase 4, which also gave `Duplicate` the undo command it never had.)
 - **The Light Editor panel is overwritten every frame** — it adds lights to `LightManager`, which
   `LightSystem::Update` clears and rebuilds from ECS at the top of the next frame.
 

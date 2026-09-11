@@ -11,6 +11,9 @@ generated:
 
 # Roadmap
 
+**All four phases are complete.** Each phase document records what it actually did, including where
+it deviated from the plan and what it deliberately left out.
+
 Ordered by dependency, not by value. That ordering is the main reason this bundle exists: the
 highest-value item (prefabs) cannot be built until two cheaper things land first, and the cheapest
 item (wiring dead subsystems) is independent of everything and therefore goes last.
@@ -20,7 +23,7 @@ item (wiring dead subsystems) is independent of everything and therefore goes la
 | [1](/roadmap/phase-1-identity-and-environment.md) — **done** | Entity identity + Environment resource | none |
 | [2](/roadmap/phase-2-camera-and-culling.md) — **done** | Camera as a component + frustum culling | phase 1 |
 | [3](/roadmap/phase-3-prefabs.md) — **done** | `.mistprefab` instancing | phases 1 and 2 |
-| [4](/roadmap/phase-4-wire-the-built-but-dead.md) | Wire six already-written subsystems | none — independent |
+| [4](/roadmap/phase-4-wire-the-built-but-dead.md) — **done** | Wire six already-written subsystems | none — independent |
 
 # Why this order
 

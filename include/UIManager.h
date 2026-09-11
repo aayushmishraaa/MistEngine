@@ -124,6 +124,15 @@ public:
     Mist::Editor::UndoStack& GetUndoStack() { return m_UndoStack; }
 
     // Scene save/load
+    // Play mode. main() gates physics and script updates on
+    // ShouldUpdateGame(); there was no accessor at all before, which is part
+    // of why EditorState was never wired to anything.
+    EditorState* GetEditorState() { return m_EditorState.get(); }
+
+    // Drops selection and undo history. Required after anything that rebuilds
+    // the world underneath the editor — play-mode Stop, for instance.
+    void ClearSelectionAndHistory();
+
     void SaveScene(const std::string& path);
     void LoadScene(const std::string& path);
 
@@ -173,7 +182,6 @@ private:
     void DrawExportDialog();
 
     // Crosshair overlay (kept — generic editor/runtime overlay).
-    void DrawCrosshair();
 
     // Reflection-driven generic property editor. Draws ImGui widgets for
     // every field in `props` targeting `obj` as the base pointer. New
@@ -194,6 +202,21 @@ private:
     // One reflected panel over Renderer::GetEnvironment(). Replaced
     // DrawPostProcessControls / DrawShadowControls / DrawSkyboxControls.
     void DrawEnvironmentPanel();
+
+    // Shortcuts. DispatchShortcuts is the single site that turns a key event
+    // into an editor command; RunShortcut maps a registry id to the action.
+    void DispatchShortcuts();
+    void RunShortcut(const std::string& id);
+    static std::string ShortcutChord(const char* id);
+
+    // Extracted from menu/context-menu bodies so a shortcut has something to
+    // call. NewScene now actually destroys the previous scene's entities.
+    void NewScene();
+    void DuplicateEntity(Entity entity);
+
+    // Latched, because "Save Scene As" opens a modal and a shortcut fires
+    // outside the menu's ImGui ID stack.
+    bool m_OpenSaveSceneAsPopup = false;
 
     // Prefabs. DestroyPrefabInstance removes every entity the instance
     // spawned, not just the root — destroying only the root orphans its
