@@ -347,3 +347,79 @@ TEST_CASE("Renaming an entity persists across a round-trip",
     REQUIRE(Mist::FindEntityByName(gCoordinator, "Cube") == Mist::kInvalidEntity);
     REQUIRE(Mist::FindEntityByName(gCoordinator, "Player Spawn") != Mist::kInvalidEntity);
 }
+
+// --- Environment resource ---------------------------------------------------
+//
+// Before Environment existed, 30-odd render tunables were public fields spread
+// across nine renderer objects, every one of them reachable from the View menu
+// and every one of them resetting to its compile-time default on restart. A
+// lighting look could not be saved, shared, or version-controlled.
+
+#include "Environment.h"
+
+TEST_CASE("Environment survives a scene round-trip", "[scene][serializer][environment]") {
+    ResetGlobalCoordinator();
+
+    Environment src;
+    src.tonemap          = TonemapOperator::Reinhard;
+    src.exposure         = 2.75f;
+    src.bloomThreshold   = 3.5f;
+    src.ssaoEnabled      = false;
+    src.dofEnabled       = true;
+    src.dofFocusDistance = 42.0f;
+    src.shadowSoftness   = 0.25f;
+    src.shadowQuality    = 1;
+    src.skyTurbidity     = 7.5f;
+    src.sunDirection     = {0.0f, 1.0f, 0.0f};
+
+    const std::string text = SceneSerializer::SaveToString(gCoordinator, &src);
+
+    Environment dst;
+    int count = 0;
+    REQUIRE(SceneSerializer::LoadFromString(text, gCoordinator, count, &dst));
+
+    // The enum is the interesting one: it is a uint8_t, so reading it as an
+    // int* would run three bytes past the field. It goes through
+    // enum_value/set_enum_value, which respect PropertyInfo::size.
+    REQUIRE(dst.tonemap          == TonemapOperator::Reinhard);
+    REQUIRE(dst.exposure         == Catch::Approx(2.75f));
+    REQUIRE(dst.bloomThreshold   == Catch::Approx(3.5f));
+    REQUIRE(dst.ssaoEnabled      == false);
+    REQUIRE(dst.dofEnabled       == true);
+    REQUIRE(dst.dofFocusDistance == Catch::Approx(42.0f));
+    REQUIRE(dst.shadowSoftness   == Catch::Approx(0.25f));
+    REQUIRE(dst.shadowQuality    == 1);
+    REQUIRE(dst.skyTurbidity     == Catch::Approx(7.5f));
+    REQUIRE(dst.sunDirection.y   == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Every Environment field is reflected", "[scene][serializer][environment]") {
+    // Guards the failure mode this whole design is meant to prevent: adding a
+    // tunable to Environment.h and forgetting the MIST_FIELD line, which would
+    // silently drop it from both the Inspector and the scene file — exactly
+    // the state all nine renderer objects were in before.
+    const auto* props = Mist::TypeRegistry::Instance().Get("Environment");
+    REQUIRE(props != nullptr);
+    REQUIRE(props->size() == 34);
+
+    for (const auto& p : *props) {
+        REQUIRE(p.type != Mist::PropertyType::Unknown);
+        REQUIRE(p.offset < sizeof(Environment));
+    }
+}
+
+TEST_CASE("A scene with no environment block leaves the caller's Environment alone",
+          "[scene][serializer][environment]") {
+    // Version-skew path: scenes written before this feature must not snap the
+    // editor's live settings back to defaults on load.
+    ResetGlobalCoordinator();
+
+    const std::string text = SceneSerializer::SaveToString(gCoordinator, nullptr);
+    REQUIRE(text.find("environment") == std::string::npos);
+
+    Environment dst;
+    dst.exposure = 9.0f;
+    int count = 0;
+    REQUIRE(SceneSerializer::LoadFromString(text, gCoordinator, count, &dst));
+    REQUIRE(dst.exposure == Catch::Approx(9.0f));
+}

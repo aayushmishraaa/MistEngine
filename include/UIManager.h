@@ -143,10 +143,8 @@ private:
     bool m_ShowConsole;
     bool m_ShowExportDialog;
     bool m_ShowProfiler;
-    bool m_ShowPostProcess;
-    bool m_ShowShadowControls;
+    bool m_ShowEnvironment;
     bool m_ShowLightEditor;
-    bool m_ShowSkyboxControls;
 
     // Selected entity
     Entity m_SelectedEntity;
@@ -189,10 +187,10 @@ private:
 
     // Editor panels (wired from EditorUI.cpp)
     void DrawProfilerWindow();
-    void DrawPostProcessControls();
-    void DrawShadowControls();
+    // One reflected panel over Renderer::GetEnvironment(). Replaced
+    // DrawPostProcessControls / DrawShadowControls / DrawSkyboxControls.
+    void DrawEnvironmentPanel();
     void DrawLightEditor();
-    void DrawSkyboxControls();
 
     // Utility
     void DrawVec3Control(const std::string& label, glm::vec3& values, float resetValue = 0.0f, float columnWidth = 100.0f);

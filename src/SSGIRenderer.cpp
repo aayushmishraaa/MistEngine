@@ -37,10 +37,9 @@ void SSGIRenderer::Resize(int width, int height) {
     m_BlurFBO[1].Resize(halfW, halfH);
 }
 
-void SSGIRenderer::Render(GLuint depthTexture, GLuint colorTexture,
+void SSGIRenderer::Render(const Environment& env, GLuint depthTexture, GLuint colorTexture,
                            const glm::mat4& projection, const glm::mat4& view,
                            GLuint fullscreenVAO) {
-    if (!enabled) return;
 
     int halfW = m_Width / 2;
     int halfH = m_Height / 2;
@@ -69,8 +68,8 @@ void SSGIRenderer::Render(GLuint depthTexture, GLuint colorTexture,
     m_SSGIShader.setMat4("view", view);
     m_SSGIShader.setMat4("invProjection", invProjection);
     m_SSGIShader.setMat4("invView", invView);
-    m_SSGIShader.setFloat("radius", radius);
-    m_SSGIShader.setFloat("intensity", intensity);
+    m_SSGIShader.setFloat("radius", env.ssgiRadius);
+    m_SSGIShader.setFloat("intensity", env.ssgiIntensity);
     m_SSGIShader.setVec2("noiseScale", glm::vec2(halfW / 4.0f, halfH / 4.0f));
 
     glDrawArrays(GL_TRIANGLES, 0, 3);

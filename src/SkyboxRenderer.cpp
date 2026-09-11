@@ -40,7 +40,8 @@ void SkyboxRenderer::setupCube() {
     glBindVertexArray(0);
 }
 
-void SkyboxRenderer::Render(const glm::mat4& view, const glm::mat4& projection) {
+void SkyboxRenderer::Render(const glm::mat4& view, const glm::mat4& projection,
+                            const Environment& env) {
     glDepthFunc(GL_LEQUAL);
     glm::mat4 skyView = glm::mat4(glm::mat3(view));
 
@@ -68,10 +69,10 @@ void SkyboxRenderer::Render(const glm::mat4& view, const glm::mat4& projection) 
             shader->use();
             shader->setMat4("view", skyView);
             shader->setMat4("projection", projection);
-            shader->setVec3("sunDirection", sunDirection);
-            shader->setFloat("rayleighStrength", rayleighStrength);
-            shader->setFloat("mieStrength", mieStrength);
-            shader->setFloat("turbidity", turbidity);
+            shader->setVec3("sunDirection", glm::normalize(env.sunDirection));
+            shader->setFloat("rayleighStrength", env.skyRayleigh);
+            shader->setFloat("mieStrength", env.skyMie);
+            shader->setFloat("turbidity", env.skyTurbidity);
             break;
     }
 

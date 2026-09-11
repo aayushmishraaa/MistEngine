@@ -31,8 +31,9 @@ Tree state: commit `04b00b4`. Every `# Evidence` claim below was checked against
 
 **The renderer is ahead of Godot's Compatibility tier. The engine architecture is largely absent.**
 
-Phase 1 part A has landed: entity names are a serialized component with a lookup and a Lua binding.
-The table below tracks state as of that work.
+Phase 1 has landed: entity names are a serialized component with a lookup and a Lua binding, and
+every render tunable now lives on one serialized `Environment`. The table below tracks state as of
+that work.
 
 On rendering, MistEngine is closer to Godot's **Forward+** than to Compatibility: clustered lighting
 for 1024 lights where Compatibility caps at 8 per mesh, PCSS where Compatibility has none, plus TAA,
@@ -51,7 +52,7 @@ actions. Several of those are *already written and simply never called*.
 | [Node lifecycle](/subsystems/node-lifecycle.md) | partial | two of Godot's nine callbacks |
 | [Resources and assets](/subsystems/resources-and-assets.md) | partial | one loader installed of four |
 | [Rendering pipeline](/subsystems/rendering-pipeline.md) | ahead / behind | Forward+-class lighting, no scene-level features |
-| [Environment and camera](/subsystems/environment-and-camera.md) | absent | 41 tunables across 9 objects, none serialized |
+| [Environment and camera](/subsystems/environment-and-camera.md) | partial | Environment serialized; camera still a Renderer member |
 | [Physics](/subsystems/physics.md) | partial | no layers, areas or character body |
 | [Input](/subsystems/input.md) | built, dead | action system written, zero callers |
 | [Scripting](/subsystems/scripting.md) | strong | the most complete subsystem in the engine |

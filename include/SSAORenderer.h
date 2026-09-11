@@ -2,6 +2,7 @@
 #ifndef MIST_SSAO_RENDERER_H
 #define MIST_SSAO_RENDERER_H
 
+#include "Environment.h"
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <vector>
@@ -15,12 +16,10 @@ public:
 
     void Init(int width, int height);
     void Resize(int width, int height);
-    void Render(GLuint depthTex, const glm::mat4& projection, const glm::mat4& view);
+    void Render(GLuint depthTex, const glm::mat4& projection, const glm::mat4& view,
+                const Environment& env);
     GLuint GetSSAOTexture() const { return m_BlurFBO.GetColorTexture(); }
 
-    bool enabled = true;
-    float radius = 0.5f;
-    float bias = 0.025f;
 
 private:
     Framebuffer m_SSAOFBO;

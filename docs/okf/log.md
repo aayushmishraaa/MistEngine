@@ -30,3 +30,18 @@
     A separate pre-existing failure in `tests/test_material_asset.cpp` under
     randomised order is recorded but not addressed here.
 - Tests: 113 → 122 green.
+
+# 2026-09-11 — phase 1 part B
+
+- `Environment` landed: one reflected, serialized struct owning 34 render
+  tunables, replacing public fields on nine renderer objects. The fields were
+  deleted rather than shadowed, and `PostProcessStack::Execute` plus every
+  sub-renderer `Render` now take a `const Environment&`.
+- Three View-menu panels collapsed into one `DrawReflectedProperties` call.
+- `src/Editor/EditorUI.cpp` deleted early (phase 4 had it scheduled): it
+  referenced the removed tunables, and porting unreferenced code to a new API
+  purely to keep it compiling was not defensible.
+- Correction: the bundle's "41 tunables" was an over-count from counting
+  declared members per header. The real figure is 34; `SSRRenderer` in
+  particular was credited with four and had two.
+- Tests: 122 → 125 green.

@@ -108,7 +108,7 @@ void PostProcessStack::EndPrepass() {
     m_PrepassFBO.Unbind();
 }
 
-void PostProcessStack::Execute(float exposure, const glm::mat4& projection, const glm::mat4& view,
+void PostProcessStack::Execute(const Environment& env, const glm::mat4& projection, const glm::mat4& view,
                                GLuint hiZTexture) {
     glBindVertexArray(m_FullscreenVAO);
     glDisable(GL_DEPTH_TEST);
@@ -116,13 +116,13 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     GLuint currentTexture = m_HDRFramebuffer.GetColorTexture();
 
     // 1. SSAO
-    if (enableSSAO && ssao.enabled) {
-        ssao.Render(m_HDRFramebuffer.GetDepthTexture(), projection, view);
+    if (env.ssaoEnabled) {
+        ssao.Render(m_HDRFramebuffer.GetDepthTexture(), projection, view, env);
     }
 
     // 2. SSGI (screen-space global illumination)
-    if (enableSSGI && ssgi.enabled) {
-        ssgi.Render(m_HDRFramebuffer.GetDepthTexture(), currentTexture,
+    if (env.ssgiEnabled) {
+        ssgi.Render(env, m_HDRFramebuffer.GetDepthTexture(), currentTexture,
                     projection, view, m_FullscreenVAO);
         // SSGI output is available via ssgi.GetGITexture() for compositing in PBR shader
         glBindVertexArray(m_FullscreenVAO);
@@ -130,8 +130,8 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     }
 
     // 3. Bloom
-    if (enableBloom && bloom.enabled) {
-        bloom.RenderBloom(currentTexture, bloom.threshold, bloom.intensity);
+    if (env.bloomEnabled) {
+        bloom.RenderBloom(currentTexture, env.bloomThreshold, env.bloomIntensity);
 
         // Composite bloom onto scene
         m_IntermediateFBO.Bind();
@@ -145,7 +145,7 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, bloom.GetBloomTexture());
         m_CompositeShader.setInt("bloomTexture", 1);
-        m_CompositeShader.setFloat("bloomStrength", bloom.intensity);
+        m_CompositeShader.setFloat("bloomStrength", env.bloomIntensity);
 
         glDrawArrays(GL_TRIANGLES, 0, 3);
         m_IntermediateFBO.Unbind();
@@ -154,7 +154,7 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     }
 
     // 4. TAA resolve (before FXAA, still in linear HDR)
-    if (enableTAA && taa.enabled) {
+    if (env.taaEnabled) {
         // Prepass depth feeds the closest-depth velocity pick — passing
         // zero makes the resolve shader fall back to central-pixel
         // sampling, which is still correct, just less crisp on edges.
@@ -170,8 +170,8 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     //      reflection term back into HDR. Gated on Hi-Z availability
     //      (hiZTexture != 0) so callers without prepass wiring don't
     //      get garbage.
-    if (enableSSR && ssr.enabled && hiZTexture != 0) {
-        ssr.Render(currentTexture,
+    if (env.ssrEnabled && hiZTexture != 0) {
+        ssr.Render(env, currentTexture,
                    m_PrepassFBO.GetDepthTexture(),
                    m_PrepassFBO.GetColorTexture(),
                    hiZTexture,
@@ -186,7 +186,7 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     //      bokeh, full-res composite. Physically the lens effect
     //      (defocus) happens before the shutter integration (motion
     //      blur), so DOF runs first in the chain.
-    if (enableDOF) {
+    if (env.dofEnabled) {
         // CoC pass — full-res R16F, signed blur radius.
         m_DOFCoCFBO.Bind();
         glClear(GL_COLOR_BUFFER_BIT);
@@ -195,9 +195,9 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
         glBindTexture(GL_TEXTURE_2D, m_PrepassFBO.GetDepthTexture());
         m_DOFCoCShader.setInt("depthTex", 0);
         m_DOFCoCShader.setMat4("uInvProj", glm::inverse(projection));
-        m_DOFCoCShader.setFloat("uFocusDistance", dofFocusDistance);
-        m_DOFCoCShader.setFloat("uAperture",      dofAperture);
-        m_DOFCoCShader.setFloat("uMaxRadius",     dofMaxRadius);
+        m_DOFCoCShader.setFloat("uFocusDistance", env.dofFocusDistance);
+        m_DOFCoCShader.setFloat("uAperture",      env.dofAperture);
+        m_DOFCoCShader.setFloat("uMaxRadius",     env.dofMaxRadius);
         glDrawArrays(GL_TRIANGLES, 0, 3);
         m_DOFCoCFBO.Unbind();
 
@@ -241,7 +241,7 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     // 4.8. Motion blur (optional) — samples HDR along the velocity
     //      vector. Uses the velocity buffer whether or not TAA is
     //      active (velocity pass is decoupled from TAA in Renderer).
-    if (enableMotionBlur) {
+    if (env.motionBlurEnabled) {
         m_MotionBlurFBO.Bind();
         glClear(GL_COLOR_BUFFER_BIT);
         m_MotionBlurShader.use();
@@ -251,7 +251,7 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, taa.GetVelocityTexture());
         m_MotionBlurShader.setInt("velocityBuffer", 1);
-        m_MotionBlurShader.setFloat("uStrength", motionBlurStrength);
+        m_MotionBlurShader.setFloat("uStrength", env.motionBlurStrength);
         glDrawArrays(GL_TRIANGLES, 0, 3);
         m_MotionBlurFBO.Unbind();
         currentTexture = m_MotionBlurFBO.GetColorTexture();
@@ -262,7 +262,7 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     //    the tonemap operator hard-clips them; the old post-tonemap
     //    FXAA couldn't fix the aliasing that tonemap baked in.
     //    Gated off when TAA is active to avoid compound blurring.
-    bool applyFXAA = enableFXAA && !enableTAA;
+    bool applyFXAA = env.fxaaEnabled && !env.taaEnabled;
     if (applyFXAA) {
         m_FXAAIntermediate.Bind();
         glClear(GL_COLOR_BUFFER_BIT);
@@ -289,12 +289,12 @@ void PostProcessStack::Execute(float exposure, const glm::mat4& projection, cons
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, currentTexture);
     m_ToneMapShader.setInt("hdrBuffer", 0);
-    m_ToneMapShader.setFloat("exposure", exposure);
+    m_ToneMapShader.setFloat("exposure", env.exposure);
     {
         // uTonemapOp is an int uniform in the shader; Shader helper
         // sends floats so go raw here.
         GLint loc = glGetUniformLocation(m_ToneMapShader.ID, "uTonemapOp");
-        if (loc >= 0) glUniform1i(loc, tonemapOperator);
+        if (loc >= 0) glUniform1i(loc, static_cast<int>(env.tonemap));
     }
     glDrawArrays(GL_TRIANGLES, 0, 3);
 

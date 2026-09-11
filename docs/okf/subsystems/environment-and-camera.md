@@ -1,7 +1,7 @@
 ---
 type: Subsystem Parity
 title: Environment and camera
-description: Godot puts render settings in one shareable Environment resource and the camera in the scene; MistEngine scatters 41 tunables across 9 objects and none of them are saved.
+description: Godot puts render settings in one shareable Environment resource and the camera in the scene; MistEngine now has the Environment, but the camera is still a Renderer member.
 tags: [parity, godot, rendering, camera, serialization]
 status: draft
 generated:
@@ -30,54 +30,74 @@ scene can hold several, and render-to-texture is just another viewport.
 
 # MistEngine today
 
-Render settings are spread across **nine objects, 41 public tunables, none serialized**:
+## Environment — landed
 
-| Object | Tunables |
-|---|---|
-| `PostProcessStack` | 15 |
-| `Renderer` | 6 — `lightDir`, `lightColor`, `m_Exposure`, `m_UsePBR`, `m_ShowEditorGrid`, `m_ShowPhysicsDebug` |
-| `SkyboxRenderer` | 4 — sun direction, Rayleigh, Mie, turbidity |
-| `SSRRenderer` | 4 |
-| `BloomRenderer` | 3 |
-| `SSAORenderer` | 3 |
-| `SSGIRenderer` | 3 |
-| `ShadowSystem` | 2 |
-| `TAARenderer` | 1 |
+`struct Environment` (`include/Environment.h`) is a single reflected,
+serialized object owning every render tunable: tonemap operator and exposure,
+ambient fallback, the bloom / SSAO / SSR / SSGI / TAA / FXAA / DOF /
+motion-blur enables and their parameters, shadow softness and quality, the
+atmospheric sky parameters, and the `usePBR` / `showEditorGrid` /
+`showPhysicsDebug` toggles. 34 reflected fields, one owner.
 
-Every one is reachable from the View menu and every one resets to its compile-time default on
-restart. A lighting look cannot be saved, shared, or version-controlled.
+The nine objects that used to carry these as public fields —
+`PostProcessStack`, `Renderer`, `SkyboxRenderer`, `SSRRenderer`,
+`BloomRenderer`, `SSAORenderer`, `SSGIRenderer`, `ShadowSystem`,
+`TAARenderer` — no longer carry any of them. `PostProcessStack::Execute` takes
+a `const Environment&`, and each sub-renderer's `Render` takes it too, so the
+settings are read where they are used rather than mirrored. There is one copy
+of each value in the process.
 
-There is a partial substitute for ambient/sky coupling: `Renderer::RenderWithECSAndUI` scans the ECS
-for the first directional `LightComponent` and adopts its direction and colour as the sun, which also
-drives the skybox. That is a real piece of Godot-like behaviour, built by hand for one property.
+Consequences:
 
-The camera is `Camera camera;` — a `Renderer` data member. So: one camera, ever; not in the scene;
-not saved; no second viewpoint; no render-to-texture. There is no `CameraComponent`.
+- **A scene stores how it looks.** `SceneSerializer` writes an `environment`
+  block and reads it back. The `Environment*` parameter is nullable, so a
+  headless caller round-trips entities without one, and a scene file written
+  before this feature leaves the caller's settings untouched instead of
+  snapping them to defaults.
+- **The View menu collapsed.** `DrawPostProcessControls`, `DrawShadowControls`
+  and `DrawSkyboxControls` — roughly 150 lines of hand-written ImGui
+  duplicating field names already declared in `Environment.h` — became one
+  `DrawReflectedProperties(&env, props)` call. A new tunable now costs one
+  `MIST_FIELD` line and appears in the Inspector and the scene file with no
+  further edits.
+- **The sun still tracks the scene.** `Renderer::RenderWithECSAndUI` continues
+  to derive the sun from the first directional `LightComponent`, but now
+  writes it into `Environment::sunDirection`, which is also what gets
+  serialized. A scene with a directional light stores the sun that light
+  implies; a scene without one keeps the authored fallback, where previously
+  it rendered against a hardcoded vector.
 
-# Delta
+Not modelled, deliberately: Godot's `CameraAttributes` split (exposure and DOF
+as a separate resource, with auto-exposure), the
+Camera3D > WorldEnvironment > editor-preview priority chain, and fog. Sky
+*mode* also stays off the Environment — it selects which shader
+`SkyboxRenderer` runs, which is implementation rather than scene description.
 
-- **No serializable environment**, so a scene is not a complete description of how it looks. Reopen
-  it and you get the defaults.
-- **Settings have no owner.** Adding a post-process knob means adding a public field to whichever
-  renderer happens to hold the pass, then a View-menu widget. There is no single place that means
-  "how this scene renders".
-- **Camera cannot be authored.** Framing is lost on exit. A cutscene camera, a minimap, a reflection
-  probe and a second editor viewport are all blocked by the same fact.
-- **No exposure/DOF split**, and DOF's focus distance is a raw number with no auto-exposure.
+One known ergonomic gap: the Inspector has no property groups or categories,
+so 34 fields render as one flat list. Godot's `@export_group` is the fix and is
+not scheduled.
 
-The fix has unusually good leverage: `PBRMaterial` already proves the pattern — one reflected struct
-that the inspector renders and the serializer round-trips for free. An `Environment` struct with
-`MIST_REFLECT` would collapse all 41 tunables into one serializable object and make the inspector
-panel fall out automatically.
+## Camera — still a Renderer member
+
+`Camera camera;` remains a private `Renderer` data member
+(`include/Renderer.h`). So: one camera, ever; not in the scene; not saved; no
+second viewpoint; no render-to-texture. There is no `CameraComponent`.
+
+`Renderer::kNearPlane` / `kFarPlane` are still shared constants, because the
+projection matrix, the PBR shader uniforms, the CSM cascade splits and the
+cluster grid all have to agree on them.
 
 # Evidence
 
-- Tunable counts: `awk '/^public:/,/^private:/' include/<X>.h | grep -cE "^\s+(bool|float|int) "`.
-- `include/Renderer.h:104` — `Camera camera;` as a private `Renderer` member.
-- `include/Renderer.h:114-115,145-148` — `lightDir`, `lightColor`, `m_Exposure`, `m_UsePBR`,
-  `m_ShowEditorGrid`, `m_ShowPhysicsDebug`.
-- `src/Scene/SceneSerializer.cpp` Save — writes transform/render/physics/light/hierarchy/animation.
-  No environment, no camera.
+- `include/Environment.h` — the struct and its 34-field `MIST_REFLECT` block.
+- `include/Renderer.h` — `Environment m_Environment` and `GetEnvironment()`; `m_Exposure`,
+  `m_UsePBR`, `m_ShowEditorGrid` and `m_ShowPhysicsDebug` are gone.
+- `include/PostProcessStack.h` — `Execute(const Environment&, ...)`; no tunable fields remain.
+- `src/Scene/SceneSerializer.cpp` — the `environment` block in both Save and Load.
+- `src/UIManager.cpp` `DrawEnvironmentPanel` — one reflected panel; the three it replaced are gone.
+- `tests/test_scene_serializer.cpp` — Environment round-trip including the `TonemapOperator` enum,
+  a field-coverage guard, and the absent-block case.
+- `include/Renderer.h` — `Camera camera;` is still a private member; no `CameraComponent` exists.
 - `src/Renderer.cpp` — the directional-light scan that derives the sun.
 - `ls include/ECS/Components/` — no `CameraComponent.h`.
 

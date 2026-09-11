@@ -15,6 +15,7 @@
 #include "ECS/Systems/ECSPhysicsSystem.h"
 
 // New subsystems
+#include "Environment.h"
 #include "PostProcessStack.h"
 #include "HiZPyramid.h"
 #include "ShadowSystem.h"
@@ -56,6 +57,13 @@ public:
     GLFWwindow* GetWindow() const { return window; }
     float GetDeltaTime() const;
 
+    // The scene's Environment — the single owner of every render tunable.
+    // The View menu, the Inspector panel and the scene serializer all go
+    // through this one object; before it existed each renderer carried its own
+    // public fields and none of them were saved.
+    Environment&       GetEnvironment()       { return m_Environment; }
+    const Environment& GetEnvironment() const { return m_Environment; }
+
     // New subsystem accessors
     PostProcessStack& GetPostProcess() { return m_PostProcess; }
     ShadowSystem& GetShadowSystem() { return m_ShadowSystem; }
@@ -66,8 +74,9 @@ public:
     Profiler& GetProfiler() { return m_Profiler; }
     UBOManager& GetUBOManager() { return m_UBOManager; }
 
-    float GetExposure() const { return m_Exposure; }
-    void SetExposure(float e) { m_Exposure = e; }
+    // Kept as a convenience proxy; exposure lives on the Environment.
+    float GetExposure() const { return m_Environment.exposure; }
+    void SetExposure(float e) { m_Environment.exposure = e; }
 
     // Previous frame data for TAA motion vectors
     glm::mat4 GetPrevViewProjection() const { return m_PrevViewProjection; }
@@ -142,13 +151,7 @@ private:
     GPUParticleSystem m_Particles;
     UBOManager m_UBOManager;
     Profiler m_Profiler;
-    float m_Exposure = 1.0f;
-    bool m_UsePBR = true;
-    bool m_ShowEditorGrid = true;
-    bool m_ShowPhysicsDebug = false;  // View -> Debug -> Collision Shapes
-public:
-    bool& ShowPhysicsDebug() { return m_ShowPhysicsDebug; }
-private:
+    Environment m_Environment;
     GLuint m_DummyTex2D = 0;
     GLuint m_DummyTexCube = 0;
     void CreateDummyTextures();

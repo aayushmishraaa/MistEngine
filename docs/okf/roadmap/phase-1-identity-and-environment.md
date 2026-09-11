@@ -16,7 +16,9 @@ sources:
 
 # Prerequisite
 
-None. This is the entry point.
+None. This was the entry point. **Both parts are done** — see
+[entity identity](/subsystems/entity-identity.md) and
+[environment and camera](/subsystems/environment-and-camera.md) for the resulting state.
 
 # Why first
 
@@ -55,7 +57,7 @@ Landed as described, with two deviations worth recording:
 Reuse: `MIST_REFLECT` on the new component gets the Inspector widget and serializer support for free,
 as `RenderComponent::meshPath` did at commit `b542818`.
 
-# Part B — Environment resource — *pending*
+# Part B — Environment resource — **done**
 
 Collapse the 41 tunables spread across 9 objects into one place.
 
@@ -73,6 +75,20 @@ Collapse the 41 tunables spread across 9 objects into one place.
 
 Deliberately **not** in scope: Godot's `CameraAttributes` split, the priority chain
 (Camera > WorldEnvironment > preview), and fog. One serializable Environment first.
+
+Landed as described. Deviations worth recording:
+
+- The migration went further than "PostProcessStack reads from the Environment": each sub-renderer's
+  `Render` now takes a `const Environment&` too, and the duplicated public fields were **deleted**
+  from all nine objects rather than left as shadows. There is one copy of each value in the process.
+- Field count is **34**, not 41. The bundle's 41 came from counting declared members per header; some
+  were already-dead duplicates (`SSRRenderer` was credited with four tunables and had two).
+- Sky *mode* deliberately stayed off the Environment — it selects which shader `SkyboxRenderer` runs.
+- `src/Editor/EditorUI.cpp` was deleted here rather than in
+  [phase 4](/roadmap/phase-4-wire-the-built-but-dead.md): it referenced the tunables being removed,
+  and porting 226 lines of unreferenced code to a new API to keep it compiling was not defensible.
+- `UIManager::DrawReflectedProperties` gained a `PushID`/`PopID` per field. With a five-field
+  component ID collisions never surfaced; with 34 fields in one list they would have.
 
 # Files
 

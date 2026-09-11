@@ -47,7 +47,7 @@ void SSRRenderer::destroyOutput() {
     m_Initialized = false;
 }
 
-void SSRRenderer::Render(GLuint hdrColor,
+void SSRRenderer::Render(const Environment& env, GLuint hdrColor,
                          GLuint prepassDepth,
                          GLuint prepassNormalRoughness,
                          GLuint hiZ,
@@ -79,8 +79,8 @@ void SSRRenderer::Render(GLuint hdrColor,
     GLint locScr = glGetUniformLocation(m_Shader.ID, "uScreenSize");
     if (locScr >= 0) glUniform2i(locScr, m_Width, m_Height);
 
-    m_Shader.setFloat("uRoughnessCutoff", roughnessCutoff);
-    m_Shader.setFloat("uMaxDistance",     maxDistance);
+    m_Shader.setFloat("uRoughnessCutoff", env.ssrRoughnessCutoff);
+    m_Shader.setFloat("uMaxDistance",     env.ssrMaxDistance);
 
     GLint locSteps = glGetUniformLocation(m_Shader.ID, "uMaxSteps");
     if (locSteps >= 0) glUniform1i(locSteps, maxSteps);

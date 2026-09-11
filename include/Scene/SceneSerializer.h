@@ -6,6 +6,7 @@
 #include <string>
 
 class Coordinator;
+struct Environment;
 
 using Entity = uint32_t;
 
@@ -27,7 +28,8 @@ using Entity = uint32_t;
 //       "hierarchy": {"parent": 3},
 //       "animation": {"currentClip": "Idle", "playing": true}
 //     }
-//   ]
+//   ],
+//   "environment": { "tonemap": 2, "exposure": 1.0, ... }
 // }
 //
 // `mesh` is either `{"builtin": "cube|plane|sphere"}` for built-in primitives
@@ -36,8 +38,13 @@ using Entity = uint32_t;
 // path share one underlying Mesh.
 class SceneSerializer {
 public:
-    static bool Save(const std::string& filepath, Coordinator& coordinator, int entityCount);
-    static bool Load(const std::string& filepath, Coordinator& coordinator, int& entityCount);
+    // `env` is the scene's Environment resource: written as an "environment"
+    // block on save, read back into on load. Nullable so headless callers and
+    // tests can round-trip entities without constructing one.
+    static bool Save(const std::string& filepath, Coordinator& coordinator, int entityCount,
+                     const Environment* env = nullptr);
+    static bool Load(const std::string& filepath, Coordinator& coordinator, int& entityCount,
+                     Environment* env = nullptr);
 
     // In-memory variants, sharing the exact same walk as the file paths.
     //
@@ -48,9 +55,10 @@ public:
     // could only exercise nlohmann's behaviour before.
     //
     // Neither is path-guarded, because neither touches a path.
-    static std::string SaveToString(Coordinator& coordinator);
+    static std::string SaveToString(Coordinator& coordinator,
+                                   const Environment* env = nullptr);
     static bool LoadFromString(const std::string& text, Coordinator& coordinator,
-                               int& entityCount);
+                               int& entityCount, Environment* env = nullptr);
 };
 
 #endif // MIST_SCENE_SERIALIZER_H

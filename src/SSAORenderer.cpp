@@ -83,8 +83,8 @@ void SSAORenderer::generateNoiseTexture() {
     glTextureParameteri(m_NoiseTexture, GL_TEXTURE_WRAP_T, GL_REPEAT);
 }
 
-void SSAORenderer::Render(GLuint depthTex, const glm::mat4& projection, const glm::mat4& view) {
-    if (!enabled) return;
+void SSAORenderer::Render(GLuint depthTex, const glm::mat4& projection,
+                          const glm::mat4& view, const Environment& env) {
 
     // SSAO pass
     m_SSAOFBO.Bind();
@@ -105,8 +105,8 @@ void SSAORenderer::Render(GLuint depthTex, const glm::mat4& projection, const gl
     glBindBufferBase(GL_UNIFORM_BUFFER, 6, m_SamplesUBO);
     m_SSAOShader.setMat4("projection", projection);
     m_SSAOShader.setMat4("view", view);
-    m_SSAOShader.setFloat("radius", radius);
-    m_SSAOShader.setFloat("bias", bias);
+    m_SSAOShader.setFloat("radius", env.ssaoRadius);
+    m_SSAOShader.setFloat("bias", env.ssaoBias);
     m_SSAOShader.setVec2("screenSize", glm::vec2(m_Width, m_Height));
 
     glDrawArrays(GL_TRIANGLES, 0, 3);

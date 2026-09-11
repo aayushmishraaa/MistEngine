@@ -71,10 +71,8 @@ UIManager::UIManager()
     , m_ShowConsole(true)
     , m_ShowExportDialog(false)
     , m_ShowProfiler(false)
-    , m_ShowPostProcess(false)
-    , m_ShowShadowControls(false)
+    , m_ShowEnvironment(false)
     , m_ShowLightEditor(false)
-    , m_ShowSkyboxControls(false)
     , m_SelectedEntity(0)
     , m_HasSelectedEntity(false)
     , m_Coordinator(nullptr)
@@ -287,10 +285,8 @@ void UIManager::NewFrame() {
 
         // Floating windows render on top
         if (m_ShowProfiler) DrawProfilerWindow();
-        if (m_ShowPostProcess) DrawPostProcessControls();
-        if (m_ShowShadowControls) DrawShadowControls();
+        if (m_ShowEnvironment) DrawEnvironmentPanel();
         if (m_ShowLightEditor) DrawLightEditor();
-        if (m_ShowSkyboxControls) DrawSkyboxControls();
         if (m_ShowDemo) ImGui::ShowDemoWindow(&m_ShowDemo);
 
         // Draw Export Game dialog
@@ -416,12 +412,11 @@ void UIManager::DrawMainMenuBar() {
             ImGui::MenuItem("Bottom Panel", nullptr, &m_Layout.bottomPanelVisible);
             ImGui::Separator();
             ImGui::MenuItem("Profiler", nullptr, &m_ShowProfiler);
-            ImGui::MenuItem("Post-Processing", nullptr, &m_ShowPostProcess);
-            ImGui::MenuItem("Shadow Controls", nullptr, &m_ShowShadowControls);
+            ImGui::MenuItem("Environment", nullptr, &m_ShowEnvironment);
             ImGui::MenuItem("Light Editor", nullptr, &m_ShowLightEditor);
-            ImGui::MenuItem("Skybox Controls", nullptr, &m_ShowSkyboxControls);
             if (m_Renderer) {
-                ImGui::MenuItem("Collision Shapes", nullptr, &m_Renderer->ShowPhysicsDebug());
+                ImGui::MenuItem("Collision Shapes", nullptr,
+                                &m_Renderer->GetEnvironment().showPhysicsDebug);
             }
             ImGui::Separator();
             if (ImGui::BeginMenu("Theme")) {
@@ -437,10 +432,13 @@ void UIManager::DrawMainMenuBar() {
                 ImGui::EndMenu();
             }
             if (m_Renderer && ImGui::BeginMenu("Tonemap")) {
-                int& op = m_Renderer->GetPostProcess().tonemapOperator;
-                if (ImGui::MenuItem("ACES",     nullptr, op == 0)) op = 0;
-                if (ImGui::MenuItem("Reinhard", nullptr, op == 1)) op = 1;
-                if (ImGui::MenuItem("AgX",      nullptr, op == 2)) op = 2;
+                TonemapOperator& op = m_Renderer->GetEnvironment().tonemap;
+                if (ImGui::MenuItem("ACES",     nullptr, op == TonemapOperator::ACES))
+                    op = TonemapOperator::ACES;
+                if (ImGui::MenuItem("Reinhard", nullptr, op == TonemapOperator::Reinhard))
+                    op = TonemapOperator::Reinhard;
+                if (ImGui::MenuItem("AgX",      nullptr, op == TonemapOperator::AgX))
+                    op = TonemapOperator::AgX;
                 ImGui::EndMenu();
             }
             ImGui::Separator();
@@ -1625,6 +1623,9 @@ void UIManager::DrawPhysicsComponent(PhysicsComponent& physics) {
     }
 }
 
+// Each field is wrapped in a PushID/PopID pair keyed on its name. With a
+// five-field component this never mattered; Environment has 34 in one list,
+// and two ImGui widgets sharing a label silently share state.
 void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr) {
     // Dispatches on (PropertyType, PropertyHint) to the right ImGui widget.
     // This is the generic spine the component inspectors delegate to —
@@ -1639,6 +1640,7 @@ void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr) 
 
     for (const auto& p : *props) {
         void* field = base + p.offset;
+        ImGui::PushID(p.name);
 
         switch (p.type) {
             case Mist::PropertyType::Bool:
@@ -1756,6 +1758,8 @@ void UIManager::DrawReflectedProperties(void* obj, const void* propertyListPtr) 
                 ImGui::TextDisabled("%s (unreflected type)", p.name);
                 break;
         }
+
+        ImGui::PopID();
     }
 }
 
@@ -2265,105 +2269,40 @@ void UIManager::DrawProfilerWindow() {
     ImGui::End();
 }
 
-void UIManager::DrawPostProcessControls() {
+void UIManager::DrawEnvironmentPanel() {
     if (!m_Renderer) return;
-    PostProcessStack& postProcess = m_Renderer->GetPostProcess();
-    float exposure = m_Renderer->GetExposure();
+    Environment& env = m_Renderer->GetEnvironment();
 
-    ImGui::Begin("Post-Processing", &m_ShowPostProcess);
+    ImGui::Begin("Environment", &m_ShowEnvironment);
 
-    if (ImGui::SliderFloat("Exposure", &exposure, 0.1f, 10.0f)) {
-        m_Renderer->SetExposure(exposure);
-    }
-
-    ImGui::Separator();
-    ImGui::Checkbox("Bloom", &postProcess.enableBloom);
-    if (postProcess.enableBloom) {
-        ImGui::SliderFloat("Bloom Threshold", &postProcess.bloom.threshold, 0.0f, 5.0f);
-        ImGui::SliderFloat("Bloom Intensity", &postProcess.bloom.intensity, 0.0f, 3.0f);
-    }
-
-    ImGui::Separator();
-    ImGui::Checkbox("SSAO", &postProcess.enableSSAO);
-    if (postProcess.enableSSAO) {
-        ImGui::SliderFloat("SSAO Radius", &postProcess.ssao.radius, 0.1f, 5.0f);
-        ImGui::SliderFloat("SSAO Bias", &postProcess.ssao.bias, 0.001f, 0.1f);
-    }
-
-    ImGui::Separator();
-    ImGui::Checkbox("TAA (Temporal AA)", &postProcess.enableTAA);
-    if (postProcess.enableTAA) {
-        postProcess.taa.enabled = true;
-        postProcess.enableFXAA = false; // TAA replaces FXAA
-        ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "TAA active (FXAA disabled)");
+    // One reflected block replaces three hand-written panels
+    // (DrawPostProcessControls, DrawShadowControls, DrawSkyboxControls) that
+    // together were ~150 lines of ImGui calls duplicating field names already
+    // declared in Environment.h. Adding a tunable there now costs one
+    // MIST_FIELD line and shows up here, in the scene file, and nowhere else.
+    if (const auto* props = Mist::TypeRegistry::Instance().Get("Environment")) {
+        DrawReflectedProperties(&env, props);
     } else {
-        postProcess.taa.enabled = false;
-        ImGui::Checkbox("FXAA", &postProcess.enableFXAA);
+        ImGui::TextDisabled("Environment is not registered in the TypeRegistry.");
     }
 
+    // Sky mode is not an Environment field: it selects which shader the
+    // SkyboxRenderer runs, which is implementation, not scene description.
     ImGui::Separator();
-    ImGui::Checkbox("SSGI (Global Illumination)", &postProcess.enableSSGI);
-    if (postProcess.enableSSGI) {
-        postProcess.ssgi.enabled = true;
-        ImGui::SliderFloat("GI Radius", &postProcess.ssgi.radius, 0.5f, 10.0f);
-        ImGui::SliderFloat("GI Intensity", &postProcess.ssgi.intensity, 0.0f, 3.0f);
-    } else {
-        postProcess.ssgi.enabled = false;
+    SkyboxRenderer& skybox = m_Renderer->GetSkybox();
+    const char* modes[] = {"Procedural", "HDR Cubemap", "Atmospheric"};
+    int currentMode = static_cast<int>(skybox.GetMode());
+    if (ImGui::Combo("Sky Mode", &currentMode, modes, 3)) {
+        skybox.SetMode(static_cast<SkyboxMode>(currentMode));
+    }
+    if (skybox.GetMode() != SkyboxMode::Atmospheric) {
+        ImGui::TextDisabled("Sun / Rayleigh / Mie / turbidity apply in Atmospheric mode.");
     }
 
-    // --- New post-effects (this cycle) -------------------------------
+    // Read-only cascade splits, carried over from the old Shadow Controls
+    // panel. Derived state, so it has no place on the Environment.
     ImGui::Separator();
-    ImGui::Checkbox("SSR (Screen-Space Reflections)", &postProcess.enableSSR);
-    if (postProcess.enableSSR) {
-        postProcess.ssr.enabled = true;
-        ImGui::SliderFloat("SSR Roughness Cutoff", &postProcess.ssr.roughnessCutoff, 0.0f, 1.0f);
-        ImGui::SliderFloat("SSR Max Distance",     &postProcess.ssr.maxDistance,     1.0f, 200.0f);
-        ImGui::SliderInt  ("SSR Max Steps",        &postProcess.ssr.maxSteps,        16, 128);
-    } else {
-        postProcess.ssr.enabled = false;
-    }
-
-    ImGui::Separator();
-    ImGui::Checkbox("Motion Blur", &postProcess.enableMotionBlur);
-    if (postProcess.enableMotionBlur) {
-        ImGui::SliderFloat("MB Strength", &postProcess.motionBlurStrength, 0.0f, 2.0f);
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 0.6f, 1.0f),
-                           "Velocity pass runs (decoupled from TAA)");
-    }
-
-    ImGui::Separator();
-    ImGui::Checkbox("Depth of Field (bokeh)", &postProcess.enableDOF);
-    if (postProcess.enableDOF) {
-        ImGui::SliderFloat("Focus Distance", &postProcess.dofFocusDistance, 0.5f, 100.0f);
-        ImGui::SliderFloat("Aperture",       &postProcess.dofAperture,      0.01f, 1.0f);
-        ImGui::SliderFloat("Max Blur Radius",&postProcess.dofMaxRadius,     2.0f, 20.0f);
-    }
-
-    ImGui::Separator();
-    const char* tonemapNames[] = { "ACES", "Reinhard", "AgX (default)" };
-    ImGui::Combo("Tonemap Operator", &postProcess.tonemapOperator,
-                 tonemapNames, IM_ARRAYSIZE(tonemapNames));
-
-    ImGui::Separator();
-    ImGui::SliderFloat("Shadow Softness", &postProcess.shadowSoftness, 0.0f, 8.0f);
-    const char* shadowQualityNames[] = { "Low (4/16)", "High (8/32)" };
-    ImGui::Combo("Shadow Quality", &postProcess.shadowQuality,
-                 shadowQualityNames, IM_ARRAYSIZE(shadowQualityNames));
-    if (postProcess.shadowSoftness <= 0.001f) {
-        ImGui::TextDisabled("0 = hard shadows (PCSS disabled)");
-    }
-
-    ImGui::End();
-}
-
-void UIManager::DrawShadowControls() {
-    if (!m_Renderer) return;
     ShadowSystem& shadows = m_Renderer->GetShadowSystem();
-
-    ImGui::Begin("Shadow Controls", &m_ShowShadowControls);
-
-    ImGui::Checkbox("Debug Cascade Colors", &shadows.showCascadeColors);
-
     auto& splits = shadows.GetCascadeSplits();
     ImGui::Text("Cascade splits:");
     for (int i = 0; i < ShadowSystem::NUM_CASCADES; i++) {
@@ -2420,29 +2359,6 @@ void UIManager::DrawLightEditor() {
             ImGui::TreePop();
         }
         ImGui::PopID();
-    }
-
-    ImGui::End();
-}
-
-void UIManager::DrawSkyboxControls() {
-    if (!m_Renderer) return;
-    SkyboxRenderer& skybox = m_Renderer->GetSkybox();
-
-    ImGui::Begin("Skybox Controls", &m_ShowSkyboxControls);
-
-    const char* modes[] = {"Procedural", "HDR Cubemap", "Atmospheric"};
-    int currentMode = static_cast<int>(skybox.GetMode());
-    if (ImGui::Combo("Mode", &currentMode, modes, 3)) {
-        skybox.SetMode(static_cast<SkyboxMode>(currentMode));
-    }
-
-    if (skybox.GetMode() == SkyboxMode::Atmospheric) {
-        ImGui::DragFloat3("Sun Direction", glm::value_ptr(skybox.sunDirection), 0.01f, -1.0f, 1.0f);
-        skybox.sunDirection = glm::normalize(skybox.sunDirection);
-        ImGui::SliderFloat("Turbidity", &skybox.turbidity, 1.0f, 10.0f);
-        ImGui::SliderFloat("Rayleigh", &skybox.rayleighStrength, 0.0f, 5.0f);
-        ImGui::SliderFloat("Mie", &skybox.mieStrength, 0.0f, 0.1f);
     }
 
     ImGui::End();
@@ -2901,7 +2817,11 @@ void UIManager::SaveScene(const std::string& path) {
     std::string finalPath = p.generic_string();
 
     extern Coordinator gCoordinator;
-    if (SceneSerializer::Save(finalPath, gCoordinator, m_EntityCounter)) {
+    // The Environment rides along with the scene: without it, a saved file
+    // describes where things are but not how they look, and reopening it
+    // snapped every render setting back to its compile-time default.
+    const Environment* env = m_Renderer ? &m_Renderer->GetEnvironment() : nullptr;
+    if (SceneSerializer::Save(finalPath, gCoordinator, m_EntityCounter, env)) {
         m_ConsoleMessages.push_back("Scene saved to: " + finalPath);
         m_UndoStack.MarkSaved();
     } else {
@@ -2918,7 +2838,8 @@ void UIManager::LoadScene(const std::string& path) {
 
     extern Coordinator gCoordinator;
     int entityCount = 0;
-    if (SceneSerializer::Load(path, gCoordinator, entityCount)) {
+    Environment* env = m_Renderer ? &m_Renderer->GetEnvironment() : nullptr;
+    if (SceneSerializer::Load(path, gCoordinator, entityCount, env)) {
         m_EntityCounter = entityCount;
         m_HasSelectedEntity = false;
         m_ConsoleMessages.push_back("Scene loaded from: " + path);

@@ -2,6 +2,7 @@
 #ifndef MIST_SSR_RENDERER_H
 #define MIST_SSR_RENDERER_H
 
+#include "Environment.h"
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include "Shader.h"
@@ -22,7 +23,7 @@ public:
 
     // Dispatch the compute shader. `currentTexture` is the HDR color
     // after TAA. The returned texture holds `currentTexture + reflections`.
-    void Render(GLuint hdrColor,
+    void Render(const Environment& env, GLuint hdrColor,
                 GLuint prepassDepth,
                 GLuint prepassNormalRoughness,
                 GLuint hiZ,
@@ -32,8 +33,6 @@ public:
     GLuint GetOutputTexture() const { return m_OutputTex; }
 
     bool  enabled          = true;
-    float roughnessCutoff  = 0.7f;   // pixels rougher than this skip SSR
-    float maxDistance      = 100.0f; // view-space march distance cap
     int   maxSteps         = 64;     // iteration cap per pixel
 
 private:

@@ -64,12 +64,12 @@ void TAARenderer::NextFrame() {
     m_PrevJitter = m_Jitter;
     m_FrameIndex = (m_FrameIndex + 1) % JITTER_SEQUENCE_LENGTH;
 
-    if (enabled) {
-        // Jitter in pixel units, will be converted to clip space by caller
-        m_Jitter = m_JitterSequence[m_FrameIndex];
-    } else {
-        m_Jitter = glm::vec2(0.0f);
-    }
+    // Jitter in pixel units; converted to clip space by the caller.
+    //
+    // Unconditional now that TAA's enable flag lives on Environment: the
+    // Renderer already gates the whole velocity + resolve path on
+    // env.taaEnabled, and NextFrame is only reached from inside that gate.
+    m_Jitter = m_JitterSequence[m_FrameIndex];
 }
 
 void TAARenderer::BeginVelocityPass() {

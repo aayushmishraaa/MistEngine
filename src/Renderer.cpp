@@ -226,7 +226,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // jitter is meaningless) and the cluster grid (jitter changes every frame
     // and would defeat the rebuild cache for a sub-pixel shift).
     glm::mat4 jitteredProjection = projection;
-    if (m_PostProcess.enableTAA && m_PostProcess.taa.enabled) {
+    if (m_Environment.taaEnabled) {
         glm::vec2 jitter = m_PostProcess.taa.GetJitter();
         jitteredProjection[2][0] += jitter.x / (float)screenWidth * 2.0f;
         jitteredProjection[2][1] += jitter.y / (float)screenHeight * 2.0f;
@@ -255,9 +255,13 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         }
     }
 
-    // Skybox tracks the sun. Negate because lightDir is where light
-    // is *heading*, sunDirection is where the sun is *from*.
-    m_Skybox.sunDirection = glm::normalize(-lightDir);
+    // Skybox tracks the sun. Negate because lightDir is where light is
+    // *heading* and sunDirection is where the sun is *from*.
+    //
+    // This writes back into the Environment, which is also what the scene
+    // serializes — so a scene with a directional light stores the sun that
+    // light implies, and a scene without one keeps the authored fallback.
+    m_Environment.sunDirection = glm::normalize(-lightDir);
 
     // Update UBOs
     PerFrameUBO perFrame;
@@ -392,8 +396,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // pass. Decoupled from TAA's enable flag so motion blur works
     // when TAA is off; the extra geometry walk is cheap at scene
     // sizes MistEngine targets today.
-    bool needVelocity = (m_PostProcess.enableTAA && m_PostProcess.taa.enabled)
-                      || m_PostProcess.enableMotionBlur;
+    bool needVelocity = m_Environment.taaEnabled || m_Environment.motionBlurEnabled;
     if (needVelocity) {
         m_Profiler.BeginGPUSection("Velocity");
         m_PostProcess.taa.BeginVelocityPass();
@@ -417,7 +420,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
 
     // Skybox
     m_Profiler.BeginGPUSection("Skybox");
-    m_Skybox.Render(view, jitteredProjection);
+    m_Skybox.Render(view, jitteredProjection, m_Environment);
     m_Profiler.EndGPUSection("Skybox");
 
     // Draw glowing orbs (legacy)
@@ -438,13 +441,13 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // subsequent pass in every subsequent frame shaded back faces too.
     glDisable(GL_CULL_FACE);
 
-    Shader& mainShader = m_UsePBR ? pbrShader : objectShader;
+    Shader& mainShader = m_Environment.usePBR ? pbrShader : objectShader;
     mainShader.use();
     mainShader.setMat4("projection", jitteredProjection);
     mainShader.setMat4("view", view);
     mainShader.setVec3("viewPos", camera.Position);
 
-    if (m_UsePBR) {
+    if (m_Environment.usePBR) {
         // PBR lighting setup
         mainShader.setVec3("lightDir",   glm::normalize(lightDir));
         mainShader.setVec3("lightColor", lightColor);
@@ -475,10 +478,10 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         // PCSS soft shadow params. 0 = hard shadows (legacy path),
         // larger values widen the penumbra. Stored on PostProcess so
         // the View menu can tune them live.
-        mainShader.setFloat("shadowSoftness", m_PostProcess.shadowSoftness);
+        mainShader.setFloat("shadowSoftness", m_Environment.shadowSoftness);
         {
             GLint locQ = glGetUniformLocation(mainShader.ID, "shadowQuality");
-            if (locQ >= 0) glUniform1i(locQ, m_PostProcess.shadowQuality);
+            if (locQ >= 0) glUniform1i(locQ, m_Environment.shadowQuality);
         }
 
         // Clustered point/spot lights — shader iterates the SSBOs
@@ -518,7 +521,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         // SSAO on unit 13.
         //
         // The guard used to be inverted: the dummy was bound only when SSAO
-        // was *disabled*, and `enableSSAO` defaults to true — so in the
+        // was *disabled*, and the SSAO enable defaults to true — so in the
         // default configuration unit 13 was never bound at all. Sampling an
         // unbound 2D sampler returns 0, and pbr_fragment.glsl does
         // `ao *= texture(ssaoTexture, …).r`, so the ambient term was
@@ -528,9 +531,9 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         // Note the result is one frame stale: SSAO is computed in
         // PostProcessStack::Execute, which runs after this pass. That's the
         // standard trade-off for screen-space AO in a forward renderer.
-        mainShader.setBool("useSSAO", m_PostProcess.enableSSAO);
+        mainShader.setBool("useSSAO", m_Environment.ssaoEnabled);
         glActiveTexture(GL_TEXTURE13);
-        glBindTexture(GL_TEXTURE_2D, m_PostProcess.enableSSAO
+        glBindTexture(GL_TEXTURE_2D, m_Environment.ssaoEnabled
                                          ? m_PostProcess.ssao.GetSSAOTexture()
                                          : m_DummyTex2D);
         mainShader.setInt("ssaoTexture", 13);
@@ -559,7 +562,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // uniforms are per-program so we re-push them onto the skinned
     // program. SSBO + texture-unit bindings persist across shader
     // switches, so most GL state is already in place.
-    if (m_UsePBR) {
+    if (m_Environment.usePBR) {
         skinnedPBRShader.use();
         skinnedPBRShader.setMat4("projection", jitteredProjection);
         skinnedPBRShader.setMat4("view", view);
@@ -575,10 +578,10 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         }
         skinnedPBRShader.setFloat("shadowBias",       0.005f);
         skinnedPBRShader.setFloat("shadowNormalBias", 1.0f);
-        skinnedPBRShader.setFloat("shadowSoftness", m_PostProcess.shadowSoftness);
+        skinnedPBRShader.setFloat("shadowSoftness", m_Environment.shadowSoftness);
         {
             GLint locQ = glGetUniformLocation(skinnedPBRShader.ID, "shadowQuality");
-            if (locQ >= 0) glUniform1i(locQ, m_PostProcess.shadowQuality);
+            if (locQ >= 0) glUniform1i(locQ, m_Environment.shadowQuality);
         }
         skinnedPBRShader.setVec2("screenSize",
             glm::vec2((float)screenWidth, (float)screenHeight));
@@ -604,9 +607,9 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
             skinnedPBRShader.setInt("brdfLUT", 12);
         }
         // Same inverted-guard fix as the main pass above.
-        skinnedPBRShader.setBool("useSSAO", m_PostProcess.enableSSAO);
+        skinnedPBRShader.setBool("useSSAO", m_Environment.ssaoEnabled);
         glActiveTexture(GL_TEXTURE13);
-        glBindTexture(GL_TEXTURE_2D, m_PostProcess.enableSSAO
+        glBindTexture(GL_TEXTURE_2D, m_Environment.ssaoEnabled
                                          ? m_PostProcess.ssao.GetSSAOTexture()
                                          : m_DummyTex2D);
         skinnedPBRShader.setInt("ssaoTexture", 13);
@@ -656,7 +659,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.EndGPUSection("Particles");
 
     // === EDITOR GRID ===
-    if (m_ShowEditorGrid) {
+    if (m_Environment.showEditorGrid) {
         float gridSize = 20.0f, gridStep = 1.0f;
         glm::vec3 gridColor(0.3f, 0.3f, 0.3f);
         glm::vec3 axisX(0.6f, 0.2f, 0.2f), axisZ(0.2f, 0.2f, 0.6f);
@@ -743,7 +746,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     // Bright green = dynamic; red-ish = static (mass == 0). Shape
     // dispatch mirrors CollisionShape values so the viewport wire
     // matches what Bullet actually simulates.
-    if (m_ShowPhysicsDebug) {
+    if (m_Environment.showPhysicsDebug) {
         extern Coordinator gCoordinator;
         const auto& livingPhys = gCoordinator.GetLivingEntities();
         for (Entity e : livingPhys) {
@@ -798,7 +801,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_Profiler.BeginGPUSection("PostProcess");
     // Jittered: the post chain unprojects the depth the geometry passes
     // wrote, so it has to use the same matrix they rendered with.
-    m_PostProcess.Execute(m_Exposure, jitteredProjection, view, m_HiZ.GetTexture());
+    m_PostProcess.Execute(m_Environment, jitteredProjection, view, m_HiZ.GetTexture());
     m_Profiler.EndGPUSection("PostProcess");
 
     // === VIEWPORT OUTPUT ===

@@ -2,6 +2,7 @@
 #ifndef MIST_TAA_RENDERER_H
 #define MIST_TAA_RENDERER_H
 
+#include "Environment.h"
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include "Shader.h"
@@ -38,7 +39,6 @@ public:
 
     Shader& GetVelocityShader() { return m_VelocityShader; }
 
-    bool enabled = true;
 
 private:
     int m_Width = 0, m_Height = 0;

@@ -4,6 +4,7 @@
 #include "Core/PathGuard.h"
 #include "Core/Reflection.h"
 #include "Core/ReflectionJson.h"
+#include "Environment.h"
 #include "ECS/Components/AnimationComponent.h"
 #include "ECS/Components/HierarchyComponent.h"
 #include "ECS/Components/LightComponent.h"
@@ -119,12 +120,12 @@ Renderable* resolve_mesh_ref(const json& meshJson) {
 
 namespace {
 
-bool ApplySceneJson(const json& root, int& entityCount);
+bool ApplySceneJson(const json& root, int& entityCount, Environment* env);
 
 // Serialise the whole living world to JSON. Split out of Save() so the same
 // walk backs both the on-disk path and SaveToString(), which play mode uses
 // to snapshot the scene without touching the filesystem.
-json BuildSceneJson() {
+json BuildSceneJson(const Environment* env) {
     json root = {
         {"version",  kSceneVersion},
         {"engine",   "MistEngine"},
@@ -218,13 +219,23 @@ json BuildSceneJson() {
         root["entities"].push_back(std::move(e));
     }
 
+    // Environment. One per scene, reflection-driven like the component blocks
+    // — adding a field to Environment.h serialises with no change here.
+    if (env) {
+        if (const auto* envProps = Mist::TypeRegistry::Instance().Get("Environment")) {
+            json je = json::object();
+            writeReflectedFields(je, env, *envProps);
+            root["environment"] = je;
+        }
+    }
+
     return root;
 }
 
 } // namespace
 
 bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinator*/,
-                            int /*entityCount*/) {
+                            int /*entityCount*/, const Environment* env) {
     const auto sandbox = SceneSandboxRoot();
     std::filesystem::path resolved;
     if (!Mist::PathGuard::is_under(sandbox, filepath, &resolved)) {
@@ -235,7 +246,7 @@ bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinat
     std::error_code ec;
     std::filesystem::create_directories(resolved.parent_path(), ec);
 
-    const json root = BuildSceneJson();
+    const json root = BuildSceneJson(env);
 
     std::ofstream out(resolved);
     if (!out.is_open()) {
@@ -250,7 +261,7 @@ bool SceneSerializer::Save(const std::string& filepath, Coordinator& /*coordinat
 
 
 bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinator*/,
-                            int& entityCount) {
+                            int& entityCount, Environment* env) {
     const auto sandbox = SceneSandboxRoot();
     std::filesystem::path resolved;
     if (!Mist::PathGuard::is_under(sandbox, filepath, &resolved)) {
@@ -282,16 +293,16 @@ bool SceneSerializer::Load(const std::string& filepath, Coordinator& /*coordinat
         return false;
     }
 
-    return ApplySceneJson(root, entityCount);
+    return ApplySceneJson(root, entityCount, env);
 }
 
-std::string SceneSerializer::SaveToString(Coordinator& coordinator) {
+std::string SceneSerializer::SaveToString(Coordinator& coordinator, const Environment* env) {
     (void)coordinator;
-    return BuildSceneJson().dump();
+    return BuildSceneJson(env).dump();
 }
 
 bool SceneSerializer::LoadFromString(const std::string& text, Coordinator& /*coordinator*/,
-                                     int& entityCount) {
+                                     int& entityCount, Environment* env) {
     if (text.size() > kMaxSceneBytes) {
         LOG_ERROR("Scene text exceeds cap (", text.size(), " > ", kMaxSceneBytes, ")");
         return false;
@@ -302,7 +313,7 @@ bool SceneSerializer::LoadFromString(const std::string& text, Coordinator& /*coo
         LOG_ERROR("Scene parse failed: ", e.what());
         return false;
     }
-    return ApplySceneJson(root, entityCount);
+    return ApplySceneJson(root, entityCount, env);
 }
 
 namespace {
@@ -310,7 +321,7 @@ namespace {
 // Rebuild the world from parsed scene JSON. Split out of Load() so play
 // mode's snapshot restore shares exactly one code path with file loading —
 // a second implementation is how "Stop" and "Open Scene" drift apart.
-bool ApplySceneJson(const json& root, int& entityCount) {
+bool ApplySceneJson(const json& root, int& entityCount, Environment* env) {
     if (!root.is_object() || !root.contains("entities") || !root["entities"].is_array()) {
         LOG_ERROR("Invalid scene: missing or non-array 'entities'");
         return false;
@@ -419,6 +430,14 @@ bool ApplySceneJson(const json& root, int& entityCount) {
             // availableClips is not serialised — those come from the
             // re-imported source model, not the scene file.
             gCoordinator.AddComponent(entity, ac);
+        }
+    }
+
+    // Environment. Absent block leaves `env` untouched, so a pre-Environment
+    // scene keeps whatever the caller had rather than snapping to defaults.
+    if (env && root.contains("environment")) {
+        if (const auto* envProps = Mist::TypeRegistry::Instance().Get("Environment")) {
+            readReflectedFields(root["environment"], env, *envProps);
         }
     }
 
