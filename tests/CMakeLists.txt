@@ -19,6 +19,7 @@ add_executable(MistEngineTests
     test_resource_cache.cpp
     test_rid.cpp
     test_renderingdevice.cpp
+    test_frustum.cpp
     test_scene_serializer.cpp
     test_script_registry.cpp
     test_asset_drop.cpp

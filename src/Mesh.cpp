@@ -21,6 +21,11 @@ static GLuint getDummyWhiteTexture() {
 
 Mesh::Mesh(const std::vector<Vertex>& vertices, const std::vector<unsigned int>& indices, const std::vector<Texture>& textures)
     : vertices(vertices), indices(indices), textures(textures) {
+    // Object-space bounds for frustum culling. A degenerate mesh (no
+    // vertices) leaves m_LocalBounds invalid, and GetLocalBounds then reports
+    // "unknown" so the cull draws it rather than dropping it.
+    for (const auto& v : this->vertices) m_LocalBounds.Merge(v.Position);
+
     setupMesh();
 }
 

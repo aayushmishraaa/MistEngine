@@ -3,6 +3,7 @@
 
 #include "Core/Reflection.h"
 #include "Renderable.h"
+#include "Scene/AABB.h"
 
 #include <string>
 
@@ -25,6 +26,15 @@ struct RenderComponent {
     // `Renderable*` pointed at and unconditionally emitted `builtin://cube`,
     // so every plane, sphere and imported mesh came back as a cube on load.
     std::string  meshPath;
+
+    // World-space bounds, recomputed each frame by RenderSystem::UpdateBounds
+    // from the renderable's object-space bounds and the entity's world matrix.
+    //
+    // Derived state, so deliberately NOT reflected: it must never be written
+    // to a scene file or shown in the Inspector. An invalid box means "this
+    // renderable could not describe its extent", and every cull site treats
+    // that as "always draw".
+    AABB worldBounds;
 };
 
 MIST_REFLECT(RenderComponent)

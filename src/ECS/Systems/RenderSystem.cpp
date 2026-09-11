@@ -9,7 +9,38 @@
 
 extern Coordinator gCoordinator;
 
-void RenderSystem::Update(Shader& shader) {
+void RenderSystem::UpdateBounds() {
+    m_Submitted = 0;
+    m_Culled    = 0;
+
+    for (auto const& entity : m_Entities) {
+        auto& render = gCoordinator.GetComponent<RenderComponent>(entity);
+
+        // Reset first: an entity that loses its renderable must not keep
+        // culling against the box its old mesh had.
+        render.worldBounds = AABB{};
+        if (!render.renderable) continue;
+
+        AABB local;
+        if (!render.renderable->GetLocalBounds(local)) continue;
+
+        auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
+        render.worldBounds = local.Transform(transform.WorldMatrix());
+    }
+}
+
+bool RenderSystem::PassesCull(const RenderComponent& r, const Frustum* cull) {
+    if (!cull) { ++m_Submitted; return true; }
+
+    // Unknown extent draws. See Renderable::GetLocalBounds.
+    if (!r.worldBounds.IsValid()) { ++m_Submitted; return true; }
+
+    if (!cull->Intersects(r.worldBounds)) { ++m_Culled; return false; }
+    ++m_Submitted;
+    return true;
+}
+
+void RenderSystem::Update(Shader& shader, const Frustum* cull) {
     for (auto const& entity : m_Entities) {
         auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
         auto& render = gCoordinator.GetComponent<RenderComponent>(entity);
@@ -20,6 +51,8 @@ void RenderSystem::Update(Shader& shader) {
         // under a different vertex program. Skip them here so they
         // don't draw twice with the wrong vertex layout.
         if (gCoordinator.HasComponent<AnimationComponent>(entity)) continue;
+
+        if (!PassesCull(render, cull)) continue;
 
         glm::mat4 model = transform.WorldMatrix();
         shader.setMat4("model", model);
@@ -47,7 +80,7 @@ void RenderSystem::Update(Shader& shader) {
     }
 }
 
-void RenderSystem::UpdateSkinned(Shader& shader, float dt) {
+void RenderSystem::UpdateSkinned(Shader& shader, float dt, const Frustum* cull) {
     for (auto const& entity : m_Entities) {
         if (!gCoordinator.HasComponent<AnimationComponent>(entity)) continue;
 
@@ -56,6 +89,11 @@ void RenderSystem::UpdateSkinned(Shader& shader, float dt) {
         auto& anim      = gCoordinator.GetComponent<AnimationComponent>(entity);
 
         if (!(render.visible && render.renderable)) continue;
+
+        // Culled BEFORE the clip clock advances would desync the animation
+        // from wall time whenever the character leaves the view, so the cull
+        // gate sits after the animator update, at the draw call itself.
+        const bool visibleThisFrame = PassesCull(render, cull);
 
         // Advance the clip clock.
         //
@@ -82,18 +120,25 @@ void RenderSystem::UpdateSkinned(Shader& shader, float dt) {
         // against, neither of which belongs in a bug-fix pass.
         anim.Update(dt);
 
+        if (!visibleThisFrame) continue;
+
         shader.setMat4("model", transform.WorldMatrix());
         render.renderable->Draw(shader);
     }
 }
 
-void RenderSystem::UpdateVelocity(Shader& shader) {
+void RenderSystem::UpdateVelocity(Shader& shader, const Frustum* cull) {
     // Two passes: first draw, using cached prev-model (or current if
     // new entity); then snapshot current models for next frame.
     for (auto const& entity : m_Entities) {
         auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
         auto& render    = gCoordinator.GetComponent<RenderComponent>(entity);
         if (!render.visible || !render.renderable) continue;
+
+        // Culled entities still need their prev-model snapshot taken in the
+        // second loop below, or they would report zero velocity for one frame
+        // when they re-enter the view and TAA would ghost them.
+        if (!PassesCull(render, cull)) continue;
 
         glm::mat4 model = transform.WorldMatrix();
         auto it = m_PrevModels.find(entity);
@@ -118,7 +163,7 @@ void RenderSystem::UpdateVelocity(Shader& shader) {
     m_PrevModels = std::move(next);
 }
 
-void RenderSystem::UpdateDepthOnly(Shader& shader) {
+void RenderSystem::UpdateDepthOnly(Shader& shader, const Frustum* cull) {
     // Prepass walk. `render.renderable->Draw(shader)` will call
     // material Bind() paths inside Mesh — but the prepass shader
     // doesn't consume those samplers, so the GL binds are wasted-
@@ -129,7 +174,7 @@ void RenderSystem::UpdateDepthOnly(Shader& shader) {
     for (auto const& entity : m_Entities) {
         auto& transform = gCoordinator.GetComponent<TransformComponent>(entity);
         auto& render    = gCoordinator.GetComponent<RenderComponent>(entity);
-        if (render.visible && render.renderable) {
+        if (render.visible && render.renderable && PassesCull(render, cull)) {
             shader.setMat4("model", transform.WorldMatrix());
             render.renderable->Draw(shader);
         }

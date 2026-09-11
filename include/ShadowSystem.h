@@ -58,6 +58,12 @@ public:
     // Attach face `f` of the current layer to the FBO, clear it, and
     // set the viewProj uniform on omniDepthShader to that face's VP.
     void BindOmniShadowFace(int face);
+
+    // The view-projection a given omni face renders with. Exposed so the
+    // caller can build a cull frustum per face — shadow passes must cull
+    // against the light, never the camera, or off-screen casters stop
+    // casting into the view.
+    const glm::mat4& GetOmniFaceMatrix(int face) const { return m_OmniFaceMatrices[face]; }
     void EndOmniShadowPass();
     void BindOmniShadowAtlas(Shader& shader, int unit = 8);
 

@@ -4,6 +4,7 @@
 #include "../System.h"
 #include "../Coordinator.h"
 #include "../../Shader.h"
+#include "../../Scene/Frustum.h"
 
 #include <glm/glm.hpp>
 #include <unordered_map>
@@ -17,13 +18,28 @@ public:
     // the generic scheduler — `using` import silences GCC's
     // -Woverloaded-virtual warning without changing runtime behaviour.
     using System::Update;
-    void Update(Shader& shader);
+
+    // Recompute every renderable's world-space AABB. Call once per frame,
+    // after HierarchySystem::UpdateTransforms and before any pass that culls.
+    //
+    // Deliberately unconditional rather than gated on TransformComponent::dirty:
+    // nothing sets `dirty` when the gizmo or the Inspector writes a position,
+    // so a dirty-gated cache would go stale exactly when an object is being
+    // moved, and stale bounds make geometry vanish. Eight vec4 transforms per
+    // renderable is not where frames go.
+    void UpdateBounds();
+
+    // `cull`, when non-null, skips entities whose world bounds fall outside
+    // it. Each pass passes its OWN frustum: the camera's for the main, depth
+    // and velocity passes, and the light's for shadow passes. Culling a shadow
+    // pass against the camera is how off-screen casters stop casting.
+    void Update(Shader& shader, const Frustum* cull = nullptr);
 
     // Depth-prepass variant. Iterates the same entity set as Update()
     // but binds only the minimum uniforms the prepass shader needs
     // (model + roughness) — no material texture binds. Main-pass
     // materials / lights / shadows are skipped, which is the point.
-    void UpdateDepthOnly(Shader& shader);
+    void UpdateDepthOnly(Shader& shader, const Frustum* cull = nullptr);
 
     // Velocity-pass variant. Writes per-entity (model, prevModel)
     // uniforms so the velocity fragment shader outputs a screen-space
@@ -31,7 +47,7 @@ public:
     // model matrices — kept out of `TransformComponent` so the ECS
     // cache line stays lean (motion tracking is a rendering concern,
     // not a transform one).
-    void UpdateVelocity(Shader& shader);
+    void UpdateVelocity(Shader& shader, const Frustum* cull = nullptr);
 
     // Skinned-pass variant. Iterates the same entity set as Update()
     // but only processes entities that carry an AnimationComponent
@@ -41,10 +57,23 @@ public:
     // `skinned_pbr.vert` so the per-vertex bone attributes are
     // consumed. `Update(shader)` skips these entities to avoid
     // double-rendering.
-    void UpdateSkinned(Shader& shader, float dt);
+    void UpdateSkinned(Shader& shader, float dt, const Frustum* cull = nullptr);
+
+    // Per-frame counters, reset by UpdateBounds. Reported to the Profiler so
+    // the win is measured rather than assumed.
+    int SubmittedThisFrame() const { return m_Submitted; }
+    int CulledThisFrame()    const { return m_Culled; }
 
 private:
     std::unordered_map<Entity, glm::mat4> m_PrevModels;
+
+    int m_Submitted = 0;
+    int m_Culled    = 0;
+
+    // Shared by every pass. Invalid bounds mean "unknown extent", which must
+    // draw — dropping an object because nobody computed its bounds makes
+    // geometry disappear, which is far worse than a wasted draw call.
+    bool PassesCull(const struct RenderComponent& r, const Frustum* cull);
 };
 
 #endif // RENDERSYSTEM_H

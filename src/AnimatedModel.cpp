@@ -92,6 +92,13 @@ bool AnimatedModel::Load(const std::string& path) {
 
     for (auto& mesh : m_Meshes) mesh.Setup();
 
+    // Bind-pose bounds, for frustum culling. Computed from the vertex
+    // positions as loaded, before any skinning matrices are applied — see
+    // GetLocalBounds for why they are padded at query time.
+    for (const auto& mesh : m_Meshes) {
+        for (const auto& v : mesh.vertices) m_BindPoseBounds.Merge(v.Position);
+    }
+
     m_Animator.Init();
 
     // Parse embedded aiAnimations into engine Animation objects. Done

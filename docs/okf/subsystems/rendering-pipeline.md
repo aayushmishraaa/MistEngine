@@ -57,11 +57,33 @@ a seam a second backend could use.
 
 # Delta
 
-**No culling at all.** This is the most consequential gap. All six geometry-submitting passes iterate
-every entity unconditionally — CSM ×4 cascades, omni shadows up to 4 lights × 6 faces, depth prepass,
-velocity, main, skinned. A frustum implementation with plane extraction and AABB intersection
-*exists* and is correct, in `Scene/Frustum.h`, used only by `SceneGraph` — which is itself
-unreachable from `main()`. So the culling code is written and simply not connected.
+**Frustum culling — landed.** All six geometry-submitting passes now cull. Each takes its *own*
+frustum: the camera's for the depth prepass, velocity, main and skinned passes; each cascade's ortho
+volume for CSM; each cube face's 90-degree volume for omni shadows. Culling a shadow pass against the
+camera is how off-screen casters stop casting, so the per-pass frustum is the point, not an
+optimisation.
+
+Bounds come from `Renderable::GetLocalBounds`, which `Mesh` computes once at construction from the
+vertex data it already keeps resident. `RenderSystem::UpdateBounds` transforms them to world space
+once per frame, shared by all six passes. Two deliberate conservatisms:
+
+- A renderable that cannot describe its extent (`Orb`, an empty mesh) reports no bounds and is
+  **always drawn**. Dropping geometry because nobody computed its bounds is a much worse failure than
+  a wasted draw call.
+- `AnimatedModel` returns bind-pose bounds inflated by half their extent. Skinning happens on the
+  GPU, so the CPU cannot cheaply know where an animated mesh is this frame, and culling against the
+  tight bind pose would clip limbs at the screen edge. Godot tracks a per-frame skeleton AABB; that
+  is the real fix and is not scheduled. An animation that translates the root far from the origin
+  will still defeat it.
+
+The recompute is unconditional rather than gated on `TransformComponent::dirty`, because stale bounds
+make geometry vanish and the flag was demonstrably unreliable — the Inspector's Position field never
+set it (fixed here, since it also meant dragging a parent left its children behind).
+
+`Profiler` gained submitted/culled counters, summed across all passes, so the win is measured rather
+than assumed. `SceneGraph` and `SceneNode` were deleted once the frustum code was lifted out.
+
+Still missing: LOD / visibility ranges, and occlusion culling.
 
 Missing scene-level rendering features, all of which Godot exposes as nodes or resources:
 
@@ -80,10 +102,13 @@ the engine pushes to it.
 
 # Evidence
 
-- `grep -c "renderSystem->Update" src/Renderer.cpp` → 6 geometry-submitting passes.
-- `include/Scene/Frustum.h:20,60` — `ExtractFromVP` and `Intersects(AABB)`.
-- `src/Scene/SceneGraph.cpp:103` — the only real cull test in the tree; `SceneGraph` is not
-  referenced by `MistEngine.cpp`, `Renderer.cpp` or `UIManager.cpp`.
+- `src/ECS/Systems/RenderSystem.cpp` — `UpdateBounds` and `PassesCull`; every pass takes a
+  `const Frustum*`.
+- `src/Renderer.cpp` — the camera frustum, the per-cascade frusta and the per-face frusta.
+- `include/Renderable.h` — `GetLocalBounds`, defaulting to "unknown extent, always draw".
+- `tests/test_frustum.cpp` — 15 headless cases covering plane orientation, straddling boxes,
+  orthographic projections, and the shadow-cull-against-the-light invariant.
+- `grep -rn "SceneGraph" src include` → deleted.
 - `src/Shader.cpp` — `static_cast<GLRenderingDevice*>(Mist::GPU::Device())`, the cast that defeats
   the backend abstraction.
 - `grep -rin "lod\|occlusion\|reflectionprobe\|decal" include src` → no engine hits.

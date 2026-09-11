@@ -1534,6 +1534,13 @@ void UIManager::DrawTransformComponent(TransformComponent& transform) {
                                 transform.scale != originalScale);
 
         if (transformChanged) {
+            // Mark dirty so HierarchySystem recomposes this entity and its
+            // descendants. The gizmo path already did this; the Inspector
+            // path did not, and RecomputeSubtree gates the whole subtree on
+            // the flag — so dragging a parent's Position field here moved the
+            // parent and left its children behind.
+            transform.dirty = true;
+
             // Capture for undo via the merge-aware stack. Using one key
             // per entity transform ("entity/transform") means successive
             // drags within 500ms collapse into a single undo step —
@@ -2271,6 +2278,20 @@ void UIManager::DrawProfilerWindow() {
     ImGui::Text("FPS: %.1f (%.2f ms)", profiler.GetFPS(), profiler.GetFrameTimeMs());
     ImGui::Text("Draw Calls: %d", profiler.GetDrawCalls());
     ImGui::Text("Triangles: %d", profiler.GetTriangles());
+
+    // Frustum culling. Summed across all six geometry passes, so the totals
+    // exceed the entity count — an object in view is submitted once per CSM
+    // cascade, once per omni face that sees it, and once each for the prepass,
+    // velocity and main passes. Watch the ratio move as the camera turns; a
+    // culled count stuck at zero means the cull is not running.
+    {
+        const int submitted = profiler.GetSubmitted();
+        const int culled    = profiler.GetCulled();
+        const int total     = submitted + culled;
+        ImGui::Text("Submitted: %d  Culled: %d (%.0f%%)", submitted, culled,
+                    total > 0 ? (100.0f * static_cast<float>(culled) / static_cast<float>(total))
+                              : 0.0f);
+    }
 
     ImGui::PlotLines("FPS", profiler.GetFPSHistory(), profiler.GetFPSHistorySize(),
         profiler.GetFPSHistoryOffset(), nullptr, 0.0f, 120.0f, ImVec2(0, 60));

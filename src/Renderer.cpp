@@ -364,6 +364,16 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     m_LightManager.UploadToGPU();
     m_LightManager.CullLights(view, projection);
 
+    // World-space bounds for every renderable, recomputed once and shared by
+    // all six geometry passes below. Must run after HierarchySystem has
+    // composed this frame's transforms.
+    renderSystem->UpdateBounds();
+
+    // Camera frustum, used by the view-dependent passes. The shadow passes
+    // below build their own from the light instead.
+    Frustum cameraFrustum;
+    cameraFrustum.ExtractFromVP(projection * view);
+
     // === SHADOW PASS ===
     m_Profiler.BeginCPUSection("Shadows");
     m_Profiler.BeginGPUSection("Shadows");
@@ -377,8 +387,14 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         csmDepthShader.use();
         csmDepthShader.setMat4("lightSpaceMatrix", m_ShadowSystem.GetLightSpaceMatrix(cascade));
 
+        // Cull against THIS cascade's ortho volume, not the camera. A caster
+        // behind the viewer can still light the view, so culling shadow
+        // geometry against the camera frustum is how shadows go missing.
+        Frustum cascadeFrustum;
+        cascadeFrustum.ExtractFromVP(m_ShadowSystem.GetLightSpaceMatrix(cascade));
+
         // Render ECS entities to shadow map
-        renderSystem->Update(csmDepthShader);
+        renderSystem->Update(csmDepthShader, &cascadeFrustum);
 
         // Render legacy physics objects to shadow map
         for (auto& obj : scene.getPhysicsRenderables()) {
@@ -415,7 +431,12 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
             m_ShadowSystem.BeginOmniShadowPass(layer, t.WorldPosition(), lc.range);
             for (int face = 0; face < 6; ++face) {
                 m_ShadowSystem.BindOmniShadowFace(face);
-                renderSystem->Update(m_ShadowSystem.omniDepthShader);
+
+                // Each cube face is a 90-degree frustum from the light, so
+                // five sixths of the scene is outside any given face.
+                Frustum faceFrustum;
+                faceFrustum.ExtractFromVP(m_ShadowSystem.GetOmniFaceMatrix(face));
+                renderSystem->Update(m_ShadowSystem.omniDepthShader, &faceFrustum);
                 for (auto& obj : scene.getPhysicsRenderables()) {
                     updateModelMatrixFromPhysics(obj.body, obj.modelMatrix);
                     m_ShadowSystem.omniDepthShader.setMat4("model", obj.modelMatrix);
@@ -441,7 +462,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     depthPrepassShader.setMat4("view", view);
     depthPrepassShader.setFloat("roughnessValue", 0.5f);
     depthPrepassShader.setBool("hasRoughnessMap", false);
-    renderSystem->UpdateDepthOnly(depthPrepassShader);
+    renderSystem->UpdateDepthOnly(depthPrepassShader, &cameraFrustum);
     for (auto& obj : scene.getPhysicsRenderables()) {
         updateModelMatrixFromPhysics(obj.body, obj.modelMatrix);
         depthPrepassShader.setMat4("model", obj.modelMatrix);
@@ -473,7 +494,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         velShader.setMat4("prevViewProjection", m_PrevViewProjection);
         velShader.setVec2("jitter",     m_PostProcess.taa.GetJitter());
         velShader.setVec2("prevJitter", m_PostProcess.taa.GetPreviousJitter());
-        renderSystem->UpdateVelocity(velShader);
+        renderSystem->UpdateVelocity(velShader, &cameraFrustum);
         m_PostProcess.taa.EndVelocityPass();
         m_Profiler.EndGPUSection("Velocity");
     }
@@ -620,7 +641,7 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
     }
 
     // Render ECS entities (static, non-skinned path)
-    renderSystem->Update(mainShader);
+    renderSystem->Update(mainShader, &cameraFrustum);
     m_Profiler.IncrementDrawCalls(1); // Approximate
 
     // === SKINNED PASS ===
@@ -686,11 +707,16 @@ void Renderer::RenderWithECSAndUI(Scene& scene, std::shared_ptr<RenderSystem> re
         skinnedPBRShader.setMat4("lightSpaceMatrix",
             m_ShadowSystem.GetLightSpaceMatrix(0));
 
-        renderSystem->UpdateSkinned(skinnedPBRShader, deltaTime);
+        renderSystem->UpdateSkinned(skinnedPBRShader, deltaTime, &cameraFrustum);
 
         // Restore mainShader for the legacy draws that follow.
         mainShader.use();
     }
+
+    // Cull stats, summed across every geometry pass this frame. Reported here
+    // because this is the last pass that submits ECS geometry.
+    m_Profiler.SetCullStats(renderSystem->SubmittedThisFrame(),
+                            renderSystem->CulledThisFrame());
 
     // Render legacy scene objects
     for (auto& obj : scene.getPhysicsRenderables()) {

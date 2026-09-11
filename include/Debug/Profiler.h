@@ -54,11 +54,28 @@ public:
     void ResetTriangles() { m_Triangles = 0; }
     int GetTriangles() const { return m_Triangles; }
 
+    // Frustum culling counters.
+    //
+    // Both are summed across all six geometry passes, so submitted+culled is
+    // far larger than the entity count — an object in view is submitted once
+    // per CSM cascade, once per omni face that sees it, and once each for the
+    // prepass, velocity and main passes. The ratio is what to watch: it should
+    // move as the camera turns, and a culled count of zero means the cull is
+    // not running.
+    void SetCullStats(int submitted, int culled) {
+        m_Submitted = submitted;
+        m_Culled    = culled;
+    }
+    int GetSubmitted() const { return m_Submitted; }
+    int GetCulled()    const { return m_Culled; }
+
     bool IsEnabled() const { return m_Enabled; }
     void SetEnabled(bool enabled) { m_Enabled = enabled; }
 
 private:
     bool m_Enabled = true;
+    int  m_Submitted = 0;
+    int  m_Culled    = 0;
 
     // CPU timing
     struct CPUTimer {

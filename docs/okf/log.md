@@ -45,3 +45,21 @@
   declared members per header. The real figure is 34; `SSRRenderer` in
   particular was credited with four and had two.
 - Tests: 122 → 125 green.
+
+# 2026-09-11 — phase 2
+
+- Camera as a component. The depth-range hazard the phase doc warns about is
+  handled by resolving one `CameraView` per frame rather than threading two
+  floats to four subsystems. Two latent bugs surfaced and were fixed: the
+  cluster-grid cache key did not include near/far, and
+  `ShadowSystem::CalculateCascades` hardcoded a 1.6 aspect ratio while the
+  projection used the real viewport ratio.
+- Frustum culling across all six geometry passes, each with its own frustum.
+  `tests/test_frustum.cpp` was written before the wiring, because the frustum
+  code had never actually executed — its only caller was the unreachable
+  `SceneGraph`. It turned out to be correct.
+- Deleted `SceneGraph` / `SceneNode` once the culling was lifted out.
+- Fixed: the Inspector's Position field never set `TransformComponent::dirty`,
+  and `RecomputeSubtree` gates the whole subtree on that flag — so dragging a
+  parent's position in the Inspector left its children behind. Pre-existing.
+- Tests: 130 → 145 green.

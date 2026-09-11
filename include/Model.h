@@ -21,6 +21,19 @@ public:
 
     void Draw(Shader& shader) override;
 
+    // Union of the sub-mesh bounds. A Model draws all of its meshes in one
+    // call, so it is culled as one unit.
+    bool GetLocalBounds(AABB& out) const override {
+        AABB merged;
+        for (const auto& m : meshes) {
+            AABB sub;
+            if (m.GetLocalBounds(sub)) merged.Merge(sub);
+        }
+        if (!merged.IsValid()) return false;
+        out = merged;
+        return true;
+    }
+
 private:
     std::vector<Mesh> meshes;
     std::string directory;

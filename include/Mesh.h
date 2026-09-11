@@ -35,7 +35,18 @@ public:
 
     void Draw(Shader& shader) override;
 
+    // Computed once in the constructor. `vertices` stays resident after the
+    // GPU upload, so this costs one pass over data we already hold rather
+    // than a re-read.
+    bool GetLocalBounds(AABB& out) const override {
+        if (!m_LocalBounds.IsValid()) return false;
+        out = m_LocalBounds;
+        return true;
+    }
+
 private:
+    AABB m_LocalBounds;
+
     // VAO stays raw — vertex layout is a GL concept. Future Vulkan/D3D12
     // backends express this via pipeline-state objects instead. VBO + EBO
     // lifetimes are owned by the device; the GLuint fields are cached for

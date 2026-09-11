@@ -52,7 +52,7 @@ doing it and were fixed: the cluster-grid cache key did not include near/far, an
 `ShadowSystem::CalculateCascades` hardcoded a 1.6 aspect ratio while the projection used the real
 viewport ratio.
 
-# Part B — frustum culling — *in progress*
+# Part B — frustum culling — **done**
 
 The code is written. `include/Scene/Frustum.h` has `ExtractFromVP` and `Intersects(AABB)`;
 `src/Scene/SceneGraph.cpp:103` does a real cull test. `SceneGraph` is unreachable from `main()`.
@@ -67,6 +67,23 @@ The code is written. `include/Scene/Frustum.h` has `ExtractFromVP` and `Intersec
 
 Reuse `Scene/Frustum.h` and `Scene/AABB.h` as-is. Do not write new intersection code; the existing
 implementation is correct and already has the plane-extraction maths right.
+
+**It was correct** — but that was verified, not assumed. `tests/test_frustum.cpp` was written
+*before* the code was wired into any pass, precisely because the implementation had never actually
+run: its only caller was the unreachable `SceneGraph`. Plane extraction is also where a
+column-major/row-major mix-up produces planes that are wrong but not obviously wrong.
+
+Deviations from the plan above:
+
+- Bounds live on `RenderComponent`, not beside `cachedGlobal` on `TransformComponent` — the transform
+  has no idea what mesh an entity holds.
+- The recompute is **unconditional**, not invalidated on the `dirty` flag. The flag was unreliable:
+  the Inspector's Position field never set it. That is fixed here too, since it also meant dragging a
+  parent in the Inspector left its children behind.
+- `AnimatedModel` bounds are the bind pose inflated by half their extent, because GPU skinning leaves
+  the CPU no cheap way to know where an animated mesh actually is.
+- `Profiler` gained `SetCullStats` rather than a generic named-counter API; it has no such API, and
+  adding one for two integers was not warranted.
 
 # Files
 

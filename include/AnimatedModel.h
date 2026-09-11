@@ -54,6 +54,26 @@ public:
     bool Load(const std::string& path);
     void Draw(Shader& shader) override;
 
+    // Bind-pose bounds, padded.
+    //
+    // Skinning happens on the GPU, so the CPU has no cheap way to know where
+    // an animated mesh actually is this frame — a raised arm or a walk cycle
+    // moves vertices well outside the bind pose. Culling against the tight
+    // bind-pose box would clip limbs at the screen edge.
+    //
+    // Godot solves this properly by tracking a per-frame skeleton AABB. Until
+    // that exists, the bounds are inflated by half their own extent, which is
+    // conservative enough for typical humanoid motion and still culls an
+    // off-screen character. An animation that translates the root far from the
+    // origin will defeat it; that is a known limitation, not a silent one.
+    bool GetLocalBounds(AABB& out) const override {
+        if (!m_BindPoseBounds.IsValid()) return false;
+        const glm::vec3 pad = m_BindPoseBounds.Extents() * 0.5f;
+        out.min = m_BindPoseBounds.min - pad;
+        out.max = m_BindPoseBounds.max + pad;
+        return true;
+    }
+
     std::shared_ptr<Animation> ExtractAnimation(int index = 0);
     std::vector<std::shared_ptr<Animation>> ExtractAllAnimations();
 
@@ -69,6 +89,8 @@ public:
     Animator& GetAnimator() { return m_Animator; }
 
 private:
+    AABB m_BindPoseBounds;
+
     std::vector<SkinnedMesh> m_Meshes;
     std::string m_Directory;
     std::map<std::string, BoneInfo> m_BoneInfoMap;
