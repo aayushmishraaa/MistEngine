@@ -63,6 +63,7 @@
 #include <sstream>
 #include <set>
 #include <algorithm>
+#include <cstdio>
 
 #define MAX_ENTITIES 1000  // Reasonable limit for entity iteration
 
