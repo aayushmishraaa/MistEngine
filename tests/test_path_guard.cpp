@@ -93,3 +93,60 @@ TEST_CASE("PathGuard::resolve_res_path returns empty for non-res scheme", "[path
     REQUIRE(b.empty());
     REQUIRE(c.empty());
 }
+
+// --- Not-yet-existing paths -------------------------------------------------
+//
+// The case that made CI red on Linux while passing on macOS.
+//
+// is_under() used std::filesystem::weakly_canonical(p, ec) directly. libstdc++
+// sets the error_code when the final component does not exist; libc++ returns
+// the lexically-resolved path instead. is_under treated that as a rejection, so
+// on Linux every write of a NEW file was refused as "outside the project root"
+// — scene saves, material saves and input-map saves alike — while reads passed
+// because the file already existed. Seven tests failed on Linux and none on
+// macOS.
+
+TEST_CASE("is_under accepts a file that does not exist yet", "[path_guard][security]") {
+    fs::path root = fs::temp_directory_path() / "mist-missing-target";
+    fs::create_directories(root);
+
+    const fs::path fresh = root / "not_created_yet.json";
+    std::error_code ec;
+    fs::remove(fresh, ec);
+    REQUIRE_FALSE(fs::exists(fresh));
+
+    fs::path resolved;
+    REQUIRE(Mist::PathGuard::is_under(root, fresh, &resolved));
+    REQUIRE(resolved.filename() == "not_created_yet.json");
+}
+
+TEST_CASE("is_under accepts a nested path whose directories do not exist yet",
+          "[path_guard][security]") {
+    // Serializers call create_directories() *after* the guard, so the guard has
+    // to accept a path several missing levels deep.
+    fs::path root = fs::temp_directory_path() / "mist-missing-nested";
+    fs::create_directories(root);
+
+    fs::path resolved;
+    REQUIRE(Mist::PathGuard::is_under(root, root / "a" / "b" / "c.mistprefab", &resolved));
+}
+
+TEST_CASE("A missing path still cannot escape the base", "[path_guard][security]") {
+    // The fix must not have traded correctness for permissiveness: traversal in
+    // a non-existent tail is normalised away before the prefix compare.
+    fs::path root = fs::temp_directory_path() / "mist-missing-escape";
+    fs::create_directories(root);
+
+    REQUIRE_FALSE(Mist::PathGuard::is_under(root, root / ".." / ".." / "escaped.json"));
+    REQUIRE_FALSE(Mist::PathGuard::is_under(root, fs::path("/etc/definitely_not_here.json")));
+}
+
+TEST_CASE("resolve_under returns a usable path for a new file", "[path_guard]") {
+    // What every serializer's Save() actually depends on.
+    fs::path root = fs::temp_directory_path() / "mist-resolve-new";
+    fs::create_directories(root);
+
+    const auto out = Mist::PathGuard::resolve_under(root, root / "brand_new.mistmat");
+    REQUIRE_FALSE(out.empty());
+    REQUIRE(out.filename() == "brand_new.mistmat");
+}

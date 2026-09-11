@@ -13,15 +13,75 @@ namespace Mist::PathGuard {
 // or a scene/module file — it prevents path-traversal (`../../etc/passwd`)
 // and symlink-escape attacks against any directory we treat as a sandbox
 // (scenes/, modules/, exports/, asset browser roots).
+namespace detail {
+
+// weakly_canonical() that works for paths which do not exist yet.
+//
+// libstdc++ sets the error_code for a path whose final component is missing,
+// where libc++ happily returns the lexically-resolved result. is_under() took
+// that as a rejection, so on Linux EVERY write of a not-yet-existing file was
+// refused as "outside the project root" — scenes, materials and input maps
+// alike — while the same code passed on macOS. Reads were unaffected, because
+// the file was already there, which is why this hid for so long.
+//
+// The security property is preserved: symlinks are still resolved on the part
+// of the path that exists, which is the only part that can be a symlink. The
+// remainder is appended lexically, so "../.." in a missing tail is normalised
+// away by lexically_normal() before the prefix comparison.
+inline std::filesystem::path resolve_possibly_missing(const std::filesystem::path& p,
+                                                      std::error_code& ec) {
+    ec.clear();
+    auto canon = std::filesystem::weakly_canonical(p, ec);
+    if (!ec) return canon;
+
+    // Walk up to the nearest ancestor that exists, canonicalise it, then
+    // re-append what we walked past.
+    ec.clear();
+    std::filesystem::path absolute = p.is_absolute()
+                                   ? p
+                                   : (std::filesystem::current_path(ec) / p);
+    if (ec) return {};
+
+    std::filesystem::path existing = absolute;
+    std::filesystem::path tail;
+    while (!existing.empty()) {
+        std::error_code exists_ec;
+        if (std::filesystem::exists(existing, exists_ec) && !exists_ec) break;
+        if (!existing.has_parent_path() || existing.parent_path() == existing) {
+            existing.clear();
+            break;
+        }
+        tail = existing.filename() / tail;
+        existing = existing.parent_path();
+    }
+
+    if (existing.empty()) {
+        ec.clear();
+        return absolute.lexically_normal();
+    }
+
+    std::error_code canon_ec;
+    auto canon_existing = std::filesystem::canonical(existing, canon_ec);
+    if (canon_ec) {
+        ec.clear();
+        return absolute.lexically_normal();
+    }
+
+    ec.clear();
+    return (canon_existing / tail).lexically_normal();
+}
+
+} // namespace detail
+
 inline bool is_under(const std::filesystem::path& base, const std::filesystem::path& candidate,
                      std::filesystem::path* canonical_out = nullptr) {
     std::error_code ec;
-    auto canon_base = std::filesystem::weakly_canonical(base, ec);
-    if (ec) {
+    auto canon_base = detail::resolve_possibly_missing(base, ec);
+    if (ec || canon_base.empty()) {
         return false;
     }
-    auto canon_cand = std::filesystem::weakly_canonical(candidate, ec);
-    if (ec) {
+    auto canon_cand = detail::resolve_possibly_missing(candidate, ec);
+    if (ec || canon_cand.empty()) {
         return false;
     }
 
