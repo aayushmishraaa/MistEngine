@@ -31,16 +31,30 @@ namespace detail {
 inline std::filesystem::path resolve_possibly_missing(const std::filesystem::path& p,
                                                       std::error_code& ec) {
     ec.clear();
-    auto canon = std::filesystem::weakly_canonical(p, ec);
-    if (!ec) return canon;
 
-    // Walk up to the nearest ancestor that exists, canonicalise it, then
-    // re-append what we walked past.
+    // Absolutise FIRST, before canonicalising.
+    //
+    // This is the part that actually mattered. For a relative path whose final
+    // component does not exist, libstdc++ returns it still relative and does
+    // NOT set the error code, where libc++ resolves it against the CWD. The
+    // prefix comparison in is_under then compared a relative candidate against
+    // an absolute base, the length check rejected it, and every save of a new
+    // file was refused as "outside the project root" on Linux only.
+    std::filesystem::path absolute = p;
+    if (!absolute.is_absolute()) {
+        std::error_code cwd_ec;
+        const auto cwd = std::filesystem::current_path(cwd_ec);
+        if (cwd_ec) { ec = cwd_ec; return {}; }
+        absolute = cwd / absolute;
+    }
+
+    auto canon = std::filesystem::weakly_canonical(absolute, ec);
+    if (!ec && canon.is_absolute()) return canon;
+
+    // libstdc++ also sets the error code outright for some missing paths, so
+    // fall back to doing weakly_canonical's job by hand: canonicalise the
+    // nearest ancestor that exists, then re-append what we walked past.
     ec.clear();
-    std::filesystem::path absolute = p.is_absolute()
-                                   ? p
-                                   : (std::filesystem::current_path(ec) / p);
-    if (ec) return {};
 
     std::filesystem::path existing = absolute;
     std::filesystem::path tail;

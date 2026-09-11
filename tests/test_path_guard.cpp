@@ -150,3 +150,44 @@ TEST_CASE("resolve_under returns a usable path for a new file", "[path_guard]") 
     REQUIRE_FALSE(out.empty());
     REQUIRE(out.filename() == "brand_new.mistmat");
 }
+
+TEST_CASE("A relative candidate is resolved against the CWD", "[path_guard][security]") {
+    // The actual Linux failure, pinned so it cannot hide on one platform again.
+    //
+    // Every serializer passes a RELATIVE path ("scenes/foo.mist",
+    // "test_input_map.json") against a project root that is absolute. For a
+    // relative path whose final component does not exist, libstdc++'s
+    // weakly_canonical returns it STILL RELATIVE and sets no error code, while
+    // libc++ resolves it against the CWD. is_under then compared a relative
+    // candidate to an absolute base, the length check rejected it, and every
+    // save of a new file was refused on Linux while macOS stayed green.
+    //
+    // Asserting the resolved path is absolute catches that on either platform.
+    const fs::path cwd = fs::current_path();
+
+    fs::path resolved;
+    REQUIRE(Mist::PathGuard::is_under(cwd, "relative_not_created_yet.json", &resolved));
+    REQUIRE(resolved.is_absolute());
+    REQUIRE(resolved.parent_path() == fs::weakly_canonical(cwd));
+
+    // Nested, several missing levels deep — what SceneSerializer does with
+    // "scenes/foo.mist" before create_directories runs.
+    fs::path nested;
+    REQUIRE(Mist::PathGuard::is_under(cwd, "scenes/sub/deep.mist", &nested));
+    REQUIRE(nested.is_absolute());
+
+    // And a relative traversal still cannot escape.
+    REQUIRE_FALSE(Mist::PathGuard::is_under(cwd, "../../escaped_relative.json"));
+}
+
+TEST_CASE("resolve_res_path yields an absolute path for a missing asset",
+          "[path_guard][res]") {
+    // res:// resolution goes through the same helper, so it had the same bug.
+    fs::path root = fs::temp_directory_path() / "mist-res-missing";
+    fs::create_directories(root);
+    ScopedProjectRoot scoped(root);
+
+    const auto out = Mist::PathGuard::resolve_res_path("res://meshes/not_yet.mesh");
+    REQUIRE_FALSE(out.empty());
+    REQUIRE(out.is_absolute());
+}
