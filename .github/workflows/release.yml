@@ -67,7 +67,13 @@ jobs:
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: c8696863d371ab7f46e213d8f5ca923c4aef2a00
+          # vcpkg 2026.07.29. The previous pin (c8696863, early 2024) had rotted:
+          # it resolves msys2 build deps by exact version, and msys2 deletes old
+          # package versions from its mirrors, so Configure died with 404s on
+          # mingw-w64-x86_64-pkgconf across every mirror in the set. A pinned
+          # vcpkg baseline is not reproducible forever — it needs bumping when
+          # its upstream sources disappear.
+          vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
 
       # Stands in for the disabled x-gha binary cache. Keyed on the manifest
       # and the vcpkg commit, so it invalidates when either changes.
@@ -75,7 +81,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg_installed
-          key: vcpkg-${{ runner.os }}-c8696863-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-9e593bb1-${{ hashFiles('vcpkg.json') }}
 
       - name: Configure
         shell: bash
@@ -130,13 +136,28 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-22.04
     needs: [linux, windows]
+    # Windows is best-effort; Linux is required.
+    #
+    # This used to be a plain `needs: [linux, windows]`, so ANY platform
+    # failing skipped publish entirely and the tag was left on the remote with
+    # nothing attached. That is exactly what happened to v0.6.0-prealpha in
+    # April: tagged, Windows broke, no release, dangling tag. A tag is a public
+    # artefact — it should not be spent on a run that silently produces nothing.
+    #
+    # Now a Windows failure yields a Linux-only release whose asset list makes
+    # the omission obvious, rather than no release at all.
+    if: always() && needs.linux.result == 'success'
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
 
       - name: List artefacts
-        run: find dist -type f
+        run: |
+          find dist -type f
+          if [ ! -d dist/windows-archive ]; then
+            echo "::warning::Windows archive is missing — publishing a Linux-only release."
+          fi
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -145,6 +166,8 @@ jobs:
           name: MistEngine ${{ github.ref_name }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'pre') || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          # fail_on_unmatched_files defaults to false, so a missing
+          # windows-archive (best-effort job) does not abort the publish.
           files: |
             dist/linux-archive/*.tar.gz
             dist/windows-archive/*.zip

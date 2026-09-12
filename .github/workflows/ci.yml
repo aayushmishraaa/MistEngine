@@ -70,7 +70,13 @@ jobs:
       - name: Set up vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: c8696863d371ab7f46e213d8f5ca923c4aef2a00
+          # vcpkg 2026.07.29. The previous pin (c8696863, early 2024) had rotted:
+          # it resolves msys2 build deps by exact version, and msys2 deletes old
+          # package versions from its mirrors, so Configure died with 404s on
+          # mingw-w64-x86_64-pkgconf across every mirror in the set. A pinned
+          # vcpkg baseline is not reproducible forever — it needs bumping when
+          # its upstream sources disappear.
+          vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
 
       # Stands in for the disabled x-gha binary cache. Keyed on the manifest
       # and the vcpkg commit, so it invalidates when either changes.
@@ -78,7 +84,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/vcpkg_installed
-          key: vcpkg-${{ runner.os }}-c8696863-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-9e593bb1-${{ hashFiles('vcpkg.json') }}
 
       - name: Configure
         shell: bash
