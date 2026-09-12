@@ -7,6 +7,7 @@
 #include <future>
 #include <memory>
 #include <string>
+#include <atomic>
 #include <thread>
 #include <vector>
 
@@ -45,16 +46,31 @@ TEST_CASE("ResourceManager returns nullptr for missing loader", "[resource]") {
 }
 
 TEST_CASE("ResourceManager::LoadAsync runs concurrently", "[resource][async]") {
-    // 10 parallel loads against a loader that sleeps 20ms each. If the
-    // scheduler really ran them sequentially we'd need ~200ms; in parallel
-    // it should be ~20-40ms. Generous bound so slow CI doesn't flake.
+    // Observes concurrency directly instead of inferring it from wall time.
+    //
+    // This used to assert `elapsed < 150ms` for 10 loads of 20ms each, on the
+    // reasoning that sequential execution would take ~200ms. That is a race
+    // against the CI runner, not a property of the code: a loaded macOS runner
+    // regularly missed the bound and the test failed on CI while passing
+    // locally. The thing actually worth asserting is that more than one loader
+    // is in flight at once, which a counter measures exactly and a clock only
+    // approximates.
     ResourceManager<FakeAsset> mgr;
-    mgr.SetLoader([](const std::string& path) {
+
+    std::atomic<int> inFlight{0};
+    std::atomic<int> peakInFlight{0};
+
+    mgr.SetLoader([&](const std::string& path) {
+        const int now = ++inFlight;
+        // Track the high-water mark. A sequential scheduler never exceeds 1.
+        int prevPeak = peakInFlight.load();
+        while (now > prevPeak && !peakInFlight.compare_exchange_weak(prevPeak, now)) {}
+
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        --inFlight;
         return std::make_shared<FakeAsset>(FakeAsset{0, path});
     });
 
-    const auto t0 = std::chrono::steady_clock::now();
     std::vector<std::future<ResourceHandle<FakeAsset>>> futures;
     for (int i = 0; i < 10; ++i) {
         futures.push_back(mgr.LoadAsync("res://async-" + std::to_string(i)));
@@ -63,9 +79,11 @@ TEST_CASE("ResourceManager::LoadAsync runs concurrently", "[resource][async]") {
         auto h = f.get();
         REQUIRE(h.IsValid());
     }
-    const auto elapsed = std::chrono::steady_clock::now() - t0;
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
-    REQUIRE(ms < 150); // single-threaded would be ~200ms
+
+    // >= 2 rather than == 10: the point is that loads are not serialised, and
+    // how many threads the platform actually grants is not this test's business.
+    REQUIRE(peakInFlight.load() >= 2);
+    REQUIRE(inFlight.load() == 0);
     REQUIRE(mgr.Count() == 10);
 }
 
