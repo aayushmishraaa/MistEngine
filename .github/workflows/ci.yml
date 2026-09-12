@@ -63,7 +63,16 @@ jobs:
 
   windows:
     name: Windows Release
-    runs-on: windows-latest
+    # Pinned, not windows-latest.
+    #
+    # The windows-release preset generates for "Visual Studio 17 2022", and
+    # windows-latest has rolled forward to an image whose Visual Studio is
+    # newer, so Configure failed with "could not find any instance of Visual
+    # Studio". Pinning the runner to the image that matches the generator keeps
+    # CI and local VS 2022 builds on the same toolchain; moving to a newer
+    # Visual Studio is a preset change, not something to absorb silently via a
+    # floating runner label.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
