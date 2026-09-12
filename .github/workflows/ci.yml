@@ -75,7 +75,15 @@ jobs:
       - name: Configure
         shell: bash
         env:
-          VCPKG_ROOT: ${{ runner.workspace }}/vcpkg
+          # run-vcpkg clones into ${{ github.workspace }}/vcpkg and exports that
+          # path as RUNVCPKG_VCPKG_ROOT. This used to hardcode
+          # ${{ runner.workspace }}/vcpkg, which is the PARENT of the checkout
+          # directory — so CMAKE_TOOLCHAIN_FILE in the windows-release preset
+          # ($env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake) pointed at a
+          # path that does not exist and Configure died with "Could not find
+          # toolchain file". Using the action's own exported value keeps this
+          # correct if it ever changes where it clones to.
+          VCPKG_ROOT: ${{ env.RUNVCPKG_VCPKG_ROOT }}
         run: cmake --preset windows-release
 
       - name: Build

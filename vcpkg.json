@@ -1,7 +1,7 @@
 {
     "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
     "name": "mistengine",
-    "version-string": "0.5.0-prealpha",
+    "version-string": "0.7.0-prealpha",
     "description": "A modern C++17 OpenGL 4.6 engine — editor + renderer sandbox with PBR, HDR, TAA, SSGI and PCSS.",
     "homepage": "https://github.com/YourUser/MistEngine",
     "dependencies": [

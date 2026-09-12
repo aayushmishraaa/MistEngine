@@ -1,6 +1,6 @@
-# MistEngine 0.5.0
+# MistEngine 0.7.0
 
-[![Version](https://img.shields.io/badge/version-0.5.0--prealpha-brightgreen.svg)](https://github.com/aayushmishraaa/MistEngine)
+[![Version](https://img.shields.io/badge/version-0.7.0--prealpha-brightgreen.svg)](https://github.com/aayushmishraaa/MistEngine)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-blue.svg)](https://github.com/aayushmishraaa/MistEngine)
 [![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://github.com/aayushmishraaa/MistEngine)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)

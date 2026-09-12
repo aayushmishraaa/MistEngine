@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MistEngine VERSION 0.5.0 LANGUAGES CXX C)
+project(MistEngine VERSION 0.7.0 LANGUAGES CXX C)
 
 # Global language floor. The per-target `target_compile_features(... cxx_std_17)`
 # calls below do NOT propagate into FetchContent subprojects, so dependencies
