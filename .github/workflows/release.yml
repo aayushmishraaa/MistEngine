@@ -69,6 +69,14 @@ jobs:
         with:
           vcpkgGitCommitId: c8696863d371ab7f46e213d8f5ca923c4aef2a00
 
+      # Stands in for the disabled x-gha binary cache. Keyed on the manifest
+      # and the vcpkg commit, so it invalidates when either changes.
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/vcpkg_installed
+          key: vcpkg-${{ runner.os }}-c8696863-${{ hashFiles('vcpkg.json') }}
+
       - name: Configure
         shell: bash
         env:
@@ -81,6 +89,16 @@ jobs:
           # toolchain file". Using the action's own exported value keeps this
           # correct if it ever changes where it clones to.
           VCPKG_ROOT: ${{ env.RUNVCPKG_VCPKG_ROOT }}
+          # Disable vcpkg's GitHub-Actions binary cache.
+          #
+          # run-vcpkg defaults VCPKG_BINARY_SOURCES to "clear;x-gha,readwrite",
+          # and the x-gha backend needs ACTIONS_RUNTIME_TOKEN + ACTIONS_CACHE_URL.
+          # GitHub retired the cache-service v1 API those came from, so the
+          # variables are no longer injected and vcpkg aborts the install with
+          # "The GHA binary source requires ...". Dependencies are built from
+          # source instead; the actions/cache step below keeps that off the
+          # critical path on repeat runs.
+          VCPKG_BINARY_SOURCES: clear
         run: cmake --preset windows-release
 
       - name: Build
