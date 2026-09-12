@@ -204,6 +204,22 @@ target_compile_definitions(MistEngineLib PUBLIC
     $<$<CONFIG:Release>:NDEBUG>
 )
 
+if(WIN32)
+    # NOMINMAX: <windows.h> defines `min` and `max` as macros, which turn any
+    # `std::min(a, b)` into `std::(a, b)` and produce the baffling
+    # "C2589: '(': illegal token on right side of '::'". GLFW pulls in
+    # <windows.h> unless GLFW_INCLUDE_NONE is set first, so whether a given TU
+    # compiles depends on its include order — adding an unrelated header to
+    # main() was enough to break a std::min call that had been there for months.
+    #
+    # WIN32_LEAN_AND_MEAN trims the rarely-used Windows headers, which also
+    # keeps this kind of macro collision down.
+    #
+    # PUBLIC so consumers of the library inherit both; the whole point is that
+    # no translation unit has to think about include order.
+    target_compile_definitions(MistEngineLib PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT MSVC)
     target_compile_options(MistEngineLib PRIVATE -g -O0)
 elseif(NOT MSVC)

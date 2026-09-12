@@ -84,13 +84,23 @@ jobs:
           # its upstream sources disappear.
           vcpkgGitCommitId: 9e593bb18ea69cc5095e012465dcd675a822ed0d
 
-      # Stands in for the disabled x-gha binary cache. Keyed on the manifest
-      # and the vcpkg commit, so it invalidates when either changes.
-      - name: Cache vcpkg packages
+      # Stands in for the disabled x-gha binary cache.
+      #
+      # Caches vcpkg's BINARY cache (prebuilt package archives), not
+      # vcpkg_installed: the binary cache is the mechanism x-gha was providing,
+      # it lives outside the build tree, and it survives a different binaryDir.
+      # VCPKG_DEFAULT_BINARY_CACHE is pointed at it in the Configure step below.
+      - name: Cache vcpkg binary archives
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/vcpkg_installed
+          path: ${{ github.workspace }}/vcpkg_bincache
           key: vcpkg-${{ runner.os }}-9e593bb1-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-9e593bb1-
+
+      - name: Create vcpkg binary cache dir
+        shell: bash
+        run: mkdir -p "${{ github.workspace }}/vcpkg_bincache"
 
       - name: Configure
         shell: bash
@@ -113,7 +123,11 @@ jobs:
           # "The GHA binary source requires ...". Dependencies are built from
           # source instead; the actions/cache step below keeps that off the
           # critical path on repeat runs.
-          VCPKG_BINARY_SOURCES: clear
+          # "clear" drops run-vcpkg's broken x-gha default; "files,...,readwrite"
+          # points vcpkg at the directory actions/cache restores above, so a
+          # repeat run reuses prebuilt archives instead of rebuilding assimp and
+          # bullet3 from source for ~15 minutes.
+          VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg_bincache,readwrite
         run: cmake --preset windows-release
 
       - name: Build
